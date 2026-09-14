@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import { Header } from './components/Header';
 import { PreMatchView } from './components/PreMatchView';
@@ -22,9 +22,25 @@ import {
   loadAppState, saveAppState, exportAppStateAsJSON, DEFAULT_SESSION_CONFIG, 
   INITIAL_PLAYERS, INITIAL_ACTIVE_MATCHES, INITIAL_MATCH_HISTORY 
 } from './utils/storage';
+import {
+  saveCurrentSessionToFirestore,
+  subscribeToCurrentSessionFromFirestore,
+} from './utils/firestoreSync';
 
 export default function App() {
   const [appState, setAppState] = useState(() => loadAppState());
+
+  // Firestore realtime sync status
+  const [syncStatus, setSyncStatus] = useState<'connecting' | 'saving' | 'synced' | 'error'>('connecting');
+  const firestoreReadyRef = useRef(false);
+  const applyingRemoteStateRef = useRef(false);
+  const pushTimerRef = useRef<number | null>(null);
+  const clientIdRef = useRef(
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `client-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
+
   const [currentTab, setCurrentTab] = useState<TabType>('prematch');
   
   // Default to Member View! Can be set to organizer via PIN or URL param ?mode=organizer
@@ -79,9 +95,101 @@ export default function App() {
   });
   const [selectedPlayerForAssessment, setSelectedPlayerForAssessment] = useState<Player | null>(null);
 
-  // Auto-save to localStorage whenever state changes
+  // Firestore realtime subscription.
+  // - If Firestore already has a current session, use it as the shared source of truth.
+  // - If the document does not exist yet, upload this browser's migrated LocalStorage state once.
+  useEffect(() => {
+    setSyncStatus('connecting');
+
+    const unsubscribe = subscribeToCurrentSessionFromFirestore(
+      (remoteState, updatedBy) => {
+        firestoreReadyRef.current = true;
+
+        // Ignore our own Firestore echo. Local state is already current.
+        if (updatedBy === clientIdRef.current) {
+          setSyncStatus('synced');
+          return;
+        }
+
+        // A newer state arrived from another device.
+        // Cancel any pending local push so stale local data does not immediately overwrite it.
+        if (pushTimerRef.current !== null) {
+          window.clearTimeout(pushTimerRef.current);
+          pushTimerRef.current = null;
+        }
+
+        applyingRemoteStateRef.current = true;
+        saveAppState(remoteState); // LocalStorage remains an offline/local backup.
+        setAppState(remoteState);
+        setSyncStatus('synced');
+      },
+      async () => {
+        // First run: no shared Firestore state yet.
+        firestoreReadyRef.current = true;
+        setSyncStatus('saving');
+
+        try {
+          await saveCurrentSessionToFirestore(appState, clientIdRef.current);
+          setSyncStatus('synced');
+        } catch (error) {
+          console.error('Failed to create initial Firestore session', error);
+          setSyncStatus('error');
+        }
+      },
+      (error) => {
+        console.error('Firestore realtime sync error', error);
+        setSyncStatus('error');
+      }
+    );
+
+    return () => {
+      unsubscribe();
+
+      if (pushTimerRef.current !== null) {
+        window.clearTimeout(pushTimerRef.current);
+        pushTimerRef.current = null;
+      }
+    };
+    // Intentionally subscribe only once when the app starts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep LocalStorage as a backup and debounce writes to Firestore.
   useEffect(() => {
     saveAppState(appState);
+
+    if (!firestoreReadyRef.current) return;
+
+    // This state was just received from Firestore; do not write it straight back.
+    if (applyingRemoteStateRef.current) {
+      applyingRemoteStateRef.current = false;
+      return;
+    }
+
+    if (pushTimerRef.current !== null) {
+      window.clearTimeout(pushTimerRef.current);
+    }
+
+    setSyncStatus('saving');
+
+    pushTimerRef.current = window.setTimeout(async () => {
+      try {
+        await saveCurrentSessionToFirestore(appState, clientIdRef.current);
+        setSyncStatus('synced');
+      } catch (error) {
+        console.error('Failed to save state to Firestore', error);
+        setSyncStatus('error');
+      } finally {
+        pushTimerRef.current = null;
+      }
+    }, 500);
+
+    return () => {
+      if (pushTimerRef.current !== null) {
+        window.clearTimeout(pushTimerRef.current);
+        pushTimerRef.current = null;
+      }
+    };
   }, [appState]);
 
   const { sessionConfig, players, activeMatches, matchHistory } = appState;
@@ -893,8 +1001,19 @@ export default function App() {
             <span>•</span>
             <span className="text-emerald-400">ระบบเช็คอิน • ประเมินมือ • จัดคู่ • คิดเงินพร้อมเพย์</span>
           </div>
-          <div className="text-slate-500 text-[11px]">
-            บันทึกข้อมูลอัตโนมัติ (LocalStorage)
+          <div
+            className={`text-[11px] ${
+              syncStatus === 'synced'
+                ? 'text-emerald-400'
+                : syncStatus === 'error'
+                ? 'text-rose-400'
+                : 'text-amber-400'
+            }`}
+          >
+            {syncStatus === 'synced' && '☁️ Firestore Sync แล้ว • LocalStorage Backup'}
+            {syncStatus === 'saving' && '☁️ กำลังบันทึกขึ้น Firestore...'}
+            {syncStatus === 'connecting' && '☁️ กำลังเชื่อมต่อ Firestore...'}
+            {syncStatus === 'error' && '⚠️ Firestore Sync มีปัญหา • ใช้ LocalStorage Backup'}
           </div>
         </div>
       </footer>
