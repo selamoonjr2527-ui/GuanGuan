@@ -27,6 +27,18 @@ const AVATAR_GRADIENTS = [
   'from-cyan-500 to-blue-600',
 ];
 
+
+const normalizeSkillLevel = (level?: string): SkillLevel => {
+  // Backward compatibility: old data may still contain "S"
+  if (level === 'S') return 'PRO' as SkillLevel;
+
+  if (level && Object.prototype.hasOwnProperty.call(SKILL_LEVELS, level)) {
+    return level as SkillLevel;
+  }
+
+  return 'B' as SkillLevel;
+};
+
 export const PlayerModal: React.FC<PlayerModalProps> = ({
   isOpen,
   onClose,
@@ -41,7 +53,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [gender, setGender] = useState<'male' | 'female' | 'other'>('male');
-  const [skillLevel, setSkillLevel] = useState<SkillLevel>('S');
+  const [skillLevel, setSkillLevel] = useState<SkillLevel>('B');
   const [registrationType, setRegistrationType] = useState<'registered' | 'walkin'>('registered');
   const [penaltyMatches, setPenaltyMatches] = useState<number>(1);
   const [autoCheckIn, setAutoCheckIn] = useState(true);
@@ -55,7 +67,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
       setPhone(playerToEdit.phone || '');
       setPin(playerToEdit.pin || '');
       setGender(playerToEdit.gender || 'male');
-      setSkillLevel(playerToEdit.skillLevel || 'S');
+      setSkillLevel(normalizeSkillLevel(playerToEdit.skillLevel));
       setRegistrationType(playerToEdit.registrationType || 'registered');
       setPenaltyMatches(playerToEdit.walkInPenaltyMatches ?? 1);
       setAutoCheckIn(playerToEdit.isCheckedIn || false);
@@ -65,7 +77,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
       setPhone('');
       setPin('');
       setGender('male');
-      setSkillLevel('S');
+      setSkillLevel('B');
       setRegistrationType(defaultRegistrationType);
       setPenaltyMatches(1);
       setAutoCheckIn(true);
@@ -112,7 +124,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
         skillLevel,
         registrationType,
         walkInPenaltyMatches: registrationType === 'walkin' ? penaltyMatches : 0,
-        skillScore: SKILL_LEVELS[skillLevel].score,
+        skillScore: (SKILL_LEVELS[skillLevel] ?? SKILL_LEVELS.B).score,
       });
     } else {
       // Adding new player
@@ -136,7 +148,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
         skillLevel,
         registrationType,
         walkInPenaltyMatches: registrationType === 'walkin' ? penaltyMatches : 0,
-        skillScore: SKILL_LEVELS[skillLevel].score,
+        skillScore: (SKILL_LEVELS[skillLevel] ?? SKILL_LEVELS.B).score,
         isCheckedIn: autoCheckIn,
         checkInTime: autoCheckIn ? timeStr : undefined,
         avatarColor: randomGradient,
@@ -469,7 +481,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
               })}
             </div>
             <p className="text-[11px] text-slate-400 mt-1.5 bg-slate-950 p-2 rounded-lg border border-slate-800/80">
-              {SKILL_LEVELS[skillLevel].description}
+              {(SKILL_LEVELS[skillLevel] ?? SKILL_LEVELS.B).description}
             </p>
           </div>
 
