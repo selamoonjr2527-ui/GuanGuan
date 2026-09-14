@@ -19,19 +19,38 @@ import {
   SkillLevel, PlayerStatus, SKILL_LEVELS, TabType, ConfirmedPreMatch
 } from './types';
 import { 
-  loadAppState, saveAppState, exportAppStateAsJSON, DEFAULT_SESSION_CONFIG, 
-  INITIAL_PLAYERS, INITIAL_ACTIVE_MATCHES, INITIAL_MATCH_HISTORY 
+  loadAppState,
+  saveAppState,
+  exportAppStateAsJSON,
+  DEFAULT_SESSION_CONFIG,
+  INITIAL_PLAYERS,
+  INITIAL_ACTIVE_MATCHES,
+  INITIAL_MATCH_HISTORY,
+  loadSessionArchives,
+  replaceSessionArchivesLocal,
+  hasStoredSessionArchives,
+  loadFundTransactions,
+  replaceFundTransactionsLocal,
+  hasStoredFundTransactions,
 } from './utils/storage';
 import {
   saveCurrentSessionToFirestore,
   subscribeToCurrentSessionFromFirestore,
 } from './utils/firestoreSync';
+import {
+  seedFundTransactionsToFirestore,
+  seedSessionArchivesToFirestore,
+  subscribeToFundTransactionsFromFirestore,
+  subscribeToSessionArchivesFromFirestore,
+} from './utils/firestoreCollectionsSync';
 
 export default function App() {
   const [appState, setAppState] = useState(() => loadAppState());
 
   // Firestore realtime sync status
   const [syncStatus, setSyncStatus] = useState<'connecting' | 'saving' | 'synced' | 'error'>('connecting');
+  const [archiveRevision, setArchiveRevision] = useState(0);
+  const [fundRevision, setFundRevision] = useState(0);
   const firestoreReadyRef = useRef(false);
   const applyingRemoteStateRef = useRef(false);
   const pushTimerRef = useRef<number | null>(null);
@@ -152,6 +171,71 @@ export default function App() {
     };
     // Intentionally subscribe only once when the app starts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Realtime sync for Archive and Fund collections.
+  // Existing components can keep using the LocalStorage-based helpers;
+  // Firestore continuously refreshes those local caches.
+  useEffect(() => {
+    let archiveFirstSnapshot = true;
+    let fundFirstSnapshot = true;
+
+    const unsubscribeArchives = subscribeToSessionArchivesFromFirestore(
+      (remoteArchives) => {
+        if (archiveFirstSnapshot) {
+          archiveFirstSnapshot = false;
+
+          // One-time migration: if Firestore is empty but this browser already
+          // has real LocalStorage archive data, upload it first.
+          if (remoteArchives.length === 0 && hasStoredSessionArchives()) {
+            const localArchives = loadSessionArchives();
+
+            if (localArchives.length > 0) {
+              void seedSessionArchivesToFirestore(localArchives).catch((error) => {
+                console.error('Failed to migrate archives to Firestore', error);
+              });
+              return;
+            }
+          }
+        }
+
+        replaceSessionArchivesLocal(remoteArchives);
+        setArchiveRevision((value) => value + 1);
+      },
+      (error) => {
+        console.error('Archive realtime sync error', error);
+      }
+    );
+
+    const unsubscribeFund = subscribeToFundTransactionsFromFirestore(
+      (remoteTransactions) => {
+        if (fundFirstSnapshot) {
+          fundFirstSnapshot = false;
+
+          if (remoteTransactions.length === 0 && hasStoredFundTransactions()) {
+            const localTransactions = loadFundTransactions();
+
+            if (localTransactions.length > 0) {
+              void seedFundTransactionsToFirestore(localTransactions).catch((error) => {
+                console.error('Failed to migrate fund transactions to Firestore', error);
+              });
+              return;
+            }
+          }
+        }
+
+        replaceFundTransactionsLocal(remoteTransactions);
+        setFundRevision((value) => value + 1);
+      },
+      (error) => {
+        console.error('Fund realtime sync error', error);
+      }
+    );
+
+    return () => {
+      unsubscribeArchives();
+      unsubscribeFund();
+    };
   }, []);
 
   // Keep LocalStorage as a backup and debounce writes to Firestore.
@@ -983,6 +1067,7 @@ export default function App() {
 
         {currentTab === 'finance' && (
           <FinancialStatsView
+            key={`finance-${fundRevision}`}
             sessionConfig={sessionConfig}
             players={players}
             isOrganizerMode={isOrganizerMode}
@@ -1062,6 +1147,7 @@ export default function App() {
       />
 
       <DailyArchiveModal
+        key={`archive-${archiveRevision}`}
         isOpen={isArchiveModalOpen}
         onClose={() => setIsArchiveModalOpen(false)}
         currentState={appState}

@@ -1,4 +1,10 @@
 import { Player, SessionConfig, MatchHistoryItem, ActiveMatch, AssessmentQuestion, ConfirmedPreMatch, DailySessionArchive, FundTransaction, SkillLevel } from '../types';
+import {
+  deleteFundTransactionFromFirestore,
+  deleteSessionArchiveFromFirestore,
+  upsertFundTransactionToFirestore,
+  upsertSessionArchiveToFirestore,
+} from './firestoreCollectionsSync';
 
 const STORAGE_KEY = 'badminton_club_session_v1';
 const ARCHIVE_KEY = 'badminton_club_archives_v1';
@@ -596,7 +602,7 @@ export function loadSessionArchives(): DailySessionArchive[] {
     const raw = localStorage.getItem(ARCHIVE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) return parsed;
     }
   } catch (e) {
     console.error('Failed to load archives', e);
@@ -609,6 +615,11 @@ export function saveSessionArchive(archive: DailySessionArchive): void {
     const current = loadSessionArchives();
     const updated = [archive, ...current.filter((a) => a.id !== archive.id)];
     localStorage.setItem(ARCHIVE_KEY, JSON.stringify(updated));
+
+    // Mirror to Firestore without changing the existing synchronous API.
+    void upsertSessionArchiveToFirestore(archive).catch((e) => {
+      console.error('Failed to sync session archive to Firestore', e);
+    });
   } catch (e) {
     console.error('Failed to save session archive', e);
   }
@@ -619,6 +630,10 @@ export function deleteSessionArchive(id: string): void {
     const current = loadSessionArchives();
     const updated = current.filter((a) => a.id !== id);
     localStorage.setItem(ARCHIVE_KEY, JSON.stringify(updated));
+
+    void deleteSessionArchiveFromFirestore(id).catch((e) => {
+      console.error('Failed to delete session archive from Firestore', e);
+    });
   } catch (e) {
     console.error('Failed to delete session archive', e);
   }
@@ -650,7 +665,7 @@ export function loadFundTransactions(): FundTransaction[] {
     const raw = localStorage.getItem(FUND_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) return parsed;
     }
   } catch (e) {
     console.error('Failed to load fund transactions', e);
@@ -663,6 +678,10 @@ export function saveFundTransaction(transaction: FundTransaction): void {
     const current = loadFundTransactions();
     const updated = [transaction, ...current.filter((t) => t.id !== transaction.id)];
     localStorage.setItem(FUND_KEY, JSON.stringify(updated));
+
+    void upsertFundTransactionToFirestore(transaction).catch((e) => {
+      console.error('Failed to sync fund transaction to Firestore', e);
+    });
   } catch (e) {
     console.error('Failed to save fund transaction', e);
   }
@@ -673,8 +692,48 @@ export function deleteFundTransaction(id: string): void {
     const current = loadFundTransactions();
     const updated = current.filter((t) => t.id !== id);
     localStorage.setItem(FUND_KEY, JSON.stringify(updated));
+
+    void deleteFundTransactionFromFirestore(id).catch((e) => {
+      console.error('Failed to delete fund transaction from Firestore', e);
+    });
   } catch (e) {
     console.error('Failed to delete fund transaction', e);
+  }
+}
+
+export function hasStoredSessionArchives(): boolean {
+  try {
+    return localStorage.getItem(ARCHIVE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+export function replaceSessionArchivesLocal(
+  archives: DailySessionArchive[]
+): void {
+  try {
+    localStorage.setItem(ARCHIVE_KEY, JSON.stringify(archives));
+  } catch (e) {
+    console.error('Failed to replace local session archives', e);
+  }
+}
+
+export function hasStoredFundTransactions(): boolean {
+  try {
+    return localStorage.getItem(FUND_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+export function replaceFundTransactionsLocal(
+  transactions: FundTransaction[]
+): void {
+  try {
+    localStorage.setItem(FUND_KEY, JSON.stringify(transactions));
+  } catch (e) {
+    console.error('Failed to replace local fund transactions', e);
   }
 }
 
