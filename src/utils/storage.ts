@@ -506,7 +506,7 @@ export function loadAppState(): AppState {
           }
         }
 
-        return {
+        const migratedState: AppState = {
           ...parsed,
           players: normalizedPlayers,
           activeMatches: sanitizedMatches,
@@ -517,6 +517,11 @@ export function loadAppState(): AppState {
             ...parsed.sessionConfig,
           },
         };
+
+        // Persist migrated/normalized data so old browser data is permanently upgraded.
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(migratedState));
+
+        return migratedState;
       }
     }
   } catch (e) {
