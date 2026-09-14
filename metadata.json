@@ -1,0 +1,8 @@
+{
+  "name": "ก๊วนกวน",
+  "description": "ระบบจัดก๊วนกวนแบดมินตัน",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
