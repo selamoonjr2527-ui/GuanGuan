@@ -20,6 +20,36 @@ import { DailyArchiveModal } from './components/DailyArchiveModal';
 import { FinancialStatsView } from './components/FinancialStatsView';
 import { MemberAccessBar } from './components/MemberAccessBar';
 import { MemberGateModal } from './components/MemberGateModal';
+import { MemberCenterModal } from './components/MemberCenterModal';
+import {
+  DeletedMemberRecord,
+  MemberLifetimeStatsMap,
+  ensureMemberStats,
+  getDeletedMembers,
+  getMemberStatsMap,
+  getAvailableFreeGameRewards,
+  isBirthdayCourtRewardAvailable,
+  getSessionYear,
+  getCurrentSessionCompletedMatchCount,
+} from './utils/memberRecords';
+import {
+  PromotionRule,
+  PromotionRedemption,
+  getPromotionRules,
+  getPromotionRedemptions,
+  getPromotionAvailableCredits,
+  calculatePromotionDiscount,
+  calculatePlayerFinalCharge,
+} from './utils/promotionRules';
+import {
+  ShuttlePurchase,
+  ShuttleUsageRecord,
+  getShuttlePurchases,
+  getShuttleUsageLedger,
+  getShuttleInventorySummary,
+  getCurrentShuttleAverageCost,
+  getSessionShuttleUsageSummary,
+} from './utils/shuttleInventory';
 import { 
   Player, SessionConfig, ActiveMatch, MatchHistoryItem, 
   SkillLevel, PlayerStatus, SKILL_LEVELS, TabType, ConfirmedPreMatch
@@ -38,6 +68,7 @@ import {
   loadFundTransactions,
   replaceFundTransactionsLocal,
   hasStoredFundTransactions,
+  normalizeSkillLevel,
 } from './utils/storage';
 import {
   saveCurrentSessionToFirestore,
@@ -49,6 +80,52 @@ import {
   subscribeToFundTransactionsFromFirestore,
   subscribeToSessionArchivesFromFirestore,
 } from './utils/firestoreCollectionsSync';
+
+class SectionErrorBoundary extends React.Component<
+  { children: React.ReactNode; title: string; onBack: () => void },
+  { hasError: boolean; message: string }
+> {
+  constructor(props: { children: React.ReactNode; title: string; onBack: () => void }) {
+    super(props);
+    this.state = { hasError: false, message: '' };
+  }
+
+  static getDerivedStateFromError(error: unknown) {
+    return {
+      hasError: true,
+      message: error instanceof Error ? error.message : 'Unknown rendering error',
+    };
+  }
+
+  componentDidCatch(error: unknown, info: React.ErrorInfo) {
+    console.error(`GuanGuan view crashed: ${this.props.title}`, error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="max-w-2xl mx-auto rounded-2xl border border-rose-800 bg-rose-950/40 p-5 sm:p-6 shadow-xl">
+          <div className="text-lg font-extrabold text-rose-300">⚠️ หน้า {this.props.title} มีข้อมูลบางรายการที่อ่านไม่ได้</div>
+          <p className="text-sm text-slate-300 mt-2">
+            ระบบป้องกันไม่ให้ทั้งเว็บกลายเป็นหน้าขาวแล้ว สามารถกลับไปหน้า Pre-Match ได้ทันที
+          </p>
+          <div className="mt-3 rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-400 font-mono break-words">
+            {this.state.message}
+          </div>
+          <button
+            type="button"
+            onClick={this.props.onBack}
+            className="mt-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2 text-sm font-bold transition"
+          >
+            ← กลับหน้า Pre-Match
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 export default function App() {
   const [appState, setAppState] = useState(() => loadAppState());
@@ -72,6 +149,75 @@ export default function App() {
       ? crypto.randomUUID()
       : `client-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
+
+  const normalizeIncomingAppState = (incomingState: typeof appState) => {
+    const normalizedPlayers = Array.isArray(incomingState?.players)
+      ? incomingState.players.map((player, index) => {
+          const normalizedSkill = normalizeSkillLevel(player?.skillLevel);
+
+          const safeString = (value: unknown, fallback = ''): string => {
+            if (typeof value === 'string') return value;
+            if (value === null || value === undefined) return fallback;
+            try {
+              return String(value);
+            } catch {
+              return fallback;
+            }
+          };
+
+          const nickname =
+            safeString(player?.nickname).trim() ||
+            safeString(player?.fullName).trim() ||
+            `สมาชิก ${index + 1}`;
+
+          const rawStatus = safeString(player?.status);
+          const safeStatus: PlayerStatus =
+            rawStatus === 'waiting' ||
+            rawStatus === 'playing' ||
+            rawStatus === 'resting' ||
+            rawStatus === 'left'
+              ? (rawStatus as PlayerStatus)
+              : 'waiting';
+
+          const rawRegistrationType = safeString(player?.registrationType);
+          const safeRegistrationType: 'registered' | 'walkin' =
+            rawRegistrationType === 'walkin' ? 'walkin' : 'registered';
+
+          return {
+            ...player,
+            id: safeString(player?.id, `player-${index + 1}`),
+            nickname,
+            fullName: safeString(player?.fullName).trim() || undefined,
+            phone: safeString(player?.phone).trim() || undefined,
+            pin: safeString(player?.pin).trim() || undefined,
+            avatarColor:
+              safeString(player?.avatarColor).trim() ||
+              'from-indigo-500 to-blue-600',
+            registrationType: safeRegistrationType,
+            status: safeStatus,
+            isCheckedIn: Boolean(player?.isCheckedIn),
+            skillLevel: normalizedSkill,
+            skillScore:
+              typeof player?.skillScore === 'number' && Number.isFinite(player.skillScore)
+                ? player.skillScore
+                : SKILL_LEVELS[normalizedSkill]?.score ?? SKILL_LEVELS.B.score,
+            gamesPlayed:
+              typeof player?.gamesPlayed === 'number' && Number.isFinite(player.gamesPlayed)
+                ? player.gamesPlayed
+                : 0,
+            matchesPlayed:
+              typeof player?.matchesPlayed === 'number' && Number.isFinite(player.matchesPlayed)
+                ? player.matchesPlayed
+                : 0,
+          };
+        })
+      : [];
+
+    return {
+      ...incomingState,
+      players: normalizedPlayers,
+    };
+  };
 
   const [currentTab, setCurrentTab] = useState<TabType>('prematch');
   
@@ -103,6 +249,7 @@ export default function App() {
     return new URLSearchParams(window.location.search).get('mode') === 'organizer';
   });
   const [isArchiveModalOpen, setIsArchiveModalOpen] = useState<boolean>(false);
+  const [isMemberCenterOpen, setIsMemberCenterOpen] = useState<boolean>(false);
 
   // Modals
   const [isAddPlayerOpen, setIsAddPlayerOpen] = useState(false);
@@ -123,6 +270,33 @@ export default function App() {
     return false;
   });
   const [selectedPlayerForAssessment, setSelectedPlayerForAssessment] = useState<Player | null>(null);
+
+  // Member safety escape: close member overlays / Check-in page and return to Pre-Match.
+  const handleCloseMemberScreen = () => {
+    // The initial member gate is mandatory. Only a user who already has an
+    // active member identity may cancel a "switch name" operation.
+    if (currentMemberId) {
+      setIsMemberGateOpen(false);
+    }
+    setIsSelfCheckInOpen(false);
+    setIsAddPlayerOpen(false);
+    setEditingPlayer(null);
+    setCurrentTab('prematch');
+  };
+
+  useEffect(() => {
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || isOrganizerMode) return;
+
+      // Do not allow ESC to bypass the first member-identification gate.
+      if (isMemberGateOpen && !currentMemberId) return;
+
+      handleCloseMemberScreen();
+    };
+
+    window.addEventListener('keydown', handleEscapeKey);
+    return () => window.removeEventListener('keydown', handleEscapeKey);
+  }, [isOrganizerMode, isMemberGateOpen, currentMemberId]);
 
   // Keep Firebase Authentication ready before opening Firestore listeners.
   useEffect(() => {
@@ -215,8 +389,12 @@ export default function App() {
         }
 
         applyingRemoteStateRef.current = true;
-        saveAppState(remoteState); // LocalStorage remains an offline/local backup.
-        setAppState(remoteState);
+
+        // Firestore may still contain legacy skill values such as S / S- / S+.
+        // Normalize before rendering any view so Member/Check-in pages cannot crash.
+        const normalizedRemoteState = normalizeIncomingAppState(remoteState);
+        saveAppState(normalizedRemoteState); // LocalStorage remains an offline/local backup.
+        setAppState(normalizedRemoteState);
         setSyncStatus('synced');
       },
       async () => {
@@ -355,6 +533,47 @@ export default function App() {
   }, [appState, authReady, authUserUid]);
 
   const { sessionConfig, players, activeMatches, matchHistory } = appState;
+  const deletedMembers: DeletedMemberRecord[] = getDeletedMembers(appState as any);
+  const memberStats: MemberLifetimeStatsMap = getMemberStatsMap(appState as any);
+  const promotionRules: PromotionRule[] = getPromotionRules(appState as any);
+  const promotionRedemptions: PromotionRedemption[] = getPromotionRedemptions(appState as any);
+  const shuttlePurchases: ShuttlePurchase[] = getShuttlePurchases(appState as any);
+  const shuttleUsageLedger: ShuttleUsageRecord[] = getShuttleUsageLedger(appState as any);
+
+  // Daily billing source of truth:
+  // gamesPlayed / matchesPlayed must reflect FINISHED matches in current matchHistory only.
+  // This prevents a fresh Check-in from inheriting old Match counts from a previous day.
+  useEffect(() => {
+    setAppState((prev) => {
+      const statsMap = getMemberStatsMap(prev as any);
+      let changed = false;
+
+      const nextPlayers = prev.players.map((player) => {
+        const completedMatches = getCurrentSessionCompletedMatchCount(
+          player,
+          statsMap,
+          prev.matchHistory
+        );
+        const completedGames = completedMatches * 2;
+
+        if (
+          (player.matchesPlayed || 0) === completedMatches &&
+          (player.gamesPlayed || 0) === completedGames
+        ) {
+          return player;
+        }
+
+        changed = true;
+        return {
+          ...player,
+          matchesPlayed: completedMatches,
+          gamesPlayed: completedGames,
+        };
+      });
+
+      return changed ? { ...prev, players: nextPlayers } : prev;
+    });
+  }, [matchHistory]);
 
   // Active playing player IDs & waiting count
   const playingPlayerIds = new Set(activeMatches.flatMap((m) => [...m.teamA, ...m.teamB]));
@@ -365,6 +584,9 @@ export default function App() {
   // --- Handlers: Check-in & Players ---
   const handleCheckInPlayer = (playerId: string, pin?: string) => {
     setAppState((prev) => {
+      const statsMap: MemberLifetimeStatsMap = { ...getMemberStatsMap(prev as any) };
+      const sessionDate = prev.sessionConfig.date;
+
       const updatedPlayers = prev.players.map((p) => {
         if (p.id === playerId) {
           const now = new Date();
@@ -372,20 +594,49 @@ export default function App() {
             .getMinutes()
             .toString()
             .padStart(2, '0')}`;
+
+          const s = ensureMemberStats(statsMap, p, sessionDate);
+          const isFirstCheckInThisSession = s.lastAttendanceDate !== sessionDate;
+
+          statsMap[p.id] = {
+            ...s,
+            totalSessions: isFirstCheckInThisSession
+              ? s.totalSessions + 1
+              : s.totalSessions,
+            lastAttendanceDate: sessionDate,
+            updatedAt: Date.now(),
+          };
+
           return {
             ...p,
             isCheckedIn: true,
             checkInTime: timeStr,
             checkInTimestamp: Date.now(),
             status: ('waiting' as PlayerStatus),
+            // Fresh session check-in starts with court fee only.
+            // Re-check-in on the same day keeps already completed matches.
+            gamesPlayed: isFirstCheckInThisSession ? 0 : (p.gamesPlayed || 0),
+            matchesPlayed: isFirstCheckInThisSession ? 0 : (p.matchesPlayed || 0),
+            extraShuttlecocks: isFirstCheckInThisSession
+              ? 0
+              : (p.extraShuttlecocks || 0),
+            paid: isFirstCheckInThisSession ? false : p.paid,
+            paidAmount: isFirstCheckInThisSession ? undefined : p.paidAmount,
+            paymentTime: isFirstCheckInThisSession ? undefined : p.paymentTime,
             pin: pin || p.pin,
           };
         }
         return p;
       });
-      return { ...prev, players: updatedPlayers };
+      return { ...prev, players: updatedPlayers, memberLifetimeStats: statsMap } as any;
     });
     confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
+
+    if (!isOrganizerMode && currentMemberId === playerId) {
+      setIsSelfCheckInOpen(false);
+      setIsMemberGateOpen(false);
+      setCurrentTab('prematch');
+    }
   };
 
   const handleCheckOutPlayer = (playerId: string) => {
@@ -420,6 +671,12 @@ export default function App() {
         confirmedPreMatch2: nextPre2,
       };
     });
+
+    if (!isOrganizerMode && currentMemberId === playerId) {
+      setIsSelfCheckInOpen(false);
+      setIsMemberGateOpen(false);
+      setCurrentTab('prematch');
+    }
   };
 
   const handleToggleCheckIn = (playerId: string) => {
@@ -464,13 +721,21 @@ export default function App() {
       id: `p-${Date.now()}`,
       status: 'waiting',
       gamesPlayed: 0,
+      matchesPlayed: 0,
       paid: false,
     };
 
-    setAppState((prev) => ({
-      ...prev,
-      players: [...prev.players, newPlayer],
-    }));
+    setAppState((prev) => {
+      const statsMap: MemberLifetimeStatsMap = { ...getMemberStatsMap(prev as any) };
+      const s = ensureMemberStats(statsMap, newPlayer, prev.sessionConfig.date);
+      statsMap[newPlayer.id] = {
+        ...s,
+        totalSessions: newPlayer.isCheckedIn ? Math.max(1, s.totalSessions) : 0,
+        lastAttendanceDate: newPlayer.isCheckedIn ? prev.sessionConfig.date : s.lastAttendanceDate,
+        updatedAt: Date.now(),
+      };
+      return { ...prev, players: [...prev.players, newPlayer], memberLifetimeStats: statsMap } as any;
+    });
 
     if (newPlayer.isCheckedIn) {
       confetti({ particleCount: 40, spread: 50, origin: { y: 0.7 } });
@@ -505,14 +770,21 @@ export default function App() {
       checkInTimestamp: Date.now(),
       status: 'waiting',
       gamesPlayed: 0,
+      matchesPlayed: 0,
       paid: false,
       avatarColor: registrationType === 'walkin' ? 'from-amber-500 to-orange-600' : 'from-emerald-500 to-teal-600',
     };
 
-    setAppState((prev) => ({
-      ...prev,
-      players: [...prev.players, newPlayer],
-    }));
+    setAppState((prev) => {
+      const statsMap: MemberLifetimeStatsMap = { ...getMemberStatsMap(prev as any) };
+      statsMap[newPlayer.id] = {
+        ...ensureMemberStats(statsMap, newPlayer, prev.sessionConfig.date),
+        totalSessions: 1,
+        lastAttendanceDate: prev.sessionConfig.date,
+        updatedAt: Date.now(),
+      };
+      return { ...prev, players: [...prev.players, newPlayer], memberLifetimeStats: statsMap } as any;
+    });
 
     // Automatically set as current active member session
     setCurrentMemberId(newPlayer.id);
@@ -560,12 +832,256 @@ export default function App() {
   };
 
   const handleDeletePlayer = (playerId: string) => {
-    if (!window.confirm('คุณแน่ใจหรือไม่ว่าต้องการลบผู้เล่นคนนี้ออกจากก๊วน?')) return;
+    const target = appState.players.find((p) => p.id === playerId);
+    if (!target) return;
+
+    if (activeMatches.some((m) => [...m.teamA, ...m.teamB].includes(playerId))) {
+      window.alert(`ยังลบ ${target.nickname} ไม่ได้ เพราะกำลังเล่นอยู่ในสนาม`);
+      return;
+    }
+
+    if (!window.confirm(`ย้าย "${target.nickname}" ไปถังขยะหรือไม่?\nข้อมูลและสถิติยัง Restore กลับได้`)) return;
+
+    setAppState((prev) => {
+      const player = prev.players.find((p) => p.id === playerId);
+      if (!player) return prev;
+
+      const trash = getDeletedMembers(prev as any);
+      const record: DeletedMemberRecord = {
+        id: `deleted-${playerId}-${Date.now()}`,
+        playerId,
+        player: { ...player },
+        deletedAt: Date.now(),
+        deletedBy: auth.currentUser?.uid || 'organizer',
+        sessionDate: prev.sessionConfig.date,
+      };
+
+      const clearPre = (pm: ConfirmedPreMatch | null | undefined) =>
+        pm && [...pm.teamA, ...pm.teamB].includes(playerId) ? null : pm;
+
+      return {
+        ...prev,
+        players: prev.players.filter((p) => p.id !== playerId),
+        confirmedPreMatch: clearPre(prev.confirmedPreMatch),
+        confirmedPreMatch2: clearPre(prev.confirmedPreMatch2),
+        deletedMembers: [record, ...trash.filter((x) => x.playerId !== playerId)],
+      } as any;
+    });
+
+    if (currentMemberId === playerId) {
+      setCurrentMemberId('');
+      localStorage.removeItem('badminton_active_member_id');
+    }
+  };
+
+  const handleRestoreDeletedMember = (deletedId: string) => {
+    setAppState((prev) => {
+      const trash = getDeletedMembers(prev as any);
+      const record = trash.find((x) => x.id === deletedId);
+      if (!record) return prev;
+      if (prev.players.some((p) => p.id === record.playerId)) {
+        window.alert('Member ID นี้มีอยู่ในรายชื่อแล้ว');
+        return prev;
+      }
+
+      const sameDay = record.sessionDate === prev.sessionConfig.date;
+      const restored: Player = sameDay
+        ? { ...record.player }
+        : {
+            ...record.player,
+            isCheckedIn: false,
+            checkInTime: undefined,
+            checkInTimestamp: undefined,
+            lastMatchFinishTime: undefined,
+            status: 'waiting' as PlayerStatus,
+            gamesPlayed: 0,
+            matchesPlayed: 0,
+            extraShuttlecocks: 0,
+            paid: false,
+            paidAmount: undefined,
+            paymentMethod: undefined,
+            paymentTime: undefined,
+          };
+
+      return {
+        ...prev,
+        players: [...prev.players, restored],
+        deletedMembers: trash.filter((x) => x.id !== deletedId),
+      } as any;
+    });
+    confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
+  };
+
+  const handlePermanentDeleteMember = (deletedId: string) => {
+    const record = deletedMembers.find((x) => x.id === deletedId);
+    if (!record) return;
+    if (!window.confirm(`ลบ "${record.player.nickname}" แบบถาวร รวม Lifetime Stats หรือไม่?`)) return;
+
+    setAppState((prev) => {
+      const stats = { ...getMemberStatsMap(prev as any) };
+      delete stats[record.playerId];
+      return {
+        ...prev,
+        deletedMembers: getDeletedMembers(prev as any).filter((x) => x.id !== deletedId),
+        memberLifetimeStats: stats,
+      } as any;
+    });
+  };
+
+  const handleUpdateMemberBirthday = (playerId: string, birthday: string) => {
+    setAppState((prev) => {
+      const player = prev.players.find((p) => p.id === playerId);
+      if (!player) return prev;
+      const stats = { ...getMemberStatsMap(prev as any) };
+      stats[playerId] = {
+        ...ensureMemberStats(stats, player, prev.sessionConfig.date),
+        birthday: birthday || undefined,
+        updatedAt: Date.now(),
+      };
+      return { ...prev, memberLifetimeStats: stats } as any;
+    });
+  };
+
+  const handleRedeemFreeGameReward = (playerId: string) => {
+    const player = players.find((p) => p.id === playerId);
+    if (!player) return;
+    const current = ensureMemberStats(memberStats, player, sessionConfig.date);
+    if (getAvailableFreeGameRewards(current) <= 0) {
+      window.alert('ยังไม่มีสิทธิ์ Free Game ที่พร้อมใช้');
+      return;
+    }
+    if (!window.confirm(`ใช้สิทธิ์ Free Game 1 ครั้งให้ ${player.nickname} หรือไม่?`)) return;
+
+    setAppState((prev) => {
+      const p = prev.players.find((x) => x.id === playerId);
+      if (!p) return prev;
+      const stats = { ...getMemberStatsMap(prev as any) };
+      const s = ensureMemberStats(stats, p, prev.sessionConfig.date);
+      if (getAvailableFreeGameRewards(s) <= 0) return prev;
+      stats[playerId] = { ...s, freeGameRewardsRedeemed: s.freeGameRewardsRedeemed + 1, updatedAt: Date.now() };
+      return { ...prev, memberLifetimeStats: stats } as any;
+    });
+  };
+
+  const handleRedeemBirthdayReward = (playerId: string) => {
+    const player = players.find((p) => p.id === playerId);
+    if (!player) return;
+    const current = ensureMemberStats(memberStats, player, sessionConfig.date);
+    if (!isBirthdayCourtRewardAvailable(current, sessionConfig.date)) {
+      window.alert('ยังไม่มีสิทธิ์ Birthday Promo ที่พร้อมใช้');
+      return;
+    }
+    if (!window.confirm(`ใช้สิทธิ์ Birthday Promo ฟรีค่าคอร์ทให้ ${player.nickname} หรือไม่?`)) return;
+
+    setAppState((prev) => {
+      const p = prev.players.find((x) => x.id === playerId);
+      if (!p) return prev;
+      const stats = { ...getMemberStatsMap(prev as any) };
+      const s = ensureMemberStats(stats, p, prev.sessionConfig.date);
+      const year = getSessionYear(prev.sessionConfig.date);
+      stats[playerId] = {
+        ...s,
+        birthdayCourtRewardsRedeemedYears: Array.from(new Set([...s.birthdayCourtRewardsRedeemedYears, year])),
+        updatedAt: Date.now(),
+      };
+      return { ...prev, memberLifetimeStats: stats } as any;
+    });
+  };
+
+  const handleSavePromotionRule = (rule: PromotionRule) => {
+    setAppState((prev) => {
+      const current = getPromotionRules(prev as any);
+      const exists = current.some((x) => x.id === rule.id);
+
+      const nextRule: PromotionRule = {
+        ...rule,
+        conditionValue: Math.max(1, Number(rule.conditionValue || 1)),
+        rewardValue: Math.max(0, Number(rule.rewardValue || 0)),
+        createdAt: rule.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      return {
+        ...prev,
+        promotionRules: exists
+          ? current.map((x) => (x.id === rule.id ? nextRule : x))
+          : [...current, nextRule],
+      } as any;
+    });
+  };
+
+  const handleDeletePromotionRule = (promotionId: string) => {
+    if (!window.confirm('ลบโปรโมชั่นนี้หรือไม่? ประวัติการใช้สิทธิ์เดิมจะยังเก็บไว้')) {
+      return;
+    }
+
     setAppState((prev) => ({
       ...prev,
-      players: prev.players.filter((p) => p.id !== playerId),
-    }));
+      promotionRules: getPromotionRules(prev as any).filter(
+        (x) => x.id !== promotionId
+      ),
+    } as any));
   };
+
+  const handleRedeemCustomPromotion = (
+    playerId: string,
+    promotionId: string
+  ) => {
+    const player = players.find((p) => p.id === playerId);
+    const rule = promotionRules.find((x) => x.id === promotionId);
+
+    if (!player || !rule) return;
+
+    // Promotion is applied to the current session bill.
+    // Payment itself still requires Checkout first.
+    const available = getPromotionAvailableCredits(
+      rule,
+      player,
+      memberStats,
+      promotionRedemptions,
+      sessionConfig.date
+    );
+
+    if (available <= 0) {
+      window.alert('โปรโมชั่นนี้ยังไม่พร้อมใช้สำหรับสมาชิกคนนี้');
+      return;
+    }
+
+    const discountAmount = calculatePromotionDiscount(
+      rule,
+      player,
+      sessionConfig
+    );
+
+    if (
+      !window.confirm(
+        `ใช้โปรโมชั่น "${rule.name}" ให้ ${player.nickname} หรือไม่?\nส่วนลดรอบนี้: ${discountAmount.toFixed(0)} บาท`
+      )
+    ) {
+      return;
+    }
+
+    const redemption: PromotionRedemption = {
+      id: `redeem-${promotionId}-${playerId}-${Date.now()}`,
+      promotionId,
+      playerId,
+      sessionDate: sessionConfig.date,
+      redeemedAt: Date.now(),
+      discountAmount,
+      note: rule.name,
+    };
+
+    setAppState((prev) => ({
+      ...prev,
+      promotionRedemptions: [
+        redemption,
+        ...getPromotionRedemptions(prev as any),
+      ],
+    } as any));
+
+    confetti({ particleCount: 45, spread: 65, origin: { y: 0.6 } });
+  };
+
 
   const handleEditPlayer = (player: Player) => {
     setEditingPlayer(player);
@@ -607,6 +1123,111 @@ export default function App() {
   };
 
   // --- Handlers: Courts & Matches ---
+
+  const handleAddShuttlePurchase = (purchase: ShuttlePurchase) => {
+    setAppState((prev) => {
+      const currentPurchases = getShuttlePurchases(prev as any);
+      const usages = getShuttleUsageLedger(prev as any);
+
+      const nextPurchases = [
+        purchase,
+        ...currentPurchases.filter((item) => item.id !== purchase.id),
+      ];
+
+      const sessionUsage = getSessionShuttleUsageSummary(
+        usages,
+        prev.sessionConfig.date,
+        prev.sessionConfig.shuttlecocksUsedTotal,
+        prev.sessionConfig.shuttlecockPrice
+      );
+
+      const inventory = getShuttleInventorySummary(
+        nextPurchases,
+        usages,
+        prev.sessionConfig.shuttlecockPrice
+      );
+
+      return {
+        ...prev,
+        shuttlePurchases: nextPurchases,
+        sessionConfig: {
+          ...prev.sessionConfig,
+          // Before any shuttle is used today, show current weighted stock cost
+          // as the reference cost. Once play starts, this field represents the
+          // weighted average ACTUAL cost consumed in today's session.
+          shuttlecockPrice:
+            sessionUsage.quantity > 0
+              ? sessionUsage.averageUnitCost
+              : inventory.averageUnitCost || prev.sessionConfig.shuttlecockPrice,
+        },
+      } as any;
+    });
+  };
+
+  const handleDeleteShuttlePurchase = (purchaseId: string): boolean => {
+    const target = shuttlePurchases.find((item) => item.id === purchaseId);
+    if (!target) return false;
+
+    const remainingPurchases = shuttlePurchases.filter(
+      (item) => item.id !== purchaseId
+    );
+    const remainingPurchasedQuantity = remainingPurchases.reduce(
+      (sum, item) => sum + Math.max(0, Number(item.quantity || 0)),
+      0
+    );
+    const alreadyUsedQuantity = shuttleUsageLedger.reduce(
+      (sum, item) => sum + Math.max(0, Number(item.quantity || 0)),
+      0
+    );
+
+    if (remainingPurchasedQuantity < alreadyUsedQuantity) {
+      window.alert(
+        `ลบรายการนี้ไม่ได้ เพราะมีการใช้ลูกจาก Stock ไปแล้ว\n\nStock ซื้อสะสมหลังลบ: ${remainingPurchasedQuantity} ลูก\nใช้ไปแล้ว: ${alreadyUsedQuantity} ลูก`
+      );
+      return false;
+    }
+
+    if (
+      !window.confirm(
+        `ลบรายการ Stock "${target.brand || ''} ${target.model || ''}" จำนวน ${target.quantity} ลูก หรือไม่?`
+      )
+    ) {
+      return false;
+    }
+
+    setAppState((prev) => {
+      const nextPurchases = getShuttlePurchases(prev as any).filter(
+        (item) => item.id !== purchaseId
+      );
+      const usages = getShuttleUsageLedger(prev as any);
+      const inventory = getShuttleInventorySummary(
+        nextPurchases,
+        usages,
+        prev.sessionConfig.shuttlecockPrice
+      );
+      const sessionUsage = getSessionShuttleUsageSummary(
+        usages,
+        prev.sessionConfig.date,
+        prev.sessionConfig.shuttlecocksUsedTotal,
+        prev.sessionConfig.shuttlecockPrice
+      );
+
+      return {
+        ...prev,
+        shuttlePurchases: nextPurchases,
+        sessionConfig: {
+          ...prev.sessionConfig,
+          shuttlecockPrice:
+            sessionUsage.quantity > 0
+              ? sessionUsage.averageUnitCost
+              : inventory.averageUnitCost || prev.sessionConfig.shuttlecockPrice,
+        },
+      } as any;
+    });
+
+    return true;
+  };
+
   const handleStartMatch = (
     courtId: string,
     courtName: string,
@@ -765,28 +1386,92 @@ export default function App() {
       isRoundTrip: true,
     };
 
-    setAppState((prev) => ({
-      ...prev,
-      activeMatches: prev.activeMatches.filter((m) => m.id !== matchId),
-      matchHistory: [historyItem, ...prev.matchHistory],
-      // Increment games played (1 round trip = 2 sets/games) and return players to 'waiting' with last match finish time
-      players: prev.players.map((p) =>
-        allPlayerIds.has(p.id)
-          ? { 
-              ...p, 
-              gamesPlayed: p.gamesPlayed + 2, 
-              matchesPlayed: (p.matchesPlayed || 0) + 1,
-              status: 'waiting' as PlayerStatus,
-              lastMatchFinishTime: Date.now(),
+    setAppState((prev) => {
+      const stats = { ...getMemberStatsMap(prev as any) };
+      const purchases = getShuttlePurchases(prev as any);
+      const existingUsages = getShuttleUsageLedger(prev as any);
+
+      const usageUnitCost = getCurrentShuttleAverageCost(
+        purchases,
+        existingUsages,
+        prev.sessionConfig.shuttlecockPrice
+      );
+
+      const newUsage: ShuttleUsageRecord | null =
+        shuttlecocksCount > 0
+          ? {
+              id: `usage-${historyItem.id}`,
+              historyId: historyItem.id,
+              sessionDate: prev.sessionConfig.date,
+              courtName: targetMatch.courtName,
+              quantity: shuttlecocksCount,
+              unitCost: usageUnitCost,
+              totalCost: shuttlecocksCount * usageUnitCost,
+              createdAt: Date.now(),
             }
-          : p
-      ),
-      // Increment total shuttlecocks used
-      sessionConfig: {
-        ...prev.sessionConfig,
-        shuttlecocksUsedTotal: prev.sessionConfig.shuttlecocksUsedTotal + shuttlecocksCount,
-      },
-    }));
+          : null;
+
+      const nextUsages = newUsage
+        ? [
+            newUsage,
+            ...existingUsages.filter(
+              (item) => item.historyId !== historyItem.id
+            ),
+          ]
+        : existingUsages;
+
+      const nextSessionUsedTotal =
+        prev.sessionConfig.shuttlecocksUsedTotal + shuttlecocksCount;
+
+      const sessionUsageCost = getSessionShuttleUsageSummary(
+        nextUsages,
+        prev.sessionConfig.date,
+        nextSessionUsedTotal,
+        usageUnitCost || prev.sessionConfig.shuttlecockPrice
+      );
+
+      prev.players.forEach((p) => {
+        if (!allPlayerIds.has(p.id)) return;
+        const s = ensureMemberStats(stats, p, prev.sessionConfig.date);
+        if (s.processedHistoryIds.includes(historyItem.id)) return;
+        stats[p.id] = {
+          ...s,
+          totalGames: s.totalGames + 2,
+          totalMatches: s.totalMatches + 1,
+          processedHistoryIds: [...s.processedHistoryIds, historyItem.id].slice(-500),
+          updatedAt: Date.now(),
+        };
+      });
+
+      return {
+        ...prev,
+        activeMatches: prev.activeMatches.filter((m) => m.id !== matchId),
+        matchHistory: [historyItem, ...prev.matchHistory],
+        memberLifetimeStats: stats,
+        shuttleUsageLedger: nextUsages,
+        players: prev.players.map((p) =>
+          allPlayerIds.has(p.id)
+            ? {
+                ...p,
+                gamesPlayed: p.gamesPlayed + 2,
+                matchesPlayed: (p.matchesPlayed || 0) + 1,
+                status: 'waiting' as PlayerStatus,
+                lastMatchFinishTime: Date.now(),
+              }
+            : p
+        ),
+        sessionConfig: {
+          ...prev.sessionConfig,
+          shuttlecocksUsedTotal: nextSessionUsedTotal,
+          // Keep compatibility with Archive/older Finance code:
+          // price = weighted average ACTUAL cost of shuttles consumed today.
+          shuttlecockPrice:
+            sessionUsageCost.quantity > 0
+              ? sessionUsageCost.averageUnitCost
+              : prev.sessionConfig.shuttlecockPrice,
+        },
+      } as any;
+    });
 
     confetti({ particleCount: 50, spread: 70, origin: { y: 0.6 } });
   };
@@ -875,6 +1560,21 @@ export default function App() {
   };
 
   const handleStartConfirmedPreMatch = (courtId: string, preMatch: ConfirmedPreMatch, slotNumber: 1 | 2 = 1) => {
+    // A currently-playing member may be RESERVED in Pre-Match,
+    // but the Pre-Match cannot start until every selected player is off court.
+    const selectedIds = new Set([...preMatch.teamA, ...preMatch.teamB]);
+    const stillPlaying = activeMatches
+      .flatMap((m) => [...m.teamA, ...m.teamB])
+      .filter((id) => selectedIds.has(id));
+
+    if (stillPlaying.length > 0) {
+      console.warn(
+        'Cannot start confirmed pre-match yet: selected player(s) are still playing.',
+        stillPlaying
+      );
+      return;
+    }
+
     // Check if target court is busy, redirect to free court if available
     const isTargetBusy = activeMatches.some((m) => m.courtId === courtId);
     let targetCourtId = courtId;
@@ -905,7 +1605,39 @@ export default function App() {
   };
 
   // --- Handlers: Billing & Payments ---
-  const handleTogglePlayerPayment = (playerId: string, paid: boolean, amount?: number, newPin?: string) => {
+  const handleTogglePlayerPayment = (
+    playerId: string,
+    paid: boolean,
+    amount?: number,
+    newPin?: string
+  ) => {
+    const target = appState.players.find((p) => p.id === playerId);
+    if (!target) return;
+
+    // Payment is allowed only AFTER checkout.
+    if (paid && target.isCheckedIn) {
+      window.alert(
+        `กรุณา Check-out "${target.nickname}" ก่อนชำระเงิน\n\nระบบจะล็อกยอดหลัง Check-out เพื่อป้องกันยอดเปลี่ยนระหว่างเล่น`
+      );
+      return;
+    }
+
+    const finalCharge = calculatePlayerFinalCharge(
+      target,
+      sessionConfig,
+      promotionRedemptions,
+      sessionConfig.date
+    );
+
+    // If BillingView provides an amount (e.g. correction/partial flow), keep it.
+    // Otherwise use our canonical match-based formula.
+    const safeAmount =
+      paid
+        ? typeof amount === 'number' && Number.isFinite(amount)
+          ? Math.max(0, amount)
+          : finalCharge.finalTotal
+        : undefined;
+
     setAppState((prev) => ({
       ...prev,
       players: prev.players.map((p) =>
@@ -913,11 +1645,17 @@ export default function App() {
           ? {
               ...p,
               paid,
-              paidAmount: paid ? amount : undefined,
+              paidAmount: safeAmount,
               paymentTime: paid
-                ? new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+                ? new Date().toLocaleTimeString('th-TH', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
                 : undefined,
-              pin: newPin && newPin.trim().length === 4 ? newPin.trim() : p.pin,
+              pin:
+                newPin && newPin.trim().length === 4
+                  ? newPin.trim()
+                  : p.pin,
             }
           : p
       ),
@@ -925,12 +1663,41 @@ export default function App() {
   };
 
   const handleMarkAllCheckedInPaid = () => {
+    // Legacy function name kept for BillingView compatibility.
+    // New rule: only CHECKED-OUT members may be paid.
+    const eligible = appState.players.filter(
+      (p) => !p.isCheckedIn && !p.paid
+    );
+
+    if (eligible.length === 0) {
+      window.alert('ยังไม่มีสมาชิกที่ Check-out และรอชำระเงิน');
+      return;
+    }
+
     setAppState((prev) => ({
       ...prev,
-      players: prev.players.map((p) =>
-        p.isCheckedIn ? { ...p, paid: true } : p
-      ),
+      players: prev.players.map((p) => {
+        if (p.isCheckedIn || p.paid) return p;
+
+        const finalCharge = calculatePlayerFinalCharge(
+          p,
+          prev.sessionConfig,
+          getPromotionRedemptions(prev as any),
+          prev.sessionConfig.date
+        );
+
+        return {
+          ...p,
+          paid: true,
+          paidAmount: finalCharge.finalTotal,
+          paymentTime: new Date().toLocaleTimeString('th-TH', {
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+        };
+      }),
     }));
+
     confetti({ particleCount: 70, spread: 80, origin: { y: 0.6 } });
   };
 
@@ -960,6 +1727,19 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
+      {!isOrganizerMode &&
+        (currentTab === 'checkin' || isSelfCheckInOpen) && (
+          <button
+            type="button"
+            onClick={handleCloseMemberScreen}
+            className="fixed top-3 right-3 z-[2147483647] inline-flex items-center gap-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 border-2 border-rose-500/70 px-3.5 py-2.5 text-xs font-extrabold text-white shadow-2xl"
+            title="ปิดหน้าต่างนี้และกลับไปหน้า Pre-Match"
+          >
+            <span className="text-rose-400 text-lg leading-none">✕</span>
+            <span>ปิด / กลับหน้าคิว</span>
+          </button>
+        )}
+
       {/* Top Header */}
       <Header
         currentTab={currentTab}
@@ -968,7 +1748,7 @@ export default function App() {
         totalPlayers={players.length}
         checkedInCount={checkedInCount}
         activeMatchesCount={activeMatches.length}
-        waitingCount={waitingCount}
+        waitingCount={isOrganizerMode ? waitingCount : 0}
         isOrganizerMode={isOrganizerMode}
         onToggleOrganizerMode={handleToggleOrganizerMode}
         onOpenSettings={() => setIsSettingsOpen(true)}
@@ -990,10 +1770,9 @@ export default function App() {
             }
           }}
           onClearMember={() => {
-            setCurrentMemberId('');
-            if (typeof window !== 'undefined') {
-              localStorage.removeItem('badminton_active_member_id');
-            }
+            // "สลับชื่อ" must be cancelable.
+            // Keep the current member active until a NEW member passes verification.
+            // If the user closes the picker, the old member session remains unchanged.
             setIsMemberGateOpen(true);
           }}
           onOpenWalkInModal={() => {
@@ -1016,7 +1795,7 @@ export default function App() {
           onShareMemberLink={handleShareMemberLink}
           copiedShareLink={copiedShareLink}
           waitingQueueIndex={
-            currentMemberId
+            isOrganizerMode && currentMemberId
               ? players
                   .filter((p) => p.isCheckedIn && !playingPlayerIds.has(p.id) && p.status === 'waiting')
                   .findIndex((p) => p.id === currentMemberId)
@@ -1051,34 +1830,40 @@ export default function App() {
         )}
 
         {currentTab === 'checkin' && (
-          <CheckInView
-            players={players}
-            isOrganizerMode={isOrganizerMode}
-            currentMemberId={currentMemberId}
-            hideSkillFromMembers={sessionConfig.hideSkillFromMembers ?? true}
-            organizerPin={sessionConfig.organizerPin || '1234'}
-            onToggleCheckIn={handleToggleCheckIn}
-            onCheckInPlayer={handleCheckInPlayer}
-            onCheckOutPlayer={handleCheckOutPlayer}
-            onUpdatePlayerStatus={handleUpdatePlayerStatus}
-            onOpenAddPlayerModal={() => {
-              setEditingPlayer(null);
-              setAddPlayerDefaultType('registered');
-              setIsAddPlayerOpen(true);
-            }}
-            onOpenAddWalkInModal={() => {
-              setEditingPlayer(null);
-              setAddPlayerDefaultType('walkin');
-              setIsAddPlayerOpen(true);
-            }}
-            onOpenSelfCheckInModal={() => setIsSelfCheckInOpen(true)}
-            onOpenAssessmentForPlayer={handleOpenAssessmentForPlayer}
-            onEditPlayer={handleEditPlayer}
-            onDeletePlayer={handleDeletePlayer}
-            onToggleWalkInPenalty={handleToggleWalkInPenalty}
-            onToggleRegistrationType={handleToggleRegistrationType}
-            onPromptIdentifyMember={() => setIsMemberGateOpen(true)}
-          />
+          <SectionErrorBoundary
+            title="สมาชิก"
+            onBack={() => setCurrentTab('prematch')}
+          >
+            <CheckInView
+              players={players}
+              isOrganizerMode={isOrganizerMode}
+              currentMemberId={currentMemberId}
+              hideSkillFromMembers={sessionConfig.hideSkillFromMembers ?? true}
+              organizerPin={sessionConfig.organizerPin || '1234'}
+              onToggleCheckIn={handleToggleCheckIn}
+              onCheckInPlayer={handleCheckInPlayer}
+              onCheckOutPlayer={handleCheckOutPlayer}
+              onUpdatePlayerStatus={handleUpdatePlayerStatus}
+              onOpenAddPlayerModal={() => {
+                setEditingPlayer(null);
+                setAddPlayerDefaultType('registered');
+                setIsAddPlayerOpen(true);
+              }}
+              onOpenAddWalkInModal={() => {
+                setEditingPlayer(null);
+                setAddPlayerDefaultType('walkin');
+                setIsAddPlayerOpen(true);
+              }}
+              onOpenSelfCheckInModal={() => setIsSelfCheckInOpen(true)}
+              onOpenAssessmentForPlayer={handleOpenAssessmentForPlayer}
+              onEditPlayer={handleEditPlayer}
+              onDeletePlayer={handleDeletePlayer}
+              onToggleWalkInPenalty={handleToggleWalkInPenalty}
+              onToggleRegistrationType={handleToggleRegistrationType}
+              onPromptIdentifyMember={() => setIsMemberGateOpen(true)}
+              onOpenMemberCenter={() => setIsMemberCenterOpen(true)}
+            />
+          </SectionErrorBoundary>
         )}
 
         {currentTab === 'assessment' && (
@@ -1122,6 +1907,7 @@ export default function App() {
             onMarkAllCheckedInPaid={handleMarkAllCheckedInPaid}
             onEditPlayer={handleEditPlayer}
             onUpdatePlayerExtraShuttlecocks={handleUpdatePlayerExtraShuttlecocks}
+            promotionRedemptions={promotionRedemptions}
           />
         )}
 
@@ -1134,6 +1920,11 @@ export default function App() {
             onUnlockOrganizer={() => setIsPinModalOpen(true)}
             onNavigateToBilling={() => setCurrentTab('billing')}
             onOpenArchiveModal={() => setIsArchiveModalOpen(true)}
+            promotionRedemptions={promotionRedemptions}
+            shuttlePurchases={shuttlePurchases}
+            shuttleUsageLedger={shuttleUsageLedger}
+            onAddShuttlePurchase={handleAddShuttlePurchase}
+            onDeleteShuttlePurchase={handleDeleteShuttlePurchase}
           />
         )}
       </main>
@@ -1172,6 +1963,24 @@ export default function App() {
       </footer>
 
       {/* Modals */}
+      <MemberCenterModal
+        isOpen={isMemberCenterOpen}
+        onClose={() => setIsMemberCenterOpen(false)}
+        players={players}
+        deletedMembers={deletedMembers}
+        memberStats={memberStats}
+        sessionDate={sessionConfig.date}
+        sessionConfig={sessionConfig}
+        promotionRules={promotionRules}
+        promotionRedemptions={promotionRedemptions}
+        onRestoreMember={handleRestoreDeletedMember}
+        onPermanentDeleteMember={handlePermanentDeleteMember}
+        onUpdateBirthday={handleUpdateMemberBirthday}
+        onSavePromotionRule={handleSavePromotionRule}
+        onDeletePromotionRule={handleDeletePromotionRule}
+        onRedeemPromotion={handleRedeemCustomPromotion}
+      />
+
       <PlayerModal
         isOpen={isAddPlayerOpen}
         onClose={() => {
@@ -1219,16 +2028,62 @@ export default function App() {
         onClose={() => setIsArchiveModalOpen(false)}
         currentState={appState}
         onResetSession={(newState) => {
-          setAppState(newState);
+          setAppState((prev) => ({
+            ...newState,
+            // Enforce a clean daily session even if an older archive component
+            // does not know about matchesPlayed yet.
+            players: newState.players.map((player) => ({
+              ...player,
+              isCheckedIn: false,
+              checkInTime: undefined,
+              checkInTimestamp: undefined,
+              lastMatchFinishTime: undefined,
+              status: 'waiting' as PlayerStatus,
+              gamesPlayed: 0,
+              matchesPlayed: 0,
+              extraShuttlecocks: 0,
+              paid: false,
+              paidAmount: undefined,
+              paymentTime: undefined,
+              paymentMethod: undefined,
+            })),
+            activeMatches: [],
+            matchHistory: [],
+            confirmedPreMatch: null,
+            confirmedPreMatch2: null,
+            memberLifetimeStats: getMemberStatsMap(prev as any),
+            deletedMembers: getDeletedMembers(prev as any),
+            promotionRules: getPromotionRules(prev as any),
+            promotionRedemptions: getPromotionRedemptions(prev as any),
+            shuttlePurchases: getShuttlePurchases(prev as any),
+            shuttleUsageLedger: getShuttleUsageLedger(prev as any),
+          } as any));
           setIsArchiveModalOpen(false);
         }}
       />
 
       {/* Member Gate & Direct URL Access Restriction Gate */}
+      <SectionErrorBoundary
+        key={`member-gate-${isMemberGateOpen}-${currentMemberId || 'initial'}`}
+        title="สลับชื่อสมาชิก"
+        onBack={() => {
+          if (currentMemberId) {
+            setIsMemberGateOpen(false);
+            setCurrentTab('prematch');
+          } else if (typeof window !== 'undefined') {
+            window.location.reload();
+          }
+        }}
+      >
       <MemberGateModal
         isOpen={isMemberGateOpen && !isOrganizerMode}
         players={players}
         organizerPin={sessionConfig.organizerPin || '1234'}
+        onClose={
+          currentMemberId
+            ? () => setIsMemberGateOpen(false)
+            : undefined
+        }
         onSelectAndVerifyMember={(player, pinUsed) => {
           // If a new PIN was established, update player record
           if (pinUsed && !player.pin) {
@@ -1255,6 +2110,7 @@ export default function App() {
           setIsPinModalOpen(true);
         }}
       />
+      </SectionErrorBoundary>
     </div>
   );
 }

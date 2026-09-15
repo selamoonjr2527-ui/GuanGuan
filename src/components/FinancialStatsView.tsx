@@ -4,7 +4,8 @@ import {
   Receipt, Users, Calendar, Award, ShieldAlert, Lock, 
   Download, ArrowUpRight, ArrowDownRight, CheckCircle2, 
   AlertCircle, ChevronRight, Plus, Trash2, PieChart, BarChart2,
-  FileSpreadsheet, Sparkles, RefreshCw, Layers, ShieldCheck
+  FileSpreadsheet, Sparkles, RefreshCw, Layers, ShieldCheck,
+  Package, ShoppingCart, Boxes, Scale, CircleDollarSign
 } from 'lucide-react';
 import { SessionConfig, Player, DailySessionArchive, FundTransaction } from '../types';
 import { 
@@ -14,6 +15,17 @@ import {
   deleteFundTransaction 
 } from '../utils/storage';
 import confetti from 'canvas-confetti';
+import {
+  PromotionRedemption,
+  calculatePlayerFinalCharge,
+} from '../utils/promotionRules';
+import {
+  ShuttlePurchase,
+  ShuttleUsageRecord,
+  getShuttleInventorySummary,
+  getSessionShuttleUsage,
+  getSessionShuttleUsageSummary,
+} from '../utils/shuttleInventory';
 
 interface FinancialStatsViewProps {
   sessionConfig: SessionConfig;
@@ -22,6 +34,11 @@ interface FinancialStatsViewProps {
   onUnlockOrganizer?: () => void;
   onNavigateToBilling?: () => void;
   onOpenArchiveModal?: () => void;
+  promotionRedemptions?: PromotionRedemption[];
+  shuttlePurchases?: ShuttlePurchase[];
+  shuttleUsageLedger?: ShuttleUsageRecord[];
+  onAddShuttlePurchase?: (purchase: ShuttlePurchase) => void;
+  onDeleteShuttlePurchase?: (purchaseId: string) => boolean;
 }
 
 export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
@@ -31,8 +48,13 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
   onUnlockOrganizer,
   onNavigateToBilling,
   onOpenArchiveModal,
+  promotionRedemptions = [],
+  shuttlePurchases = [],
+  shuttleUsageLedger = [],
+  onAddShuttlePurchase,
+  onDeleteShuttlePurchase,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'today' | 'history' | 'treasury'>('today');
+  const [activeSubTab, setActiveSubTab] = useState<'today' | 'history' | 'treasury' | 'shuttles'>('today');
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
@@ -47,43 +69,134 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
   const [txDescription, setTxDescription] = useState('');
   const [txCategory, setTxCategory] = useState<FundTransaction['category']>('shuttlecocks_bulk');
 
+  // Shuttle Inventory purchase / opening stock form
+  const [isAddShuttleOpen, setIsAddShuttleOpen] = useState(false);
+  const [stockEntryType, setStockEntryType] = useState<'purchase' | 'opening'>('purchase');
+  const [stockDate, setStockDate] = useState(sessionConfig.date || new Date().toISOString().split('T')[0]);
+  const [stockBrand, setStockBrand] = useState('');
+  const [stockModel, setStockModel] = useState('');
+  const [stockTubes, setStockTubes] = useState('1');
+  const [stockPiecesPerTube, setStockPiecesPerTube] = useState('12');
+  const [stockPricePerTube, setStockPricePerTube] = useState('');
+  const [stockNote, setStockNote] = useState('');
+  const [recordStockPurchaseToTreasury, setRecordStockPurchaseToTreasury] = useState(true);
+
   // Selected archive for detailed inspection
   const [selectedArchive, setSelectedArchive] = useState<DailySessionArchive | null>(null);
 
   // --- Today's Calculations ---
+  // Participants in THIS session.
+  // Checked-out members remain in the financial summary because payment happens after Checkout.
   const checkedInPlayers = players.filter((p) => p.isCheckedIn);
-  const eligiblePlayers = checkedInPlayers.length > 0 ? checkedInPlayers : players;
+  const eligiblePlayers = players.filter(
+    (p) =>
+      p.isCheckedIn ||
+      p.status === 'left' ||
+      Boolean(p.checkInTime) ||
+      Boolean(p.checkInTimestamp) ||
+      (p.matchesPlayed || 0) > 0 ||
+      p.paid
+  );
 
   const memberCourtFee = sessionConfig.memberCourtFee ?? 110;
   const shuttleFee = sessionConfig.shuttlecockFeePerMatchPerPerson ?? 25;
   const extraPrice = sessionConfig.extraShuttlecockPrice ?? 25;
 
-  const totalGamesPlayed = eligiblePlayers.reduce((acc, p) => acc + p.gamesPlayed, 0);
-  const totalExtraShuttles = eligiblePlayers.reduce((acc, p) => acc + (p.extraShuttlecocks || 0), 0);
+  const totalGamesPlayed = eligiblePlayers.reduce(
+    (acc, p) => acc + (p.gamesPlayed || 0),
+    0
+  );
+  const totalMatchesPlayed = eligiblePlayers.reduce(
+    (acc, p) => acc + (p.matchesPlayed || 0),
+    0
+  );
+  const totalExtraShuttles = eligiblePlayers.reduce(
+    (acc, p) => acc + (p.extraShuttlecocks || 0),
+    0
+  );
 
   // 1. REVENUE (รายรับจากสมาชิก)
   const courtRevenue = eligiblePlayers.length * memberCourtFee;
-  const matchShuttleRevenue = totalGamesPlayed * shuttleFee;
+  const matchShuttleRevenue = totalMatchesPlayed * shuttleFee;
   const extraShuttleRevenue = totalExtraShuttles * extraPrice;
-  const totalExpectedRevenue = courtRevenue + matchShuttleRevenue + extraShuttleRevenue;
+  const grossExpectedRevenue =
+    courtRevenue + matchShuttleRevenue + extraShuttleRevenue;
 
-  // Actual Collected (เงินสดที่เก็บได้จริงแล้ว)
+  const promotionDiscountTotal = eligiblePlayers.reduce((sum, player) => {
+    const charge = calculatePlayerFinalCharge(
+      player,
+      sessionConfig,
+      promotionRedemptions,
+      sessionConfig.date
+    );
+    return sum + charge.promotionDiscount;
+  }, 0);
+
+  const totalExpectedRevenue = Math.max(
+    0,
+    grossExpectedRevenue - promotionDiscountTotal
+  );
+
+  // Actual Collected = paidAmountจริง ถ้ามี ไม่คำนวณยอดเก่าซ้ำอีก
   const actualCollectedRevenue = eligiblePlayers
     .filter((p) => p.paid)
     .reduce((acc, p) => {
-      const court = memberCourtFee;
-      const match = p.gamesPlayed * shuttleFee;
-      const extra = (p.extraShuttlecocks || 0) * extraPrice;
-      return acc + court + match + extra;
+      if (typeof p.paidAmount === 'number' && Number.isFinite(p.paidAmount)) {
+        return acc + p.paidAmount;
+      }
+
+      return (
+        acc +
+        calculatePlayerFinalCharge(
+          p,
+          sessionConfig,
+          promotionRedemptions,
+          sessionConfig.date
+        ).finalTotal
+      );
     }, 0);
 
   const pendingRevenue = Math.max(0, totalExpectedRevenue - actualCollectedRevenue);
   const paidCount = eligiblePlayers.filter((p) => p.paid).length;
-  const collectionRate = totalExpectedRevenue > 0 ? (actualCollectedRevenue / totalExpectedRevenue) * 100 : 0;
+  const checkedOutUnpaidCount = eligiblePlayers.filter(
+    (p) => !p.isCheckedIn && !p.paid
+  ).length;
+  const stillPlayingUnpaidCount = eligiblePlayers.filter(
+    (p) => p.isCheckedIn && !p.paid
+  ).length;
+  const collectionRate =
+    totalExpectedRevenue > 0
+      ? (actualCollectedRevenue / totalExpectedRevenue) * 100
+      : 0;
 
   // 2. EXPENSES (รายจ่ายจริงของก๊วน)
-  const venueCourtCost = sessionConfig.courtCount * sessionConfig.totalHours * sessionConfig.courtHourlyRate;
-  const venueShuttleCost = sessionConfig.shuttlecocksUsedTotal * sessionConfig.shuttlecockPrice;
+  const venueCourtCost =
+    sessionConfig.courtCount *
+    sessionConfig.totalHours *
+    sessionConfig.courtHourlyRate;
+
+  const inventorySummary = getShuttleInventorySummary(
+    shuttlePurchases,
+    shuttleUsageLedger,
+    sessionConfig.shuttlecockPrice
+  );
+
+  const currentSessionUsageRows = getSessionShuttleUsage(
+    shuttleUsageLedger,
+    sessionConfig.date
+  );
+
+  const currentSessionShuttleUsage = getSessionShuttleUsageSummary(
+    shuttleUsageLedger,
+    sessionConfig.date,
+    sessionConfig.shuttlecocksUsedTotal,
+    inventorySummary.averageUnitCost || sessionConfig.shuttlecockPrice
+  );
+
+  // P&L expense recognizes only the shuttles ACTUALLY CONSUMED in this session.
+  // Purchasing stock is a cash movement / inventory asset, not all an expense today.
+  const venueShuttleCost = currentSessionShuttleUsage.totalCost;
+
   const extraExpensesTotal = (sessionConfig.extraExpenses || []).reduce((acc, curr) => acc + curr.amount, 0);
   const totalRealExpense = venueCourtCost + venueShuttleCost + extraExpensesTotal;
 
@@ -123,6 +236,92 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
   const avgProfitPerSession = totalArchivedSessions > 0
     ? Math.round(lifetimeArchivedProfit / totalArchivedSessions)
     : expectedNetProfit;
+
+  const handleAddShuttleStock = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!onAddShuttlePurchase) return;
+
+    const tubes = Math.max(1, Number(stockTubes || 1));
+    const piecesPerTube = Math.max(1, Number(stockPiecesPerTube || 12));
+    const pricePerTube = Math.max(0, Number(stockPricePerTube || 0));
+
+    if (!Number.isFinite(tubes) || !Number.isFinite(piecesPerTube)) return;
+    if (!Number.isFinite(pricePerTube) || pricePerTube <= 0) {
+      window.alert('กรุณาใส่ราคาต่อหลอดให้ถูกต้อง');
+      return;
+    }
+
+    const id = `shuttle-stock-${Date.now()}`;
+    const quantity = tubes * piecesPerTube;
+    const totalCost = tubes * pricePerTube;
+    const unitCost = quantity > 0 ? totalCost / quantity : 0;
+
+    const fundTransactionId =
+      stockEntryType === 'purchase' && recordStockPurchaseToTreasury
+        ? `fund-${id}`
+        : undefined;
+
+    const purchase: ShuttlePurchase = {
+      id,
+      entryType: stockEntryType,
+      date: stockDate || sessionConfig.date,
+      brand: stockBrand.trim() || undefined,
+      model: stockModel.trim() || undefined,
+      tubes,
+      piecesPerTube,
+      pricePerTube,
+      quantity,
+      totalCost,
+      unitCost,
+      note: stockNote.trim() || undefined,
+      fundTransactionId,
+      createdAt: Date.now(),
+    };
+
+    onAddShuttlePurchase(purchase);
+
+    // Optional cash-flow entry in Club Treasury.
+    if (fundTransactionId) {
+      const tx: FundTransaction = {
+        id: fundTransactionId,
+        date: purchase.date,
+        type: 'withdraw',
+        amount: totalCost,
+        description: `ซื้อ Stock ลูกแบด ${[purchase.brand, purchase.model]
+          .filter(Boolean)
+          .join(' ') || 'Shuttle'} • ${tubes} หลอด / ${quantity} ลูก`,
+        category: 'shuttlecocks_bulk',
+        createdAt: Date.now(),
+      };
+      saveFundTransaction(tx);
+      setTransactions(loadFundTransactions());
+    }
+
+    setIsAddShuttleOpen(false);
+    setStockEntryType('purchase');
+    setStockBrand('');
+    setStockModel('');
+    setStockTubes('1');
+    setStockPiecesPerTube('12');
+    setStockPricePerTube('');
+    setStockNote('');
+    setRecordStockPurchaseToTreasury(true);
+
+    confetti({ particleCount: 35, spread: 55, origin: { y: 0.7 } });
+  };
+
+  const handleDeleteShuttleStock = (purchase: ShuttlePurchase) => {
+    if (!onDeleteShuttlePurchase) return;
+
+    const deleted = onDeleteShuttlePurchase(purchase.id);
+    if (!deleted) return;
+
+    if (purchase.fundTransactionId) {
+      deleteFundTransaction(purchase.fundTransactionId);
+      setTransactions(loadFundTransactions());
+    }
+  };
 
   // PIN Unlock submit
   const handlePinSubmit = (e: React.FormEvent) => {
@@ -179,14 +378,15 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
       ['=== 1. สรุปก๊วนวันนี้ ==='],
       ['หมวดหมู่', 'รายละเอียด', 'จำนวนเงิน (บาท)'],
       ['รายรับค่าคอร์ทสมาชิก', `${eligiblePlayers.length} คน x ${memberCourtFee}฿`, courtRevenue.toString()],
-      ['รายรับค่าลูกตามแมตช์', `${totalGamesPlayed} เกม x ${shuttleFee}฿`, matchShuttleRevenue.toString()],
+      ['รายรับค่าลูกตามแมตช์', `${totalMatchesPlayed} Match x ${shuttleFee}฿`, matchShuttleRevenue.toString()],
       ['รายรับค่าลูกซื้อเพิ่ม', `${totalExtraShuttles} ลูก x ${extraPrice}฿`, extraShuttleRevenue.toString()],
+      ['ส่วนลดโปรโมชั่น', '', promotionDiscountTotal > 0 ? `-${promotionDiscountTotal}` : '0'],
       ['รวมรายรับคาดการณ์ทั้งหมด', '', totalExpectedRevenue.toString()],
       ['ยอดเงินที่เก็บได้จริงแล้ว', `ชำระแล้ว ${paidCount}/${eligiblePlayers.length} คน`, actualCollectedRevenue.toString()],
       ['ยอดค้างชำระ', '', pendingRevenue.toString()],
       [],
       ['รายจ่ายค่าเช่าคอร์ทสนาม', `${sessionConfig.courtCount} คอร์ท x ${sessionConfig.totalHours} ชม. x ${sessionConfig.courtHourlyRate}฿`, venueCourtCost.toString()],
-      ['รายจ่ายค่าลูกขนไก่จริง', `${sessionConfig.shuttlecocksUsedTotal} ลูก x ${sessionConfig.shuttlecockPrice}฿`, venueShuttleCost.toString()],
+      ['รายจ่ายค่าลูกขนไก่จริง', `${currentSessionShuttleUsage.quantity} ลูก • ต้นทุนเฉลี่ย ${currentSessionShuttleUsage.averageUnitCost.toFixed(2)}฿/ลูก`, venueShuttleCost.toFixed(2)],
       ...sessionConfig.extraExpenses.map((exp) => [`ค่าใช้จ่ายอื่นๆ: ${exp.name}`, '', exp.amount.toString()]),
       ['รวมรายจ่ายต้นทุนจริงทั้งหมด', '', totalRealExpense.toString()],
       [],
@@ -387,6 +587,26 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
             {totalCentralFundReserve.toLocaleString()}฿
           </span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('shuttles')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+            activeSubTab === 'shuttles'
+              ? 'bg-amber-400 text-slate-950 shadow'
+              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
+          }`}
+        >
+          <Package className="w-4 h-4" />
+          <span>4. คลังลูกแบด (Shuttle Stock)</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+            inventorySummary.stockQuantity <= 12
+              ? 'bg-rose-950 text-rose-300'
+              : 'bg-slate-800 text-slate-300'
+          }`}>
+            {inventorySummary.stockQuantity} ลูก
+          </span>
+        </button>
       </div>
 
       {/* ============================================================ */}
@@ -419,6 +639,14 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                     {pendingRevenue.toLocaleString()} ฿
                   </strong>
                 </div>
+                {promotionDiscountTotal > 0 && (
+                  <div className="flex justify-between">
+                    <span>ส่วนลดโปรโมชั่น:</span>
+                    <strong className="text-emerald-400">
+                      -{promotionDiscountTotal.toLocaleString()} ฿
+                    </strong>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -440,8 +668,15 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                   <span className="text-slate-300">{venueCourtCost.toLocaleString()} ฿ ({sessionConfig.courtCount} คอร์ท x {sessionConfig.totalHours} ชม.)</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>ค่าลูกจริง ({sessionConfig.shuttlecocksUsedTotal} ลูก):</span>
-                  <span className="text-slate-300">{venueShuttleCost.toLocaleString()} ฿</span>
+                  <span>ค่าลูกจริง ({currentSessionShuttleUsage.quantity} ลูก):</span>
+                  <span className="text-slate-300">
+                    {venueShuttleCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} ฿
+                    {currentSessionShuttleUsage.quantity > 0 && (
+                      <span className="text-[9px] text-slate-500 ml-1">
+                        @ {currentSessionShuttleUsage.averageUnitCost.toFixed(2)}฿/ลูก
+                      </span>
+                    )}
+                  </span>
                 </div>
                 {extraExpensesTotal > 0 && (
                   <div className="flex justify-between">
@@ -524,9 +759,9 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span>อัตราใช้ลูกต่อเกม:</span>
+                  <span>อัตราใช้ลูกต่อ Match:</span>
                   <span className="text-slate-300">
-                    {totalGamesPlayed > 0 ? (sessionConfig.shuttlecocksUsedTotal / totalGamesPlayed).toFixed(2) : 0} ลูก/เกม
+                    {totalMatchesPlayed > 0 ? (sessionConfig.shuttlecocksUsedTotal / totalMatchesPlayed).toFixed(2) : 0} ลูก/Match
                   </span>
                 </div>
               </div>
@@ -616,12 +851,19 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                 </div>
                 <div className="text-[11px] text-slate-400 space-y-1">
                   <div className="flex justify-between">
-                    <span>เก็บค่าลูกจากสมาชิก ({totalGamesPlayed} เกม + ซื้อเพิ่ม):</span>
+                    <span>เก็บค่าลูกจากสมาชิก ({totalMatchesPlayed} Match + ซื้อเพิ่ม):</span>
                     <span className="text-slate-200">{(matchShuttleRevenue + extraShuttleRevenue).toLocaleString()} ฿</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>ต้นทุนลูกจริง ({sessionConfig.shuttlecocksUsedTotal} ลูก x {sessionConfig.shuttlecockPrice}฿):</span>
-                    <span className="text-slate-200">-{venueShuttleCost.toLocaleString()} ฿</span>
+                    <span>
+                      ต้นทุนลูกจริง ({currentSessionShuttleUsage.quantity} ลูก
+                      {currentSessionShuttleUsage.quantity > 0
+                        ? ` @ ${currentSessionShuttleUsage.averageUnitCost.toFixed(2)}฿`
+                        : ''}):
+                    </span>
+                    <span className="text-slate-200">
+                      -{venueShuttleCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} ฿
+                    </span>
                   </div>
                 </div>
                 <p className="text-[10px] text-slate-500 border-t border-slate-800 pt-1.5">
@@ -667,7 +909,10 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                   <span>สถานะการชำระเงินของสมาชิกวันนี้ ({eligiblePlayers.length} คน)</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  จ่ายแล้ว {paidCount} คน ({actualCollectedRevenue.toLocaleString()}฿) • ค้างชำระ {eligiblePlayers.length - paidCount} คน ({pendingRevenue.toLocaleString()}฿)
+                  จ่ายแล้ว {paidCount} คน ({actualCollectedRevenue.toLocaleString()}฿)
+                  {' • '}รอชำระหลัง Check-out {checkedOutUnpaidCount} คน
+                  {' • '}ยังเล่น/ยังไม่ Check-out {stillPlayingUnpaidCount} คน
+                  {' • '}ยอดยังไม่ได้รับ {pendingRevenue.toLocaleString()}฿
                 </p>
               </div>
 
@@ -696,7 +941,13 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-800/80">
                   {eligiblePlayers.map((player) => {
-                    const cost = memberCourtFee + (player.gamesPlayed * shuttleFee) + ((player.extraShuttlecocks || 0) * extraPrice);
+                    const charge = calculatePlayerFinalCharge(
+                      player,
+                      sessionConfig,
+                      promotionRedemptions,
+                      sessionConfig.date
+                    );
+                    const cost = charge.finalTotal;
                     return (
                       <tr key={player.id} className="hover:bg-slate-800/40 transition">
                         <td className="px-4 py-3 font-semibold text-white">
@@ -712,19 +963,38 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                           </span>
                         </td>
                         <td className="px-3 py-3 text-center text-slate-300">
-                          {player.gamesPlayed} เกม
+                          <div>{player.gamesPlayed || 0} เกม</div>
+                          <div className={`text-[10px] font-semibold mt-0.5 ${
+                            (player.matchesPlayed || 0) > 0
+                              ? 'text-amber-400'
+                              : 'text-cyan-400'
+                          }`}>
+                            {(player.matchesPlayed || 0) > 0
+                              ? `${player.matchesPlayed || 0} Match`
+                              : '0 Match • ค่าคอร์ทเท่านั้น'}
+                          </div>
                         </td>
                         <td className="px-3 py-3 text-center text-slate-300">
                           {(player.extraShuttlecocks || 0) > 0 ? `+${player.extraShuttlecocks}` : '-'}
                         </td>
                         <td className="px-3 py-3 text-right font-bold text-white">
-                          {cost.toLocaleString()} ฿
+                          <div>{cost.toLocaleString()} ฿</div>
+                          {charge.promotionDiscount > 0 && (
+                            <div className="text-[10px] text-emerald-400 font-medium">
+                              โปร -{charge.promotionDiscount.toLocaleString()}฿
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-center">
                           {player.paid ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2.5 py-0.5 rounded-full">
                               <CheckCircle2 className="w-3 h-3" />
                               <span>ชำระแล้ว</span>
+                            </span>
+                          ) : player.isCheckedIn ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-300 bg-cyan-950/50 border border-cyan-800 px-2.5 py-0.5 rounded-full">
+                              <Lock className="w-3 h-3" />
+                              <span>ยังเล่น • รอ Check-out</span>
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 bg-amber-950/60 border border-amber-800 px-2.5 py-0.5 rounded-full">
@@ -1050,6 +1320,429 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* SUB-TAB 4: SHUTTLE STOCK / WEIGHTED AVERAGE COST */}
+      {/* ============================================================ */}
+      {activeSubTab === 'shuttles' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+              <div className="text-xs text-slate-400 flex items-center gap-1.5">
+                <Boxes className="w-4 h-4 text-amber-400" />
+                Stock คงเหลือ
+              </div>
+              <div className={`text-3xl font-black mt-1 ${
+                inventorySummary.stockQuantity <= 12
+                  ? 'text-rose-400'
+                  : 'text-white'
+              }`}>
+                {inventorySummary.stockQuantity.toLocaleString()}
+                <span className="text-xs font-normal text-slate-500 ml-1">ลูก</span>
+              </div>
+              {inventorySummary.stockQuantity <= 12 && (
+                <div className="text-[10px] text-rose-300 mt-1">⚠️ Stock ใกล้หมด</div>
+              )}
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+              <div className="text-xs text-slate-400 flex items-center gap-1.5">
+                <Scale className="w-4 h-4 text-cyan-400" />
+                ต้นทุนเฉลี่ยปัจจุบัน
+              </div>
+              <div className="text-3xl font-black text-cyan-400 mt-1">
+                {inventorySummary.averageUnitCost.toFixed(2)}
+                <span className="text-xs font-normal text-slate-500 ml-1">฿/ลูก</span>
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                Weighted Average Cost
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+              <div className="text-xs text-slate-400 flex items-center gap-1.5">
+                <CircleDollarSign className="w-4 h-4 text-indigo-400" />
+                มูลค่า Stock
+              </div>
+              <div className="text-3xl font-black text-indigo-400 mt-1">
+                {inventorySummary.stockValue.toLocaleString(undefined, {
+                  maximumFractionDigits: 2,
+                })}
+                <span className="text-xs font-normal text-slate-500 ml-1">฿</span>
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                ซื้อสะสม {inventorySummary.purchaseCost.toLocaleString()}฿
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+              <div className="text-xs text-slate-400 flex items-center gap-1.5">
+                <Receipt className="w-4 h-4 text-emerald-400" />
+                ใช้ในรอบนี้
+              </div>
+              <div className="text-3xl font-black text-emerald-400 mt-1">
+                {currentSessionShuttleUsage.quantity}
+                <span className="text-xs font-normal text-slate-500 ml-1">ลูก</span>
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                ต้นทุน {currentSessionShuttleUsage.totalCost.toLocaleString(undefined, {
+                  maximumFractionDigits: 2,
+                })}฿
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 sm:p-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-black text-white flex items-center gap-2">
+                  <Package className="w-5 h-5 text-amber-400" />
+                  คลังลูกแบด & ราคาซื้อแต่ละ Lot
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  ระบบใช้ Weighted Average Cost • ราคาซื้อแต่ละครั้งไม่จำเป็นต้องเท่ากัน
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsAddShuttleOpen(true)}
+                className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black flex items-center justify-center gap-1.5"
+              >
+                <ShoppingCart className="w-4 h-4" />
+                + ซื้อเข้า / เพิ่ม Stock
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-xl bg-cyan-950/20 border border-cyan-800/40 p-3 text-[11px] text-cyan-100 leading-relaxed">
+              <strong>การลงบัญชี:</strong> เงินซื้อ Stock เป็น “เงินออกกองกลาง”
+              แต่กำไร/ขาดทุนของรอบเล่นจะรับรู้เฉพาะ <strong>ต้นทุนลูกที่ใช้จริง</strong>
+              เท่านั้น เพื่อไม่ให้ซื้อ 1 ลังแล้วกลายเป็นขาดทุนทั้งลังในวันเดียว
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+            <div className="p-4 border-b border-slate-800">
+              <h3 className="font-bold text-white text-sm">ประวัติซื้อ / ยอดตั้งต้น</h3>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
+                  <tr>
+                    <th className="px-4 py-3">วันที่</th>
+                    <th className="px-3 py-3">รายการ</th>
+                    <th className="px-3 py-3 text-center">จำนวน</th>
+                    <th className="px-3 py-3 text-right">ราคา/หลอด</th>
+                    <th className="px-3 py-3 text-right">ต้นทุน/ลูก</th>
+                    <th className="px-3 py-3 text-right">รวม</th>
+                    <th className="px-4 py-3 text-center">จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {[...shuttlePurchases]
+                    .sort((a, b) => b.createdAt - a.createdAt)
+                    .map((purchase) => (
+                      <tr key={purchase.id} className="hover:bg-slate-800/40">
+                        <td className="px-4 py-3 text-slate-300">{purchase.date}</td>
+                        <td className="px-3 py-3">
+                          <div className="text-white font-semibold">
+                            {[purchase.brand, purchase.model].filter(Boolean).join(' ') ||
+                              (purchase.entryType === 'opening'
+                                ? 'Opening Stock'
+                                : 'Shuttle Stock')}
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            {purchase.entryType === 'opening' ? 'ยอดตั้งต้น' : 'ซื้อเข้า'}
+                            {purchase.note ? ` • ${purchase.note}` : ''}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-center text-slate-300">
+                          {purchase.tubes} หลอด
+                          <div className="text-[10px] text-slate-500">
+                            {purchase.quantity} ลูก ({purchase.piecesPerTube}/หลอด)
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-right text-slate-300">
+                          {purchase.pricePerTube.toLocaleString()}฿
+                        </td>
+                        <td className="px-3 py-3 text-right text-cyan-400 font-bold">
+                          {purchase.unitCost.toFixed(2)}฿
+                        </td>
+                        <td className="px-3 py-3 text-right text-white font-bold">
+                          {purchase.totalCost.toLocaleString()}฿
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteShuttleStock(purchase)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800"
+                            title="ลบรายการ"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+
+                  {shuttlePurchases.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-10 text-center text-slate-500">
+                        ยังไม่มี Stock • แนะนำให้ใส่ “ยอดตั้งต้น” ของลูกที่มีอยู่ก่อน
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+            <div className="p-4 border-b border-slate-800">
+              <h3 className="font-bold text-white text-sm">ลูกที่ใช้จริงรอบนี้</h3>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                ตัด Stock เมื่อกด Finish Match • ราคาต้นทุนถูก Freeze ตามค่าเฉลี่ย ณ เวลาที่ใช้
+              </p>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
+                  <tr>
+                    <th className="px-4 py-3">เวลา/Match</th>
+                    <th className="px-3 py-3">Court</th>
+                    <th className="px-3 py-3 text-center">ใช้จริง</th>
+                    <th className="px-3 py-3 text-right">ต้นทุน/ลูก</th>
+                    <th className="px-4 py-3 text-right">ต้นทุนรวม</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {currentSessionUsageRows.map((usage) => (
+                    <tr key={usage.id} className="hover:bg-slate-800/40">
+                      <td className="px-4 py-3 text-slate-400">
+                        {new Date(usage.createdAt).toLocaleTimeString('th-TH', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                        <div className="text-[9px] text-slate-600">{usage.historyId}</div>
+                      </td>
+                      <td className="px-3 py-3 text-white">{usage.courtName || '-'}</td>
+                      <td className="px-3 py-3 text-center text-amber-400 font-bold">
+                        {usage.quantity} ลูก
+                      </td>
+                      <td className="px-3 py-3 text-right text-cyan-400">
+                        {usage.unitCost.toFixed(2)}฿
+                      </td>
+                      <td className="px-4 py-3 text-right text-white font-bold">
+                        {usage.totalCost.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}฿
+                      </td>
+                    </tr>
+                  ))}
+
+                  {currentSessionUsageRows.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-10 text-center text-slate-500">
+                        รอบนี้ยังไม่มี Match ที่จบ • ยังไม่ตัด Stock
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Shuttle Stock Modal */}
+      {isAddShuttleOpen && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-amber-500/30 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4 my-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-black text-white flex items-center gap-2">
+                  <ShoppingCart className="w-5 h-5 text-amber-400" />
+                  เพิ่ม Shuttle Stock
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  ใส่ราคาจริงของแต่ละ Lot ระบบคำนวณต้นทุนเฉลี่ยให้อัตโนมัติ
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddShuttleOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAddShuttleStock} className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 border border-slate-800 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setStockEntryType('purchase')}
+                  className={`py-2 rounded-lg text-xs font-bold ${
+                    stockEntryType === 'purchase'
+                      ? 'bg-amber-400 text-slate-950'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  ซื้อเข้าใหม่
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStockEntryType('opening');
+                    setRecordStockPurchaseToTreasury(false);
+                  }}
+                  className={`py-2 rounded-lg text-xs font-bold ${
+                    stockEntryType === 'opening'
+                      ? 'bg-cyan-500 text-slate-950'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  ยอดตั้งต้น
+                </button>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400">วันที่</label>
+                <input
+                  type="date"
+                  value={stockDate}
+                  onChange={(e) => setStockDate(e.target.value)}
+                  className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white"
+                />
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] text-slate-400">ยี่ห้อ</label>
+                  <input
+                    value={stockBrand}
+                    onChange={(e) => setStockBrand(e.target.value)}
+                    placeholder="เช่น RSL / Victor / Ling Mei"
+                    className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-slate-400">รุ่น</label>
+                  <input
+                    value={stockModel}
+                    onChange={(e) => setStockModel(e.target.value)}
+                    placeholder="เช่น Classic"
+                    className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[11px] text-slate-400">จำนวนหลอด</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={stockTubes}
+                    onChange={(e) => setStockTubes(e.target.value)}
+                    className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-slate-400">ลูก/หลอด</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={stockPiecesPerTube}
+                    onChange={(e) => setStockPiecesPerTube(e.target.value)}
+                    className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-slate-400">ราคา/หลอด</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    required
+                    value={stockPricePerTube}
+                    onChange={(e) => setStockPricePerTube(e.target.value)}
+                    placeholder="1000"
+                    className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3 grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div className="text-[9px] text-slate-500">จำนวนลูก</div>
+                  <div className="font-black text-white">
+                    {Math.max(1, Number(stockTubes || 1)) *
+                      Math.max(1, Number(stockPiecesPerTube || 12))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[9px] text-slate-500">รวมเงิน</div>
+                  <div className="font-black text-amber-400">
+                    {(
+                      Math.max(1, Number(stockTubes || 1)) *
+                      Math.max(0, Number(stockPricePerTube || 0))
+                    ).toLocaleString()}฿
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[9px] text-slate-500">ต้นทุน/ลูก</div>
+                  <div className="font-black text-cyan-400">
+                    {(
+                      Math.max(0, Number(stockPricePerTube || 0)) /
+                      Math.max(1, Number(stockPiecesPerTube || 12))
+                    ).toFixed(2)}฿
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400">หมายเหตุ</label>
+                <input
+                  value={stockNote}
+                  onChange={(e) => setStockNote(e.target.value)}
+                  placeholder="เช่น ซื้อช่วงโปร / ร้าน ABC"
+                  className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white"
+                />
+              </div>
+
+              {stockEntryType === 'purchase' && (
+                <label className="flex items-start gap-2.5 rounded-xl bg-indigo-950/20 border border-indigo-800/40 p-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={recordStockPurchaseToTreasury}
+                    onChange={(e) => setRecordStockPurchaseToTreasury(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <div className="text-xs font-bold text-indigo-300">
+                      บันทึกเป็นเงินออกในกองกลางด้วย
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      แนะนำให้เปิด เพื่อให้ Cash Flow เห็นเงินที่จ่ายซื้อ Stock จริง
+                    </div>
+                  </div>
+                </label>
+              )}
+
+              <button
+                type="submit"
+                className="w-full py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-sm font-black"
+              >
+                บันทึก Stock
+              </button>
+            </form>
           </div>
         </div>
       )}

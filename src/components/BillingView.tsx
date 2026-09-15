@@ -9,6 +9,10 @@ import {
 import { Player, SessionConfig, SKILL_LEVELS } from '../types';
 import { generatePromptPayPayload, formatPromptPayDisplay } from '../utils/promptpay';
 import { PaymentConfirmModal } from './PaymentConfirmModal';
+import {
+  PromotionRedemption,
+  calculatePlayerFinalCharge,
+} from '../utils/promotionRules';
 
 interface BillingViewProps {
   sessionConfig: SessionConfig;
@@ -22,6 +26,7 @@ interface BillingViewProps {
   onMarkAllCheckedInPaid: () => void;
   onEditPlayer?: (player: Player) => void;
   onUpdatePlayerExtraShuttlecocks?: (playerId: string, delta: number) => void;
+  promotionRedemptions?: PromotionRedemption[];
 }
 
 export const BillingView: React.FC<BillingViewProps> = ({
@@ -36,6 +41,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
   onMarkAllCheckedInPaid,
   onEditPlayer,
   onUpdatePlayerExtraShuttlecocks,
+  promotionRedemptions = [],
 }) => {
   const [copiedLine, setCopiedLine] = useState(false);
   const [copiedMemberLink, setCopiedMemberLink] = useState(false);
@@ -60,16 +66,32 @@ export const BillingView: React.FC<BillingViewProps> = ({
   const [newExpenseName, setNewExpenseName] = useState('');
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
 
-  // Eligible players: checked in players, or all players if none checked in
+  // Billing participants in this session.
+  // Checked-out players stay visible because payment is allowed only after Checkout.
   const checkedInPlayers = players.filter((p) => p.isCheckedIn);
-  const eligiblePlayers = checkedInPlayers.length > 0 ? checkedInPlayers : players;
+  const eligiblePlayers = players.filter(
+    (p) =>
+      p.isCheckedIn ||
+      p.status === 'left' ||
+      Boolean(p.checkInTime) ||
+      Boolean(p.checkInTimestamp) ||
+      (p.matchesPlayed || 0) > 0 ||
+      p.paid
+  );
 
   // Club Rate specific settings (default: 110฿ court, 25฿ shuttle/person/match, 25฿ extra shuttle)
   const memberCourtFee = sessionConfig.memberCourtFee ?? 110;
   const shuttlecockFeePerMatch = sessionConfig.shuttlecockFeePerMatchPerPerson ?? 25;
   const extraShuttlecockPrice = sessionConfig.extraShuttlecockPrice ?? 25;
 
-  const totalGamesPlayed = eligiblePlayers.reduce((acc, p) => acc + p.gamesPlayed, 0);
+  const totalGamesPlayed = eligiblePlayers.reduce(
+    (acc, p) => acc + (p.gamesPlayed || 0),
+    0
+  );
+  const totalMatchesPlayed = eligiblePlayers.reduce(
+    (acc, p) => acc + (p.matchesPlayed || 0),
+    0
+  );
   const totalExtraShuttlecocks = eligiblePlayers.reduce((acc, p) => acc + (p.extraShuttlecocks || 0), 0);
 
   // Extra expenses
@@ -82,24 +104,38 @@ export const BillingView: React.FC<BillingViewProps> = ({
 
   // Club-rate totals
   const clubCourtTotal = eligiblePlayers.length * memberCourtFee;
-  const clubShuttleMatchTotal = totalGamesPlayed * shuttlecockFeePerMatch;
+  const clubShuttleMatchTotal = totalMatchesPlayed * shuttlecockFeePerMatch;
   const clubExtraShuttleTotal = totalExtraShuttlecocks * extraShuttlecockPrice;
-  const clubGrandTotal = clubCourtTotal + clubShuttleMatchTotal + clubExtraShuttleTotal + extraExpensesTotal;
+  const clubBaseGrandTotal =
+    clubCourtTotal + clubShuttleMatchTotal + clubExtraShuttleTotal + extraExpensesTotal;
+
+  const clubPromotionDiscountTotal = eligiblePlayers.reduce((sum, player) => {
+    const charge = calculatePlayerFinalCharge(
+      player,
+      sessionConfig,
+      promotionRedemptions,
+      sessionConfig.date
+    );
+    return sum + charge.promotionDiscount;
+  }, 0);
+
+  const clubGrandTotal = Math.max(
+    0,
+    clubBaseGrandTotal - clubPromotionDiscountTotal
+  );
 
   const isClubRate = sessionConfig.splitMethod === 'club_rate';
   const grandTotal = isClubRate ? clubGrandTotal : venueGrandTotal;
 
   // Function to calculate exact cost for each player
   const calculatePlayerCost = (player: Player): number => {
-    if (!player.isCheckedIn && checkedInPlayers.length > 0) {
-      return 0;
-    }
-
     if (sessionConfig.splitMethod === 'club_rate') {
-      const court = memberCourtFee;
-      const match = player.gamesPlayed * shuttlecockFeePerMatch;
-      const extra = (player.extraShuttlecocks || 0) * extraShuttlecockPrice;
-      return court + match + extra;
+      return calculatePlayerFinalCharge(
+        player,
+        sessionConfig,
+        promotionRedemptions,
+        sessionConfig.date
+      ).finalTotal;
     }
 
     if (sessionConfig.splitMethod === 'fixed') {
@@ -120,20 +156,30 @@ export const BillingView: React.FC<BillingViewProps> = ({
 
   const getPlayerBreakdownText = (player: Player): string => {
     if (sessionConfig.splitMethod === 'club_rate') {
-      const court = memberCourtFee;
-      const match = player.gamesPlayed * shuttlecockFeePerMatch;
-      const extraCount = player.extraShuttlecocks || 0;
-      const extra = extraCount * extraShuttlecockPrice;
-      
-      const parts = [`ค่าคอร์ท ${court}฿`];
-      if (player.gamesPlayed > 0) {
-        parts.push(`ค่าลูก ${player.gamesPlayed} เกม (${match}฿)`);
+      const charge = calculatePlayerFinalCharge(
+        player,
+        sessionConfig,
+        promotionRedemptions,
+        sessionConfig.date
+      );
+
+      const parts = [`ค่าคอร์ท ${charge.courtFee}฿`];
+      if (charge.matchCount > 0) {
+        parts.push(`ค่าลูก ${charge.matchCount} Match (${charge.shuttleFee}฿)`);
       } else {
-        parts.push(`ยังไม่ได้ลงเล่น`);
+        parts.push('ยังไม่ได้ลง Match • ยังไม่มีค่าลูก');
       }
-      if (extraCount > 0) {
-        parts.push(`ซื้อลูกเพิ่ม ${extraCount} ลูก (${extra}฿)`);
+
+      if (charge.extraShuttleCount > 0) {
+        parts.push(
+          `ลูกเพิ่ม ${charge.extraShuttleCount} ลูก (${charge.extraShuttleFee}฿)`
+        );
       }
+
+      if (charge.promotionDiscount > 0) {
+        parts.push(`ส่วนลดโปร -${charge.promotionDiscount}฿`);
+      }
+
       return parts.join(' + ');
     }
     return '';
@@ -168,12 +214,23 @@ export const BillingView: React.FC<BillingViewProps> = ({
   };
 
   const handleOpenPlayerQr = (player: Player) => {
+    if (player.isCheckedIn) {
+      window.alert(`กรุณา Check-out "${player.nickname}" ก่อนเปิด QR ชำระเงิน`);
+      return;
+    }
     setSelectedPlayerForQr(player);
     const amount = calculatePlayerCost(player);
     generateQrForAmount(amount);
   };
 
   const handleRequestTogglePayment = (player: Player, isMarkingPaid: boolean) => {
+    if (isMarkingPaid && player.isCheckedIn) {
+      window.alert(
+        `กรุณา Check-out "${player.nickname}" ก่อนชำระเงิน\n\nระบบจะล็อกยอดหลัง Check-out เพื่อป้องกันจำนวน Match เปลี่ยนระหว่างเล่น`
+      );
+      return;
+    }
+
     const cost = calculatePlayerCost(player);
     const breakdown = getPlayerBreakdownText(player);
     setConfirmPaymentData({
@@ -185,7 +242,20 @@ export const BillingView: React.FC<BillingViewProps> = ({
   };
 
   const handleSafeMarkAllPaid = () => {
-    if (window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการทำเครื่องหมายว่าผู้เล่นทุกคน (${eligiblePlayers.length} คน) ชำระเงินครบแล้ว?`)) {
+    const checkedOutUnpaid = eligiblePlayers.filter(
+      (p) => !p.isCheckedIn && !p.paid
+    );
+
+    if (checkedOutUnpaid.length === 0) {
+      window.alert('ยังไม่มีสมาชิกที่ Check-out และรอชำระเงิน');
+      return;
+    }
+
+    if (
+      window.confirm(
+        `ทำเครื่องหมายชำระเฉพาะสมาชิกที่ Check-out แล้ว ${checkedOutUnpaid.length} คน ใช่หรือไม่?`
+      )
+    ) {
       onMarkAllCheckedInPaid();
     }
   };
@@ -225,7 +295,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
       const cost = calculatePlayerCost(p);
       if (sessionConfig.splitMethod === 'club_rate') {
         const extra = (p.extraShuttlecocks || 0) > 0 ? ` + ลูกเพิ่ม ${p.extraShuttlecocks} ลูก` : '';
-        return `  ${p.nickname}: ${cost}฿ (คอร์ท ${memberCourtFee}฿ + ลูก ${p.gamesPlayed} เกม${extra})`;
+        return `  ${p.nickname}: ${cost}฿ (คอร์ท ${memberCourtFee}฿ + ลูก ${p.matchesPlayed || 0} Match${extra})`;
       }
       return `  ${p.nickname}: ${cost}฿ (${p.gamesPlayed} เกม)`;
     };
@@ -298,13 +368,14 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
   // Export to CSV
   const handleExportCsv = () => {
     const rows = [
-      ['ชื่อเล่น', 'ชื่อจริง', 'เบอร์โทร', 'ระดับมือ', 'จำนวนเกม', 'ลูกซื้อเพิ่ม (ลูก)', 'ยอดที่ต้องจ่าย (บาท)', 'สถานะการจ่าย'],
+      ['ชื่อเล่น', 'ชื่อจริง', 'เบอร์โทร', 'ระดับมือ', 'จำนวนเกม', 'จำนวนแมตช์', 'ลูกซื้อเพิ่ม (ลูก)', 'ยอดที่ต้องจ่าย (บาท)', 'สถานะการจ่าย'],
       ...eligiblePlayers.map((p) => [
         p.nickname,
         p.fullName || '',
         p.phone || '',
         p.skillLevel,
-        p.gamesPlayed.toString(),
+        (p.gamesPlayed || 0).toString(),
+        (p.matchesPlayed || 0).toString(),
         (p.extraShuttlecocks || 0).toString(),
         calculatePlayerCost(p).toString(),
         p.paid ? 'ชำระแล้ว' : 'รอชำระ',
@@ -336,7 +407,14 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
 
   const totalCollected = eligiblePlayers
     .filter((p) => p.paid)
-    .reduce((acc, p) => acc + calculatePlayerCost(p), 0);
+    .reduce(
+      (acc, p) =>
+        acc +
+        (typeof p.paidAmount === 'number'
+          ? p.paidAmount
+          : calculatePlayerCost(p)),
+      0
+    );
 
   const pendingAmount = grandTotal - totalCollected;
 
@@ -409,7 +487,7 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                 <option value="">-- คลิกเพื่อเลือกชื่อของคุณ --</option>
                 {eligiblePlayers.map((p) => (
                   <option key={p.id} value={p.id}>
-                    คุณ {p.nickname} ({p.gamesPlayed} เกม • {p.paid ? 'ชำระแล้ว ✅' : 'รอชำระ ⏳'})
+                    คุณ {p.nickname} ({p.gamesPlayed || 0} เกม / {p.matchesPlayed || 0} Match • {p.paid ? 'ชำระแล้ว ✅' : p.isCheckedIn ? 'ยัง Check-in 🔒' : 'รอชำระ ⏳'})
                   </option>
                 ))}
               </select>
@@ -430,7 +508,7 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                   <div>
                     <h4 className="text-lg font-bold text-white">คุณ {activeMember.nickname}</h4>
                     <span className="text-xs text-slate-400">
-                      ลงเล่นไปแล้ว: <strong className="text-white">{activeMember.gamesPlayed}</strong> เกม
+                      ลงเล่นไปแล้ว: <strong className="text-white">{activeMember.gamesPlayed || 0}</strong> เกม • <strong className="text-amber-300">{activeMember.matchesPlayed || 0}</strong> Match
                     </span>
                   </div>
                 </div>
@@ -438,7 +516,11 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                 {/* Amount Due Box */}
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
                   <div>
-                    <span className="text-xs text-slate-400 block">ยอดสุทธิที่ต้องชำระ:</span>
+                    <span className="text-xs text-slate-400 block">
+                      {activeMember.isCheckedIn
+                        ? 'ยอดปัจจุบัน (Check-out ก่อนจ่าย):'
+                        : 'ยอดสุทธิที่ต้องชำระ:'}
+                    </span>
                     <div className="text-3xl font-extrabold text-emerald-400 mt-0.5">
                       {calculatePlayerCost(activeMember).toLocaleString()}{' '}
                       <span className="text-sm font-normal text-slate-400">บาท</span>
@@ -456,6 +538,11 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                         <Check className="w-4 h-4" />
                         <span>ชำระเงินแล้ว ✅</span>
                       </button>
+                    ) : activeMember.isCheckedIn ? (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>Check-out ก่อนชำระ</span>
+                      </span>
                     ) : (
                       <button
                         type="button"
@@ -478,9 +565,9 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                       <span className="font-semibold text-white">{memberCourtFee} บาท</span>
                     </div>
                     <div className="flex items-center justify-between text-slate-300">
-                      <span>• ค่าลูกตามแมตช์ ({activeMember.gamesPlayed} แมตช์ x {shuttlecockFeePerMatch}฿):</span>
+                      <span>• ค่าลูกตามแมตช์ ({activeMember.matchesPlayed || 0} Match x {shuttlecockFeePerMatch}฿):</span>
                       <span className="font-semibold text-amber-400">
-                        {(activeMember.gamesPlayed * shuttlecockFeePerMatch)} บาท
+                        {((activeMember.matchesPlayed || 0) * shuttlecockFeePerMatch)} บาท
                       </span>
                     </div>
                     {(activeMember.extraShuttlecocks || 0) > 0 && (
@@ -488,6 +575,29 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                         <span>• ค่าลูกซื้อเพิ่ม ({activeMember.extraShuttlecocks} ลูก x {extraShuttlecockPrice}฿):</span>
                         <span className="font-semibold text-blue-400">
                           {((activeMember.extraShuttlecocks || 0) * extraShuttlecockPrice)} บาท
+                        </span>
+                      </div>
+                    )}
+                    {(activeMember.matchesPlayed || 0) === 0 && (
+                      <div className="rounded-lg bg-cyan-950/30 border border-cyan-800/40 px-2.5 py-2 text-[10px] text-cyan-300">
+                        ✓ เช็คอินอย่างเดียวคิดเฉพาะค่าคอร์ท • ค่าลูกจะเริ่มหลังจบ Match แรก
+                      </div>
+                    )}
+                    {calculatePlayerFinalCharge(
+                      activeMember,
+                      sessionConfig,
+                      promotionRedemptions,
+                      sessionConfig.date
+                    ).promotionDiscount > 0 && (
+                      <div className="flex items-center justify-between text-emerald-300">
+                        <span>• ส่วนลดโปรโมชั่น:</span>
+                        <span className="font-semibold">
+                          -{calculatePlayerFinalCharge(
+                            activeMember,
+                            sessionConfig,
+                            promotionRedemptions,
+                            sessionConfig.date
+                          ).promotionDiscount} บาท
                         </span>
                       </div>
                     )}
@@ -523,23 +633,41 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                   ยอดเงิน: {calculatePlayerCost(activeMember)} บาท
                 </span>
 
-                <button
-                  type="button"
-                  onClick={() => handleOpenPlayerQr(activeMember)}
-                  className="p-3 bg-white rounded-2xl shadow-lg hover:scale-105 transition cursor-pointer group mb-3"
-                  title="คลิกเพื่อเปิดดู QR ขนาดใหญ่"
-                >
-                  <QrCode className="w-40 h-40 text-slate-950 mx-auto" />
-                  <span className="text-[10px] text-slate-600 font-bold block mt-1">
-                    คลิกเพื่อเปิดสแกน QR ขนาดใหญ่ 🔍
-                  </span>
-                </button>
+                {activeMember.isCheckedIn && !activeMember.paid ? (
+                  <div className="w-full rounded-2xl bg-amber-950/30 border border-amber-700/40 p-6 text-center mb-3">
+                    <Lock className="w-10 h-10 text-amber-400 mx-auto mb-2" />
+                    <div className="text-sm font-bold text-amber-300">
+                      กรุณา Check-out ก่อนชำระเงิน
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-1">
+                      QR จะเปิดหลัง Check-out เพื่อให้ยอด Match ถูกล็อกแล้ว
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPlayerQr(activeMember)}
+                      className="p-3 bg-white rounded-2xl shadow-lg hover:scale-105 transition cursor-pointer group mb-3"
+                      title="คลิกเพื่อเปิดดู QR ขนาดใหญ่"
+                    >
+                      <QrCode className="w-40 h-40 text-slate-950 mx-auto" />
+                      <span className="text-[10px] text-slate-600 font-bold block mt-1">
+                        คลิกเพื่อเปิดสแกน QR ขนาดใหญ่ 🔍
+                      </span>
+                    </button>
+                    <p className="text-[11px] text-slate-400 max-w-xs">
+                      สแกนผ่านแอปธนาคารใดก็ได้ ระบบจะใส่ยอด {calculatePlayerCost(activeMember)} บาท ให้อัตโนมัติ
+                    </p>
+                  </>
+                )}
 
-                <p className="text-[11px] text-slate-400 max-w-xs">
-                  สแกนผ่านแอปธนาคารใดก็ได้ ระบบจะใส่ยอด {calculatePlayerCost(activeMember)} บาท ให้อัตโนมัติ
-                </p>
-
-                {!activeMember.paid ? (
+                {!activeMember.paid && activeMember.isCheckedIn ? (
+                  <div className="w-full mt-3 py-2.5 px-4 rounded-xl bg-slate-800 text-amber-300 font-bold text-xs border border-amber-800/50 flex items-center justify-center gap-2">
+                    <Lock className="w-4 h-4" />
+                    <span>Check-out ก่อน จึงจะยืนยันชำระได้</span>
+                  </div>
+                ) : !activeMember.paid ? (
                   <button
                     type="button"
                     onClick={() => handleRequestTogglePayment(activeMember, true)}
@@ -659,7 +787,7 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                   {clubShuttleMatchTotal.toLocaleString()} <span className="text-xs font-normal text-slate-400">บาท</span>
                 </div>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  ลงเล่นรวม {totalGamesPlayed} เกม x {shuttlecockFeePerMatch}฿
+                  ลงเล่นรวม {totalMatchesPlayed} Match x {shuttlecockFeePerMatch}฿
                 </p>
               </div>
 
@@ -750,7 +878,7 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                 <span>วิธีคิดเงิน & สรุปค่าใช้จ่าย (Billing Formula)</span>
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                เลือกรูปแบบการคิดเงิน: ระบบก๊วน (คอร์ท 110฿ + ลูก 25฿/คน/เกม + ลูกเพิ่ม 25฿), หารเท่า, หรือตามจำนวนเกม
+                เลือกรูปแบบการคิดเงิน: ระบบก๊วน (คอร์ท 110฿ + ลูก 25฿/คน/Match + ลูกเพิ่ม 25฿), หารเท่า, หรือตามจำนวนเกม
               </p>
             </div>
 
@@ -846,7 +974,7 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                       }
                       className="w-full text-xs rounded-lg bg-slate-900 border border-slate-700 text-amber-400 font-extrabold px-3 py-2 focus:outline-none focus:border-emerald-500"
                     />
-                    <span className="text-xs text-slate-400 shrink-0">฿/คน/เกม</span>
+                    <span className="text-xs text-slate-400 shrink-0">฿/คน/Match</span>
                   </div>
                   <span className="text-[10px] text-slate-500 mt-1 block">มาตรฐาน: ลูกละ 25 บาท จ่ายต่อคน</span>
                 </div>
@@ -877,7 +1005,7 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
               <div className="flex items-center gap-2 text-xs text-emerald-400/90 bg-emerald-950/40 border border-emerald-900/50 rounded-xl p-2.5">
                 <Info className="w-4 h-4 shrink-0 text-emerald-400" />
                 <span>
-                  <strong>สูตรคิดเงินระบบก๊วน:</strong> ยอดของสมาชิกแต่ละคน = ค่าคอร์ท <strong>{memberCourtFee}฿</strong> + (จำนวนเกมที่เล่น x <strong>{shuttlecockFeePerMatch}฿</strong>) + (ลูกซื้อเพิ่ม x <strong>{extraShuttlecockPrice}฿</strong>)
+                  <strong>สูตรคิดเงินระบบก๊วน:</strong> ยอดของสมาชิกแต่ละคน = ค่าคอร์ท <strong>{memberCourtFee}฿</strong> + (จำนวน Match ที่เล่น x <strong>{shuttlecockFeePerMatch}฿</strong>) + (ลูกซื้อเพิ่ม x <strong>{extraShuttlecockPrice}฿</strong>)
                 </span>
               </div>
             </div>
@@ -1136,7 +1264,7 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                 onClick={handleSafeMarkAllPaid}
                 className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 bg-emerald-950/60 border border-emerald-800 px-3 py-1.5 rounded-xl transition shrink-0"
               >
-                ทำเครื่องหมายจ่ายครบทุกคน
+                จ่ายครบเฉพาะคนที่ Check-out
               </button>
             )}
           </div>
@@ -1165,7 +1293,8 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
               {filteredPlayers.map((player) => {
                 const cost = calculatePlayerCost(player);
                 const extraCount = player.extraShuttlecocks || 0;
-                const matchShuttleCost = player.gamesPlayed * shuttlecockFeePerMatch;
+                const matchCount = player.matchesPlayed || 0;
+                const matchShuttleCost = matchCount * shuttlecockFeePerMatch;
 
                 return (
                   <tr
@@ -1197,7 +1326,7 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                         </div>
                         <div className="text-[11px] text-slate-400">
                           {isClubRate
-                            ? `คอร์ท 110฿ + ลูก ${player.gamesPlayed} เกม${extraCount > 0 ? ` + เพิ่ม ${extraCount} ลูก` : ''}`
+                            ? `คอร์ท ${memberCourtFee}฿ + ลูก ${player.matchesPlayed || 0} Match${extraCount > 0 ? ` + เพิ่ม ${extraCount} ลูก` : ''}`
                             : player.fullName || player.phone || 'สมาชิก'}
                         </div>
                       </div>
@@ -1216,7 +1345,10 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
 
                     {/* Games Played */}
                     <td className="px-3 py-3.5 text-center font-bold text-white">
-                      {player.gamesPlayed} เกม
+                      <div>{player.gamesPlayed || 0} เกม</div>
+                      <div className="text-[10px] text-amber-400 font-medium">
+                        {player.matchesPlayed || 0} Match
+                      </div>
                     </td>
 
                     {/* Club Rate breakdown columns (Organizer only) */}
@@ -1228,7 +1360,7 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                         <td className="px-3 py-3.5 text-center text-amber-400 font-medium">
                           {matchShuttleCost}฿
                           <span className="text-[10px] text-slate-500 block">
-                            ({player.gamesPlayed}x{shuttlecockFeePerMatch}฿)
+                            ({matchCount}x{shuttlecockFeePerMatch}฿)
                           </span>
                         </td>
                         <td className="px-3 py-3.5 text-center">
@@ -1272,10 +1404,13 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                     <td className="px-3 py-3.5 text-center">
                       <button
                         type="button"
+                        disabled={!player.paid && player.isCheckedIn}
                         onClick={() => handleRequestTogglePayment(player, !player.paid)}
                         className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition shadow-sm ${
                           player.paid
                             ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30'
+                            : player.isCheckedIn
+                            ? 'bg-amber-500/10 text-amber-300 border border-amber-700/40 cursor-not-allowed'
                             : 'bg-rose-500/20 text-rose-400 border border-rose-500/40 hover:bg-rose-500/30'
                         }`}
                         title={
@@ -1289,6 +1424,11 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                             <Check className="w-3.5 h-3.5" />
                             <span>ชำระแล้ว</span>
                           </>
+                        ) : player.isCheckedIn ? (
+                          <>
+                            <Lock className="w-3.5 h-3.5" />
+                            <span>Check-out ก่อน</span>
+                          </>
                         ) : (
                           <span>รอชำระ (กดจ่าย)</span>
                         )}
@@ -1299,9 +1439,18 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                     <td className="px-4 py-3.5 text-right whitespace-nowrap">
                       <button
                         type="button"
+                        disabled={player.isCheckedIn && !player.paid}
                         onClick={() => handleOpenPlayerQr(player)}
-                        title="เปิด QR พร้อมเพย์สำหรับผู้เล่นคนนี้"
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[11px] transition"
+                        title={
+                          player.isCheckedIn && !player.paid
+                            ? 'ต้อง Check-out ก่อนเปิด QR ชำระเงิน'
+                            : 'เปิด QR พร้อมเพย์สำหรับผู้เล่นคนนี้'
+                        }
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] transition ${
+                          player.isCheckedIn && !player.paid
+                            ? 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
+                        }`}
                       >
                         <QrCode className="w-3.5 h-3.5 text-emerald-400" />
                         <span>QR {cost}฿</span>
@@ -1376,7 +1525,7 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
 
             {/* Modal Actions */}
             <div className="flex items-center gap-2 pt-2">
-              {isOrganizerMode && selectedPlayerForQr ? (
+              {isOrganizerMode && selectedPlayerForQr && !selectedPlayerForQr.isCheckedIn ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -1389,7 +1538,7 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                   <Check className="w-4 h-4" />
                   <span>บันทึกว่าได้รับเงินแล้ว ✅</span>
                 </button>
-              ) : selectedPlayerForQr && !selectedPlayerForQr.paid ? (
+              ) : selectedPlayerForQr && !selectedPlayerForQr.paid && !selectedPlayerForQr.isCheckedIn ? (
                 <button
                   type="button"
                   onClick={() => {

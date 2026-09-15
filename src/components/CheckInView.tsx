@@ -27,6 +27,7 @@ interface CheckInViewProps {
   onToggleWalkInPenalty?: (playerId: string) => void;
   onToggleRegistrationType?: (playerId: string) => void;
   onPromptIdentifyMember?: () => void;
+  onOpenMemberCenter?: () => void;
 }
 
 export const CheckInView: React.FC<CheckInViewProps> = ({
@@ -48,6 +49,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
   onToggleWalkInPenalty,
   onToggleRegistrationType,
   onPromptIdentifyMember,
+  onOpenMemberCenter,
 }) => {
   const showSkill = isOrganizerMode || !hideSkillFromMembers;
   const [searchTerm, setSearchTerm] = useState('');
@@ -306,7 +308,19 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
             </button>
 
             {isOrganizerMode ? (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {onOpenMemberCenter && (
+                  <button
+                    type="button"
+                    onClick={onOpenMemberCenter}
+                    className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg bg-violet-500/15 hover:bg-violet-500/25 text-violet-300 border border-violet-500/40 transition shadow-sm"
+                    title="สถิติระยะยาว โปรโมชั่นวันเกิด โปรโมชั่น 50 Games และถังขยะสมาชิก"
+                  >
+                    <Award className="w-4 h-4" />
+                    <span>สถิติ / โปรโมชัน</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={onOpenAddPlayerModal}
@@ -427,7 +441,14 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
       {/* Player Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
         {filteredPlayers.map((player) => {
-          const skillMeta = SKILL_LEVELS[player.skillLevel];
+          const displaySkillLevel: SkillLevel =
+            SKILL_LEVELS[player.skillLevel] ? player.skillLevel : 'B';
+          const skillMeta = SKILL_LEVELS[displaySkillLevel] ?? SKILL_LEVELS.B;
+          const displaySkillScore =
+            typeof player.skillScore === 'number' && Number.isFinite(player.skillScore)
+              ? player.skillScore
+              : skillMeta.score;
+
           const hasVerification = Boolean(getPlayerVerificationCode(player));
           const isCurrentUser = Boolean(currentMemberId && player.id === currentMemberId);
           const canActOnPlayer = isOrganizerMode || isCurrentUser;
@@ -565,9 +586,9 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
                           }}
                         >
                           <Award className="w-3.5 h-3.5" />
-                          <span>{player.skillLevel}</span>
+                          <span>{displaySkillLevel}</span>
                           <span className="text-[10px] opacity-75 font-normal">
-                            ({player.skillScore.toFixed(1)})
+                            ({displaySkillScore.toFixed(1)})
                           </span>
                         </div>
                         {isOrganizerMode && (

@@ -78,16 +78,14 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
     return new Set([...fromActive, ...markedPlaying]);
   }, [activeMatches, players]);
 
-  // Sanitized confirmed pre-matches:
-  // 1. MUST NOT contain anyone currently playing on court
-  // 2. Pre-Match 2 MUST NOT contain anyone in Pre-Match 1
+  // Organizer may reserve a player who is currently playing.
+  // Only duplicates inside the same Pre-Match make the lineup invalid.
   const safeConfirmedPreMatch1 = useMemo(() => {
     if (!confirmedPreMatch) return null;
     const all = [...confirmedPreMatch.teamA, ...confirmedPreMatch.teamB];
-    if (all.some((id) => playingPlayerIds.has(id))) return null;
     if (new Set(all).size !== 4) return null;
     return confirmedPreMatch;
-  }, [confirmedPreMatch, playingPlayerIds]);
+  }, [confirmedPreMatch]);
 
   const confirmedPre1PlayerIds = useMemo(() => {
     if (!safeConfirmedPreMatch1) return new Set<string>();
@@ -97,11 +95,10 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
   const safeConfirmedPreMatch2 = useMemo(() => {
     if (!confirmedPreMatch2) return null;
     const all = [...confirmedPreMatch2.teamA, ...confirmedPreMatch2.teamB];
-    if (all.some((id) => playingPlayerIds.has(id))) return null;
     if (all.some((id) => confirmedPre1PlayerIds.has(id))) return null;
     if (new Set(all).size !== 4) return null;
     return confirmedPreMatch2;
-  }, [confirmedPreMatch2, playingPlayerIds, confirmedPre1PlayerIds]);
+  }, [confirmedPreMatch2, confirmedPre1PlayerIds]);
 
   const confirmedPre2PlayerIds = useMemo(() => {
     if (!safeConfirmedPreMatch2) return new Set<string>();
@@ -129,6 +126,16 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
     return players.find((p) => p.id === id);
   };
 
+  // Organizer manual picker can see every checked-in player:
+  // Waiting, Playing, Resting, PM1 and PM2.
+  const manualSelectablePlayers = useMemo(() => {
+    return players.filter((p) => p.isCheckedIn && p.status !== 'left');
+  }, [players]);
+
+  const manualSelectablePlayerIds = useMemo(() => {
+    return new Set(manualSelectablePlayers.map((p) => p.id));
+  }, [manualSelectablePlayers]);
+
   // --- SLOT 1 COMPUTATION ---
   // Candidate pool for Slot 1: excludes playing players and confirmed Slot 2 players
   const poolForSlot1 = useMemo(() => {
@@ -150,9 +157,8 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
 
     if (customDraft1) {
       const allFour = [...customDraft1.teamA, ...customDraft1.teamB];
-      const validPoolIds = new Set(poolForSlot1.map((p) => p.id));
       const isUnique = new Set(allFour).size === 4;
-      const allInPool = allFour.every((id) => id && validPoolIds.has(id));
+      const allInPool = allFour.every((id) => id && manualSelectablePlayerIds.has(id));
       if (isUnique && allInPool) {
         return {
           teamA: customDraft1.teamA,
@@ -189,7 +195,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
     }
 
     return null;
-  }, [safeConfirmedPreMatch1, customDraft1, poolForSlot1]);
+  }, [safeConfirmedPreMatch1, customDraft1, poolForSlot1, manualSelectablePlayerIds]);
 
   // Player IDs currently reserved or proposed for Slot 1
   const slot1PlayerIds = useMemo(() => {
@@ -221,9 +227,8 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
 
     if (customDraft2) {
       const allFour = [...customDraft2.teamA, ...customDraft2.teamB];
-      const validPoolIds = new Set(poolForSlot2.map((p) => p.id));
       const isUnique = new Set(allFour).size === 4;
-      const allInPool = allFour.every((id) => id && validPoolIds.has(id));
+      const allInPool = allFour.every((id) => id && manualSelectablePlayerIds.has(id));
       if (isUnique && allInPool) {
         return {
           teamA: customDraft2.teamA,
@@ -260,15 +265,136 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
     }
 
     return null;
-  }, [safeConfirmedPreMatch2, customDraft2, poolForSlot2]);
+  }, [safeConfirmedPreMatch2, customDraft2, poolForSlot2, manualSelectablePlayerIds]);
 
   const slot2PlayerIds = useMemo(() => {
     if (!slot2Lineup) return new Set<string>();
     return new Set([...slot2Lineup.teamA, ...slot2Lineup.teamB]);
   }, [slot2Lineup]);
 
+  const statusSlot1PlayerIds = useMemo(() => {
+    if (confirmedPreMatch) {
+      return new Set([...confirmedPreMatch.teamA, ...confirmedPreMatch.teamB]);
+    }
+    return slot1PlayerIds;
+  }, [confirmedPreMatch, slot1PlayerIds]);
+
+  const statusSlot2PlayerIds = useMemo(() => {
+    if (confirmedPreMatch2) {
+      return new Set([...confirmedPreMatch2.teamA, ...confirmedPreMatch2.teamB]);
+    }
+    return slot2PlayerIds;
+  }, [confirmedPreMatch2, slot2PlayerIds]);
+
+  type PlayerLocationKind =
+    | 'duplicate'
+    | 'prematch1'
+    | 'prematch2'
+    | 'playing'
+    | 'waiting'
+    | 'resting'
+    | 'left'
+    | 'not-checked-in'
+    | 'unknown';
+
+  const getPlayerLocationStatus = (
+    playerId: string
+  ): { label: string; kind: PlayerLocationKind } => {
+    const player = getPlayer(playerId);
+    const activeCourt = activeMatches.find((m) =>
+      [...m.teamA, ...m.teamB].includes(playerId)
+    );
+    const inPreMatch1 = statusSlot1PlayerIds.has(playerId);
+    const inPreMatch2 = statusSlot2PlayerIds.has(playerId);
+
+    const parts: string[] = [];
+    if (activeCourt) parts.push(`กำลังเล่น • ${activeCourt.courtName}`);
+
+    if (inPreMatch1 && inPreMatch2) {
+      parts.push('⚠️ ซ้ำ PM1 + PM2');
+      return { label: parts.join(' • '), kind: 'duplicate' };
+    }
+
+    if (inPreMatch1) {
+      parts.push(`Pre-Match #1${confirmedPreMatch ? ' • ยืนยันแล้ว' : ' • Draft'}`);
+    }
+    if (inPreMatch2) {
+      parts.push(`Pre-Match #2${confirmedPreMatch2 ? ' • ยืนยันแล้ว' : ' • Draft'}`);
+    }
+
+    if (parts.length > 0) {
+      return {
+        label: parts.join(' • '),
+        kind: activeCourt ? 'playing' : inPreMatch1 ? 'prematch1' : 'prematch2',
+      };
+    }
+
+    if (!player?.isCheckedIn) return { label: 'ยังไม่ Check-in', kind: 'not-checked-in' };
+    if (player.status === 'resting') return { label: 'กำลังพัก', kind: 'resting' };
+    if (player.status === 'left') return { label: 'Check-out แล้ว', kind: 'left' };
+
+    if (player.status === 'waiting') {
+      const queueIndex = waitingQueue.findIndex((p) => p.id === playerId);
+      return {
+        label: queueIndex >= 0 ? `Waiting #${queueIndex + 1}` : 'Waiting',
+        kind: 'waiting',
+      };
+    }
+
+    return { label: 'พร้อมเล่น', kind: 'unknown' };
+  };
+
+  const getPlayerLocationClass = (kind: PlayerLocationKind): string => {
+    switch (kind) {
+      case 'duplicate': return 'text-rose-300';
+      case 'prematch1': return 'text-emerald-300';
+      case 'prematch2': return 'text-indigo-300';
+      case 'playing': return 'text-blue-300';
+      case 'resting': return 'text-amber-300';
+      case 'left':
+      case 'not-checked-in': return 'text-slate-500';
+      case 'waiting': return 'text-slate-300';
+      default: return 'text-slate-400';
+    }
+  };
+
+  const duplicatedPreMatchPlayerIds = useMemo(() => {
+    return [...statusSlot1PlayerIds].filter((id) => statusSlot2PlayerIds.has(id));
+  }, [statusSlot1PlayerIds, statusSlot2PlayerIds]);
+
+  const slot1HasPlayingPlayer = useMemo(() => {
+    if (!slot1Lineup) return false;
+    return [...slot1Lineup.teamA, ...slot1Lineup.teamB].some((id) =>
+      playingPlayerIds.has(id)
+    );
+  }, [slot1Lineup, playingPlayerIds]);
+
+  const slot2HasPlayingPlayer = useMemo(() => {
+    if (!slot2Lineup) return false;
+    return [...slot2Lineup.teamA, ...slot2Lineup.teamB].some((id) =>
+      playingPlayerIds.has(id)
+    );
+  }, [slot2Lineup, playingPlayerIds]);
+
   // Current active lineup being edited in staging
   const currentStagingLineup = stagingSlot === 1 ? slot1Lineup : slot2Lineup;
+
+  const openStagingEditor = (slot: 1 | 2) => {
+    setStagingSlot(slot);
+    setIsEditingSlot(slot);
+
+    // The editor is below the Pre-Match cards. Scroll to it after React renders it,
+    // otherwise clicking "ปรับแต่ง" looks like nothing happened.
+    window.setTimeout(() => {
+      document
+        .getElementById('prematch-staging-panel')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  };
+
+  const closeStagingEditor = () => {
+    setIsEditingSlot(null);
+  };
 
   // Staged player objects for staging view
   const stagedA1 = currentStagingLineup ? getPlayer(currentStagingLineup.teamA[0]) : undefined;
@@ -330,7 +456,68 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
     return activeCourtsData.filter((c) => c.isAvailable);
   }, [activeCourtsData]);
 
-  // Handle swapping a player in a specific position of the active staging slot
+  type EditableLineup = {
+    teamA: [string, string];
+    teamB: [string, string];
+    notes?: string;
+  };
+
+  const cloneLineup = (lineup: {
+    teamA: [string, string];
+    teamB: [string, string];
+    notes?: string;
+  }): EditableLineup => ({
+    teamA: [lineup.teamA[0], lineup.teamA[1]],
+    teamB: [lineup.teamB[0], lineup.teamB[1]],
+    notes: lineup.notes || '',
+  });
+
+  const findPlayerPosition = (
+    lineup: EditableLineup | null,
+    playerId: string
+  ): { team: 'A' | 'B'; index: 0 | 1 } | null => {
+    if (!lineup) return null;
+    if (lineup.teamA[0] === playerId) return { team: 'A', index: 0 };
+    if (lineup.teamA[1] === playerId) return { team: 'A', index: 1 };
+    if (lineup.teamB[0] === playerId) return { team: 'B', index: 0 };
+    if (lineup.teamB[1] === playerId) return { team: 'B', index: 1 };
+    return null;
+  };
+
+  const setPlayerAtPosition = (
+    lineup: EditableLineup,
+    team: 'A' | 'B',
+    index: 0 | 1,
+    playerId: string
+  ) => {
+    if (team === 'A') lineup.teamA[index] = playerId;
+    else lineup.teamB[index] = playerId;
+  };
+
+  const commitEditedLineup = (slot: 1 | 2, lineup: EditableLineup) => {
+    const confirmed = slot === 1 ? confirmedPreMatch : confirmedPreMatch2;
+
+    if (confirmed) {
+      onConfirmPreMatch?.(
+        {
+          ...confirmed,
+          teamA: lineup.teamA,
+          teamB: lineup.teamB,
+          notes: lineup.notes ?? confirmed.notes ?? '',
+          confirmedAt: Date.now(),
+        },
+        slot
+      );
+      return;
+    }
+
+    if (slot === 1) {
+      setCustomDraft1({ teamA: lineup.teamA, teamB: lineup.teamB, notes: lineup.notes || stagingNotes });
+    } else {
+      setCustomDraft2({ teamA: lineup.teamA, teamB: lineup.teamB, notes: lineup.notes || stagingNotes });
+    }
+  };
+
   const handleSwapSlotPlayer = (
     team: 'A' | 'B',
     slotIndex: 0 | 1,
@@ -338,28 +525,47 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
   ) => {
     if (!currentStagingLineup || !newPlayerId) return;
 
-    const currentTeamA: [string, string] = [currentStagingLineup.teamA[0], currentStagingLineup.teamA[1]];
-    const currentTeamB: [string, string] = [currentStagingLineup.teamB[0], currentStagingLineup.teamB[1]];
+    const currentPlayerId =
+      team === 'A'
+        ? currentStagingLineup.teamA[slotIndex]
+        : currentStagingLineup.teamB[slotIndex];
 
-    if (team === 'A') {
-      currentTeamA[slotIndex] = newPlayerId;
-    } else {
-      currentTeamB[slotIndex] = newPlayerId;
+    if (currentPlayerId === newPlayerId) return;
+
+    const currentLineup = cloneLineup(currentStagingLineup);
+    const otherSlot: 1 | 2 = stagingSlot === 1 ? 2 : 1;
+    const otherSource = otherSlot === 1 ? slot1Lineup : slot2Lineup;
+    const otherLineup = otherSource ? cloneLineup(otherSource) : null;
+
+    const sameSlotPosition = findPlayerPosition(currentLineup, newPlayerId);
+    if (sameSlotPosition) {
+      setPlayerAtPosition(currentLineup, sameSlotPosition.team, sameSlotPosition.index, currentPlayerId);
+      setPlayerAtPosition(currentLineup, team, slotIndex, newPlayerId);
+      commitEditedLineup(stagingSlot, currentLineup);
+      setActionNotice(`🔄 สลับตำแหน่งใน Pre-Match #${stagingSlot} เรียบร้อย`);
+      setTimeout(() => setActionNotice(null), 3000);
+      return;
     }
 
-    if (stagingSlot === 1) {
-      setCustomDraft1({
-        teamA: currentTeamA,
-        teamB: currentTeamB,
-        notes: stagingNotes,
-      });
-    } else {
-      setCustomDraft2({
-        teamA: currentTeamA,
-        teamB: currentTeamB,
-        notes: stagingNotes,
-      });
+    const otherSlotPosition = findPlayerPosition(otherLineup, newPlayerId);
+    if (otherLineup && otherSlotPosition) {
+      setPlayerAtPosition(currentLineup, team, slotIndex, newPlayerId);
+      setPlayerAtPosition(otherLineup, otherSlotPosition.team, otherSlotPosition.index, currentPlayerId);
+      commitEditedLineup(stagingSlot, currentLineup);
+      commitEditedLineup(otherSlot, otherLineup);
+      setActionNotice(
+        `🔁 สลับ ${getPlayer(currentPlayerId)?.nickname || currentPlayerId} (PM${stagingSlot}) ↔ ${getPlayer(newPlayerId)?.nickname || newPlayerId} (PM${otherSlot}) แล้ว`
+      );
+      setTimeout(() => setActionNotice(null), 4000);
+      return;
     }
+
+    setPlayerAtPosition(currentLineup, team, slotIndex, newPlayerId);
+    commitEditedLineup(stagingSlot, currentLineup);
+    setActionNotice(
+      `✅ เปลี่ยนเป็น ${getPlayer(newPlayerId)?.nickname || newPlayerId} • ${getPlayerLocationStatus(newPlayerId).label}`
+    );
+    setTimeout(() => setActionNotice(null), 3500);
   };
 
   // Switch pairing: A2 <-> B1
@@ -402,27 +608,31 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
     }
   };
 
-  // Get available players for a specific staging position (deduplicating other slot & current slot)
+  // Organizer picker includes Waiting + Playing + Resting + PM1 + PM2.
   const getAvailableCandidates = (team: 'A' | 'B', slotIndex: 0 | 1) => {
     if (!currentStagingLineup) return [];
 
-    const currentSelectedId = team === 'A' ? currentStagingLineup.teamA[slotIndex] : currentStagingLineup.teamB[slotIndex];
-    const currentFour = [
-      currentStagingLineup.teamA[0],
-      currentStagingLineup.teamA[1],
-      currentStagingLineup.teamB[0],
-      currentStagingLineup.teamB[1],
-    ];
-    const otherThreeInCurrent = new Set(currentFour.filter((id) => id !== currentSelectedId));
+    const currentSelectedId =
+      team === 'A'
+        ? currentStagingLineup.teamA[slotIndex]
+        : currentStagingLineup.teamB[slotIndex];
 
-    // Players in the OTHER slot
-    const otherSlotPlayerIds = stagingSlot === 1 ? slot2PlayerIds : slot1PlayerIds;
+    const statusRank = (p: Player) => {
+      if (p.id === currentSelectedId) return 0;
+      if (statusSlot1PlayerIds.has(p.id) || statusSlot2PlayerIds.has(p.id)) return 1;
+      if (playingPlayerIds.has(p.id)) return 2;
+      if (p.status === 'waiting') return 3;
+      if (p.status === 'resting') return 4;
+      return 5;
+    };
 
-    return waitingQueue.filter((p) => {
-      if (p.id === currentSelectedId) return true;
-      if (otherThreeInCurrent.has(p.id)) return false;
-      if (otherSlotPlayerIds.has(p.id)) return false;
-      return true;
+    return [...manualSelectablePlayers].sort((a, b) => {
+      const rankDiff = statusRank(a) - statusRank(b);
+      if (rankDiff !== 0) return rankDiff;
+      if (a.status === 'waiting' && b.status === 'waiting') {
+        return comparePlayerPriority(a, b, currentTime);
+      }
+      return a.nickname.localeCompare(b.nickname, 'th');
     });
   };
 
@@ -520,7 +730,9 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
             </h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            สมาชิกสามารถดูเวลาแข่งขันของคอร์ท 1-2 และตรวจสอบคิวรอเล่นได้แบบเรียลไทม์
+            {isOrganizerMode
+              ? 'ผู้จัดสามารถดูสถานะคอร์ท, Pre-Match, คิวรอ และเวลารอได้แบบเรียลไทม์'
+              : 'สมาชิกสามารถดูสถานะคอร์ทและรายชื่อ Pre-Match ที่ผู้จัดยืนยันแล้ว'}
           </p>
         </div>
 
@@ -784,7 +996,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                 </div>
                 <div className="pt-1">
                   <span className="text-[11px] text-slate-400 bg-slate-900 px-3 py-1 rounded-full border border-slate-800 inline-block">
-                    💡 สมาชิกสามารถตรวจสอบลำดับคิวและเวลารอเล่นได้ในตารางด้านล่าง
+                    🔒 ลำดับคิวรอและเวลารอจะแสดงเฉพาะผู้จัดก๊วน
                   </span>
                 </div>
               </div>
@@ -890,6 +1102,9 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                                 <span className="text-amber-400 ml-1">(+{(p.walkInPenaltyMatches ?? 1) * 2} โทษ)</span>
                               )}
                             </div>
+                            <div className={`text-[9px] font-bold mt-0.5 ${getPlayerLocationClass(getPlayerLocationStatus(p.id).kind)}`}>
+                              สถานะ: {getPlayerLocationStatus(p.id).label}
+                            </div>
                           </div>
                         </div>
                       );
@@ -926,6 +1141,9 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                               {isWalkIn && (p.walkInPenaltyMatches ?? 1) > 0 && (
                                 <span className="text-amber-400 ml-1">(+{(p.walkInPenaltyMatches ?? 1) * 2} โทษ)</span>
                               )}
+                            </div>
+                            <div className={`text-[9px] font-bold mt-0.5 ${getPlayerLocationClass(getPlayerLocationStatus(p.id).kind)}`}>
+                              สถานะ: {getPlayerLocationStatus(p.id).label}
                             </div>
                           </div>
                         </div>
@@ -969,21 +1187,23 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                       {activeCourtsData[0]?.isAvailable ? (
                         <button
                           type="button"
+                          disabled={slot1HasPlayingPlayer}
                           onClick={() => onStartConfirmedPreMatch?.(activeCourtsData[0].courtId, safeConfirmedPreMatch1, 1)}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition shadow-sm"
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-950 font-bold text-xs transition shadow-sm"
                         >
                           <Play className="w-3.5 h-3.5 fill-current" />
-                          <span>🚀 สั่งลง {activeCourtsData[0].courtName} (ว่าง)</span>
+                          <span>{slot1HasPlayingPlayer ? '⏳ มีคนกำลังเล่น • รอจบเกมก่อน' : `🚀 สั่งลง ${activeCourtsData[0].courtName} (ว่าง)`}</span>
                         </button>
                       ) : availableCourts.length > 0 ? (
                         <button
                           type="button"
+                          disabled={slot1HasPlayingPlayer}
                           onClick={() => onStartConfirmedPreMatch?.(availableCourts[0].courtId, safeConfirmedPreMatch1, 1)}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition shadow-sm"
-                          title={`${activeCourtsData[0]?.courtName || 'คอร์ท 1'} กำลังแข่งอยู่ สั่งลง ${availableCourts[0].courtName} ที่ว่างแทนทันที`}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-950 font-bold text-xs transition shadow-sm"
+                          title={slot1HasPlayingPlayer ? 'มีผู้เล่นใน Pre-Match นี้ที่ยังอยู่ในสนาม' : `${activeCourtsData[0]?.courtName || 'คอร์ท 1'} กำลังแข่งอยู่ สั่งลง ${availableCourts[0].courtName} ที่ว่างแทนทันที`}
                         >
                           <Play className="w-3.5 h-3.5 fill-current" />
-                          <span>🚀 ส่งลง {availableCourts[0].courtName} (ว่าง)</span>
+                          <span>{slot1HasPlayingPlayer ? '⏳ มีคนกำลังเล่น • รอจบเกมก่อน' : `🚀 ส่งลง ${availableCourts[0].courtName} (ว่าง)`}</span>
                         </button>
                       ) : (
                         <div
@@ -997,10 +1217,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => {
-                          setStagingSlot(1);
-                          setIsEditingSlot(1);
-                        }}
+                        onClick={() => openStagingEditor(1)}
                         className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold flex items-center gap-1"
                         title="ปรับแต่งรายชื่อ"
                       >
@@ -1030,10 +1247,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => {
-                          setStagingSlot(1);
-                          setIsEditingSlot(1);
-                        }}
+                        onClick={() => openStagingEditor(1)}
                         className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold flex items-center gap-1"
                       >
                         <Edit2 className="w-3.5 h-3.5 text-indigo-400" />
@@ -1121,7 +1335,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                 </div>
                 <div className="pt-1">
                   <span className="text-[11px] text-slate-400 bg-slate-900 px-3 py-1 rounded-full border border-slate-800 inline-block">
-                    💡 สมาชิกสามารถตรวจสอบลำดับคิวและเวลารอเล่นได้ในตารางด้านล่าง
+                    🔒 ลำดับคิวรอและเวลารอจะแสดงเฉพาะผู้จัดก๊วน
                   </span>
                 </div>
               </div>
@@ -1227,6 +1441,9 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                                 <span className="text-amber-400 ml-1">(+{(p.walkInPenaltyMatches ?? 1) * 2} โทษ)</span>
                               )}
                             </div>
+                            <div className={`text-[9px] font-bold mt-0.5 ${getPlayerLocationClass(getPlayerLocationStatus(p.id).kind)}`}>
+                              สถานะ: {getPlayerLocationStatus(p.id).label}
+                            </div>
                           </div>
                         </div>
                       );
@@ -1263,6 +1480,9 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                               {isWalkIn && (p.walkInPenaltyMatches ?? 1) > 0 && (
                                 <span className="text-amber-400 ml-1">(+{(p.walkInPenaltyMatches ?? 1) * 2} โทษ)</span>
                               )}
+                            </div>
+                            <div className={`text-[9px] font-bold mt-0.5 ${getPlayerLocationClass(getPlayerLocationStatus(p.id).kind)}`}>
+                              สถานะ: {getPlayerLocationStatus(p.id).label}
                             </div>
                           </div>
                         </div>
@@ -1306,21 +1526,23 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                       {activeCourtsData[1]?.isAvailable ? (
                         <button
                           type="button"
+                          disabled={slot2HasPlayingPlayer}
                           onClick={() => onStartConfirmedPreMatch?.(activeCourtsData[1].courtId, safeConfirmedPreMatch2, 2)}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-slate-950 font-bold text-xs transition shadow-sm"
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-950 font-bold text-xs transition shadow-sm"
                         >
                           <Play className="w-3.5 h-3.5 fill-current" />
-                          <span>🚀 สั่งลง {activeCourtsData[1].courtName} (ว่าง)</span>
+                          <span>{slot2HasPlayingPlayer ? '⏳ มีคนกำลังเล่น • รอจบเกมก่อน' : `🚀 สั่งลง ${activeCourtsData[1].courtName} (ว่าง)`}</span>
                         </button>
                       ) : availableCourts.length > 0 ? (
                         <button
                           type="button"
+                          disabled={slot2HasPlayingPlayer}
                           onClick={() => onStartConfirmedPreMatch?.(availableCourts[0].courtId, safeConfirmedPreMatch2, 2)}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-slate-950 font-bold text-xs transition shadow-sm"
-                          title={`${activeCourtsData[1]?.courtName || 'คอร์ท 2'} กำลังแข่งอยู่ สั่งลง ${availableCourts[0].courtName} ที่ว่างแทนทันที`}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-950 font-bold text-xs transition shadow-sm"
+                          title={slot2HasPlayingPlayer ? 'มีผู้เล่นใน Pre-Match นี้ที่ยังอยู่ในสนาม' : `${activeCourtsData[1]?.courtName || 'คอร์ท 2'} กำลังแข่งอยู่ สั่งลง ${availableCourts[0].courtName} ที่ว่างแทนทันที`}
                         >
                           <Play className="w-3.5 h-3.5 fill-current" />
-                          <span>🚀 ส่งลง {availableCourts[0].courtName} (ว่าง)</span>
+                          <span>{slot2HasPlayingPlayer ? '⏳ มีคนกำลังเล่น • รอจบเกมก่อน' : `🚀 ส่งลง ${availableCourts[0].courtName} (ว่าง)`}</span>
                         </button>
                       ) : (
                         <div
@@ -1334,10 +1556,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => {
-                          setStagingSlot(2);
-                          setIsEditingSlot(2);
-                        }}
+                        onClick={() => openStagingEditor(2)}
                         className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold flex items-center gap-1"
                         title="ปรับแต่งรายชื่อ"
                       >
@@ -1367,10 +1586,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => {
-                          setStagingSlot(2);
-                          setIsEditingSlot(2);
-                        }}
+                        onClick={() => openStagingEditor(2)}
                         className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold flex items-center gap-1"
                       >
                         <Edit2 className="w-3.5 h-3.5 text-indigo-400" />
@@ -1448,8 +1664,11 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
         </div>
 
         {/* ORGANIZER STAGING & PAIRING PANEL */}
-        {isOrganizerMode && (
-          <div className="bg-slate-900 border-2 border-indigo-500/50 rounded-2xl p-4 sm:p-6 shadow-xl space-y-4 animate-fade-in mt-2">
+        {isOrganizerMode && isEditingSlot !== null && (
+          <div
+            id="prematch-staging-panel"
+            className="scroll-mt-4 bg-slate-900 border-2 border-indigo-500/50 rounded-2xl p-4 sm:p-6 shadow-xl space-y-4 animate-fade-in mt-2"
+          >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -1461,19 +1680,26 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                   </h3>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
-                  กำลังจัดคิวสำหรับ <span className="text-amber-400 font-bold">{sessionConfig.courtNames[stagingSlot - 1] || `คอร์ท ${stagingSlot}`}</span> • คัดกรองอัตโนมัติไม่ให้ซ้ำกับอีกคอร์ทและคนกำลังแข่งขัน
+                  กำลังจัดคิวสำหรับ <span className="text-amber-400 font-bold">{sessionConfig.courtNames[stagingSlot - 1] || `คอร์ท ${stagingSlot}`}</span>
+                  {' '}• เลือกได้ทั้ง Waiting / PM1 / PM2 / คนกำลังเล่น และระบบจะ Swap ชื่อให้อัตโนมัติ
                 </p>
               </div>
 
               {/* Slot Switcher Tabs & Quick Tools */}
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={closeStagingEditor}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-950 hover:bg-rose-950 text-slate-400 hover:text-rose-300 text-xs font-semibold border border-slate-700 hover:border-rose-800 transition"
+                  title="ปิดหน้าปรับแต่ง"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>ปิด</span>
+                </button>
                 <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
                   <button
                     type="button"
-                    onClick={() => {
-                      setStagingSlot(1);
-                      setIsEditingSlot(1);
-                    }}
+                    onClick={() => openStagingEditor(1)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
                       stagingSlot === 1
                         ? 'bg-emerald-600 text-white shadow'
@@ -1484,10 +1710,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setStagingSlot(2);
-                      setIsEditingSlot(2);
-                    }}
+                    onClick={() => openStagingEditor(2)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
                       stagingSlot === 2
                         ? 'bg-indigo-600 text-white shadow'
@@ -1530,6 +1753,31 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
               </div>
             </div>
 
+            <div
+              className={`rounded-xl border px-3 py-2.5 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                duplicatedPreMatchPlayerIds.length === 0
+                  ? 'bg-emerald-950/30 border-emerald-800/50 text-emerald-300'
+                  : 'bg-rose-950/40 border-rose-700/60 text-rose-300'
+              }`}
+            >
+              <div className="flex items-center gap-2 font-semibold">
+                {duplicatedPreMatchPlayerIds.length === 0 ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                ) : (
+                  <ShieldAlert className="w-4 h-4 shrink-0" />
+                )}
+                <span>
+                  {duplicatedPreMatchPlayerIds.length === 0
+                    ? 'PM1 / PM2 ไม่มีรายชื่อซ้ำ'
+                    : `พบชื่อซ้ำ ${duplicatedPreMatchPlayerIds.length} คนใน PM1 / PM2`}
+                </span>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-slate-300 bg-slate-950/70 border border-slate-800 rounded-xl px-3 py-2">
+              💡 ผู้จัดเลือกได้ทั้ง Waiting, กำลังเล่น, PM1, PM2 และคนพัก • ถ้าเลือกคนที่อยู่ PM อีกช่อง ระบบจะ Swap ให้อัตโนมัติ
+            </div>
+
             {/* Interactive Player Slots with Swap Pickers */}
             {currentStagingLineup ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1559,9 +1807,14 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                             {stagedA1 ? stagedA1.nickname : 'เลือกผู้เล่น'}
                           </span>
                           {stagedA1 && (
-                            <span className="text-[10px] text-slate-400 block">
-                              เล่น {stagedA1.gamesPlayed} เกม • มือ {stagedA1.skillLevel}
-                            </span>
+                            <>
+                              <span className="text-[10px] text-slate-400 block">
+                                เล่น {stagedA1.gamesPlayed} เกม • มือ {stagedA1.skillLevel}
+                              </span>
+                              <span className={`text-[10px] font-bold block mt-0.5 ${getPlayerLocationClass(getPlayerLocationStatus(stagedA1.id).kind)}`}>
+                                สถานะ: {getPlayerLocationStatus(stagedA1.id).label}
+                              </span>
+                            </>
                           )}
                         </div>
                       </div>
@@ -1573,7 +1826,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                       >
                         {getAvailableCandidates('A', 0).map((p) => (
                           <option key={p.id} value={p.id}>
-                            คุณ {p.nickname} (เล่น {p.gamesPlayed} เกม • มือ {p.skillLevel})
+                            คุณ {p.nickname} • มือ {p.skillLevel} — {getPlayerLocationStatus(p.id).label}
                           </option>
                         ))}
                       </select>
@@ -1598,9 +1851,14 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                             {stagedA2 ? stagedA2.nickname : 'เลือกผู้เล่น'}
                           </span>
                           {stagedA2 && (
-                            <span className="text-[10px] text-slate-400 block">
-                              เล่น {stagedA2.gamesPlayed} เกม • มือ {stagedA2.skillLevel}
-                            </span>
+                            <>
+                              <span className="text-[10px] text-slate-400 block">
+                                เล่น {stagedA2.gamesPlayed} เกม • มือ {stagedA2.skillLevel}
+                              </span>
+                              <span className={`text-[10px] font-bold block mt-0.5 ${getPlayerLocationClass(getPlayerLocationStatus(stagedA2.id).kind)}`}>
+                                สถานะ: {getPlayerLocationStatus(stagedA2.id).label}
+                              </span>
+                            </>
                           )}
                         </div>
                       </div>
@@ -1612,7 +1870,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                       >
                         {getAvailableCandidates('A', 1).map((p) => (
                           <option key={p.id} value={p.id}>
-                            คุณ {p.nickname} (เล่น {p.gamesPlayed} เกม • มือ {p.skillLevel})
+                            คุณ {p.nickname} • มือ {p.skillLevel} — {getPlayerLocationStatus(p.id).label}
                           </option>
                         ))}
                       </select>
@@ -1646,9 +1904,14 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                             {stagedB1 ? stagedB1.nickname : 'เลือกผู้เล่น'}
                           </span>
                           {stagedB1 && (
-                            <span className="text-[10px] text-slate-400 block">
-                              เล่น {stagedB1.gamesPlayed} เกม • มือ {stagedB1.skillLevel}
-                            </span>
+                            <>
+                              <span className="text-[10px] text-slate-400 block">
+                                เล่น {stagedB1.gamesPlayed} เกม • มือ {stagedB1.skillLevel}
+                              </span>
+                              <span className={`text-[10px] font-bold block mt-0.5 ${getPlayerLocationClass(getPlayerLocationStatus(stagedB1.id).kind)}`}>
+                                สถานะ: {getPlayerLocationStatus(stagedB1.id).label}
+                              </span>
+                            </>
                           )}
                         </div>
                       </div>
@@ -1660,7 +1923,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                       >
                         {getAvailableCandidates('B', 0).map((p) => (
                           <option key={p.id} value={p.id}>
-                            คุณ {p.nickname} (เล่น {p.gamesPlayed} เกม • มือ {p.skillLevel})
+                            คุณ {p.nickname} • มือ {p.skillLevel} — {getPlayerLocationStatus(p.id).label}
                           </option>
                         ))}
                       </select>
@@ -1685,9 +1948,14 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                             {stagedB2 ? stagedB2.nickname : 'เลือกผู้เล่น'}
                           </span>
                           {stagedB2 && (
-                            <span className="text-[10px] text-slate-400 block">
-                              เล่น {stagedB2.gamesPlayed} เกม • มือ {stagedB2.skillLevel}
-                            </span>
+                            <>
+                              <span className="text-[10px] text-slate-400 block">
+                                เล่น {stagedB2.gamesPlayed} เกม • มือ {stagedB2.skillLevel}
+                              </span>
+                              <span className={`text-[10px] font-bold block mt-0.5 ${getPlayerLocationClass(getPlayerLocationStatus(stagedB2.id).kind)}`}>
+                                สถานะ: {getPlayerLocationStatus(stagedB2.id).label}
+                              </span>
+                            </>
                           )}
                         </div>
                       </div>
@@ -1699,7 +1967,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                       >
                         {getAvailableCandidates('B', 1).map((p) => (
                           <option key={p.id} value={p.id}>
-                            คุณ {p.nickname} (เล่น {p.gamesPlayed} เกม • มือ {p.skillLevel})
+                            คุณ {p.nickname} • มือ {p.skillLevel} — {getPlayerLocationStatus(p.id).label}
                           </option>
                         ))}
                       </select>
@@ -1739,220 +2007,234 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
         )}
       </div>
 
-      {/* SECTION 3: Spotlight Finder ("เช็คคิวของฉัน") & Full Waiting Queue Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Users className="w-5 h-5 text-indigo-400" />
-              <span>ตารางคิวรอลงเล่นทั้งหมด ({waitingQueue.length} คน)</span>
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              จัดลำดับตามความยุติธรรม: รอมานานกว่า (Waiting Time) ได้ลงก่อน เพื่อให้ทุกคนได้เล่นอย่างทั่วถึง
-            </p>
+      {/* ORGANIZER ONLY: waiting queue rank and waiting time are private */}
+      {isOrganizerMode && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Users className="w-5 h-5 text-indigo-400" />
+                <span>ตารางคิวรอลงเล่นทั้งหมด ({waitingQueue.length} คน)</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                จัดลำดับตามความยุติธรรม: รอมานานกว่า (Waiting Time) ได้ลงก่อน เพื่อให้ทุกคนได้เล่นอย่างทั่วถึง
+              </p>
+            </div>
+
+            {/* Search box within queue */}
+            <div className="relative w-full sm:w-64">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="ค้นหาชื่อในคิว..."
+                value={filterSearch}
+                onChange={(e) => setFilterSearch(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+              />
+            </div>
           </div>
 
-          {/* Search box within queue */}
-          <div className="relative w-full sm:w-64">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="ค้นหาชื่อในคิว..."
-              value={filterSearch}
-              onChange={(e) => setFilterSearch(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-            />
-          </div>
-        </div>
+          {waitingQueue.length === 0 ? (
+            <div className="text-center py-8 text-slate-400 bg-slate-950 rounded-xl border border-dashed border-slate-800">
+              <p className="text-sm">ไม่มีผู้เล่นรอคิวในขณะนี้ (ทุกคนกำลังแข่งขันหรือพักเหนื่อย)</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                  <tr>
+                    <th className="px-3 py-2.5 w-14 text-center">อันดับ</th>
+                    <th className="px-3 py-2.5">ผู้เล่น</th>
+                    <th className="px-3 py-2.5 text-center">เกมที่เล่นแล้ว</th>
+                    <th className="px-3 py-2.5">เวลารอพัก</th>
+                    <th className="px-3 py-2.5 text-center">สถานะ</th>
+                    <th className="px-3 py-2.5 text-right">ปรับสถานะ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {filteredQueue.map((player, idx) => {
+                    const waitMs = getPlayerWaitTimeMs(player, currentTime);
+                    const isLongWait = waitMs > 25 * 60 * 1000;
+                    const isCurrentMember = currentMemberId === player.id;
+                    const locationStatus = getPlayerLocationStatus(player.id);
 
-        {waitingQueue.length === 0 ? (
-          <div className="text-center py-8 text-slate-400 bg-slate-950 rounded-xl border border-dashed border-slate-800">
-            <p className="text-sm">ไม่มีผู้เล่นรอคิวในขณะนี้ (ทุกคนกำลังแข่งขันหรือพักเหนื่อย)</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
-                <tr>
-                  <th className="px-3 py-2.5 w-14 text-center">อันดับ</th>
-                  <th className="px-3 py-2.5">ผู้เล่น</th>
-                  <th className="px-3 py-2.5 text-center">เกมที่เล่นแล้ว</th>
-                  <th className="px-3 py-2.5">เวลารอพัก</th>
-                  <th className="px-3 py-2.5 text-center">สถานะ</th>
-                  <th className="px-3 py-2.5 text-right">ปรับสถานะ</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {filteredQueue.map((player, idx) => {
-                  const waitMs = getPlayerWaitTimeMs(player, currentTime);
-                  const isLongWait = waitMs > 25 * 60 * 1000;
-                  const isCurrentMember = currentMemberId === player.id;
-
-                  return (
-                    <tr
-                      key={player.id}
-                      className={`transition ${
-                        isCurrentMember
-                          ? 'bg-indigo-950/40 border-l-4 border-l-indigo-400 hover:bg-indigo-900/40'
-                          : 'hover:bg-slate-800/40'
-                      }`}
-                    >
-                      {/* Queue Rank */}
-                      <td className="px-3 py-3 text-center">
-                        <span
-                          className={`w-6 h-6 rounded-full inline-flex items-center justify-center font-bold text-xs ${
-                            idx === 0
-                              ? 'bg-amber-500 text-slate-950'
-                              : isCurrentMember
-                              ? 'bg-indigo-500 text-white shadow-sm'
-                              : idx < 4
-                              ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                              : 'text-slate-400'
-                          }`}
-                        >
-                          #{idx + 1}
-                        </span>
-                      </td>
-
-                      {/* Player Avatar & Name */}
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-2.5">
-                          <div
-                            className={`w-8 h-8 rounded-lg bg-gradient-to-br ${player.avatarColor} text-white font-bold flex items-center justify-center text-xs shrink-0`}
+                    return (
+                      <tr
+                        key={player.id}
+                        className={`transition ${
+                          isCurrentMember
+                            ? 'bg-indigo-950/40 border-l-4 border-l-indigo-400 hover:bg-indigo-900/40'
+                            : 'hover:bg-slate-800/40'
+                        }`}
+                      >
+                        {/* Queue Rank */}
+                        <td className="px-3 py-3 text-center">
+                          <span
+                            className={`w-6 h-6 rounded-full inline-flex items-center justify-center font-bold text-xs ${
+                              idx === 0
+                                ? 'bg-amber-500 text-slate-950'
+                                : isCurrentMember
+                                ? 'bg-indigo-500 text-white shadow-sm'
+                                : idx < 4
+                                ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                                : 'text-slate-400'
+                            }`}
                           >
-                            {player.nickname.slice(0, 1)}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className={`font-bold text-xs ${isCurrentMember ? 'text-indigo-200' : 'text-white'}`}>
-                                {player.nickname}
-                              </span>
-                              {isCurrentMember && (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-indigo-500 text-white font-black inline-flex items-center gap-0.5 shadow-sm">
-                                  <span>👉 ตัวคุณ</span>
-                                </span>
-                              )}
-                              {safeConfirmedPreMatch1 && [...safeConfirmedPreMatch1.teamA, ...safeConfirmedPreMatch1.teamB].includes(player.id) && (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold inline-flex items-center gap-1">
-                                  <span>✅ คิว Pre-Match #1 (ยืนยันแล้ว)</span>
-                                </span>
-                              )}
-                              {safeConfirmedPreMatch2 && [...safeConfirmedPreMatch2.teamA, ...safeConfirmedPreMatch2.teamB].includes(player.id) && (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-950 text-indigo-300 border border-indigo-700 font-bold inline-flex items-center gap-1">
-                                  <span>✅ คิว Pre-Match #2 (ยืนยันแล้ว)</span>
-                                </span>
-                              )}
-                              {player.registrationType === 'walkin' ? (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950/90 text-amber-300 border border-amber-800 font-bold inline-flex items-center gap-1">
-                                  <span>🚶 Walk-in</span>
-                                  <span className="text-amber-200 bg-amber-900/60 px-1 rounded">
-                                    {(player.walkInPenaltyMatches ?? 1) > 0 ? `+${player.walkInPenaltyMatches ?? 1} รอบ` : 'ยกเว้น'}
-                                  </span>
-                                </span>
-                              ) : (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-900/60 font-semibold inline-flex items-center gap-1">
-                                  <span>📋 จองล่วงหน้า</span>
-                                </span>
-                              )}
+                            #{idx + 1}
+                          </span>
+                        </td>
+
+                        {/* Player Avatar & Name */}
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className={`w-8 h-8 rounded-lg bg-gradient-to-br ${player.avatarColor} text-white font-bold flex items-center justify-center text-xs shrink-0`}
+                            >
+                              {player.nickname.slice(0, 1)}
                             </div>
-                            <span className="text-[10px] text-slate-400 block mt-0.5">
-                              เช็คอิน: {player.checkInTime || '-'} น.
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className={`font-bold text-xs ${isCurrentMember ? 'text-indigo-200' : 'text-white'}`}>
+                                  {player.nickname}
+                                </span>
+                                {isCurrentMember && (
+                                  <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-indigo-500 text-white font-black inline-flex items-center gap-0.5 shadow-sm">
+                                    <span>👉 ตัวคุณ</span>
+                                  </span>
+                                )}
+                                {safeConfirmedPreMatch1 && [...safeConfirmedPreMatch1.teamA, ...safeConfirmedPreMatch1.teamB].includes(player.id) && (
+                                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold inline-flex items-center gap-1">
+                                    <span>✅ คิว Pre-Match #1 (ยืนยันแล้ว)</span>
+                                  </span>
+                                )}
+                                {safeConfirmedPreMatch2 && [...safeConfirmedPreMatch2.teamA, ...safeConfirmedPreMatch2.teamB].includes(player.id) && (
+                                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-950 text-indigo-300 border border-indigo-700 font-bold inline-flex items-center gap-1">
+                                    <span>✅ คิว Pre-Match #2 (ยืนยันแล้ว)</span>
+                                  </span>
+                                )}
+                                {player.registrationType === 'walkin' ? (
+                                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950/90 text-amber-300 border border-amber-800 font-bold inline-flex items-center gap-1">
+                                    <span>🚶 Walk-in</span>
+                                    <span className="text-amber-200 bg-amber-900/60 px-1 rounded">
+                                      {(player.walkInPenaltyMatches ?? 1) > 0 ? `+${player.walkInPenaltyMatches ?? 1} รอบ` : 'ยกเว้น'}
+                                    </span>
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-900/60 font-semibold inline-flex items-center gap-1">
+                                    <span>📋 จองล่วงหน้า</span>
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-slate-400 block mt-0.5">
+                                เช็คอิน: {player.checkInTime || '-'} น.
+                              </span>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Games Played */}
+                        <td className="px-3 py-3 text-center">
+                          <div className="font-bold text-slate-200">
+                            {player.gamesPlayed} เกม
+                          </div>
+                          {player.registrationType === 'walkin' && (player.walkInPenaltyMatches ?? 1) > 0 ? (
+                            <div className="text-[10px] text-amber-400 font-medium">
+                              คิวคำนวณ: {getPlayerEffectiveGames(player)} เกม
+                            </div>
+                          ) : null}
+                        </td>
+
+                        {/* Wait Time */}
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <Clock className={`w-3.5 h-3.5 ${isLongWait ? 'text-amber-400 animate-pulse' : 'text-slate-400'}`} />
+                            <span className={`font-semibold ${isLongWait ? 'text-amber-400' : 'text-slate-300'}`}>
+                              {formatWaitMinutes(waitMs)}
                             </span>
                           </div>
-                        </div>
-                      </td>
+                        </td>
 
-                      {/* Games Played */}
-                      <td className="px-3 py-3 text-center">
-                        <div className="font-bold text-slate-200">
-                          {player.gamesPlayed} เกม
-                        </div>
-                        {player.registrationType === 'walkin' && (player.walkInPenaltyMatches ?? 1) > 0 ? (
-                          <div className="text-[10px] text-amber-400 font-medium">
-                            คิวคำนวณ: {getPlayerEffectiveGames(player)} เกม
-                          </div>
-                        ) : null}
-                      </td>
-
-                      {/* Wait Time */}
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <Clock className={`w-3.5 h-3.5 ${isLongWait ? 'text-amber-400 animate-pulse' : 'text-slate-400'}`} />
-                          <span className={`font-semibold ${isLongWait ? 'text-amber-400' : 'text-slate-300'}`}>
-                            {formatWaitMinutes(waitMs)}
+                        {/* Status */}
+                        <td className="px-3 py-3 text-center">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                              locationStatus.kind === 'prematch1'
+                                ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                                : locationStatus.kind === 'prematch2'
+                                ? 'bg-indigo-950 text-indigo-300 border-indigo-700'
+                                : locationStatus.kind === 'playing'
+                                ? 'bg-blue-950 text-blue-300 border-blue-700'
+                                : locationStatus.kind === 'duplicate'
+                                ? 'bg-rose-950 text-rose-300 border-rose-700'
+                                : 'bg-slate-900 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            <span>{locationStatus.label}</span>
                           </span>
-                        </div>
-                      </td>
+                        </td>
 
-                      {/* Status */}
-                      <td className="px-3 py-3 text-center">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                          <span>พร้อมเล่น</span>
-                        </span>
-                      </td>
-
-                      {/* Change Status Action */}
-                      <td className="px-3 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {isOrganizerMode && player.registrationType === 'walkin' && onToggleWalkInPenalty && (
-                            <button
-                              type="button"
-                              onClick={() => onToggleWalkInPenalty(player.id)}
-                              title={(player.walkInPenaltyMatches ?? 1) > 0 ? 'คลิกเพื่อยกเว้น Penalty สำหรับผู้เล่นนี้' : 'คลิกเพื่อใส่ Penalty +1 รอบ'}
-                              className="px-2 py-1 rounded-lg bg-amber-950/60 hover:bg-amber-900/60 text-amber-300 border border-amber-800 text-[10px] font-medium transition"
-                            >
-                              {(player.walkInPenaltyMatches ?? 1) > 0 ? 'ยกเว้นโทษ' : '+โทษ 1 รอบ'}
-                            </button>
-                          )}
-                          {isOrganizerMode ? (
-                            <button
-                              type="button"
-                              onClick={() => onSelectPlayerStatus?.(player.id, 'resting')}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[11px] transition"
-                            >
-                              <Coffee className="w-3 h-3 text-amber-400" />
-                              <span>ขอพักเหนื่อย</span>
-                            </button>
-                          ) : isCurrentMember ? (
-                            <button
-                              type="button"
-                              onClick={() => onSelectPlayerStatus?.(player.id, 'resting')}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition shadow-sm"
-                              title="คลิกเพื่อขอพักเหนื่อยรอบนี้"
-                            >
-                              <Coffee className="w-3.5 h-3.5 text-amber-400" />
-                              <span>ขอพักรอบนี้</span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (!currentMemberId) {
-                                  setActionNotice('กรุณาคลิกเลือกชื่อเล่นของคุณด้านบน หรือกด Walk-in เข้าก๊วนก่อนเปลี่ยนสถานะ');
-                                  onPromptIdentifyMember?.();
-                                } else {
-                                  setActionNotice(`คุณเข้าใช้งานในชื่อของคุณ ไม่สามารถปรับสถานะของ ${player.nickname} ได้ (สิทธิ์นี้สำหรับผู้จัดก๊วนเท่านั้น)`);
-                                }
-                                setTimeout(() => setActionNotice(null), 4000);
-                              }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900/80 text-slate-500 border border-slate-800 text-[11px] hover:border-slate-700 hover:text-slate-400 transition"
-                              title="เฉพาะผู้จัดก๊วน หรือเจ้าของชื่อเท่านั้น"
-                            >
-                              <Coffee className="w-3 h-3" />
-                              <span>ขอพัก</span>
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                        {/* Change Status Action */}
+                        <td className="px-3 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {isOrganizerMode && player.registrationType === 'walkin' && onToggleWalkInPenalty && (
+                              <button
+                                type="button"
+                                onClick={() => onToggleWalkInPenalty(player.id)}
+                                title={(player.walkInPenaltyMatches ?? 1) > 0 ? 'คลิกเพื่อยกเว้น Penalty สำหรับผู้เล่นนี้' : 'คลิกเพื่อใส่ Penalty +1 รอบ'}
+                                className="px-2 py-1 rounded-lg bg-amber-950/60 hover:bg-amber-900/60 text-amber-300 border border-amber-800 text-[10px] font-medium transition"
+                              >
+                                {(player.walkInPenaltyMatches ?? 1) > 0 ? 'ยกเว้นโทษ' : '+โทษ 1 รอบ'}
+                              </button>
+                            )}
+                            {isOrganizerMode ? (
+                              <button
+                                type="button"
+                                onClick={() => onSelectPlayerStatus?.(player.id, 'resting')}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[11px] transition"
+                              >
+                                <Coffee className="w-3 h-3 text-amber-400" />
+                                <span>ขอพักเหนื่อย</span>
+                              </button>
+                            ) : isCurrentMember ? (
+                              <button
+                                type="button"
+                                onClick={() => onSelectPlayerStatus?.(player.id, 'resting')}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition shadow-sm"
+                                title="คลิกเพื่อขอพักเหนื่อยรอบนี้"
+                              >
+                                <Coffee className="w-3.5 h-3.5 text-amber-400" />
+                                <span>ขอพักรอบนี้</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!currentMemberId) {
+                                    setActionNotice('กรุณาคลิกเลือกชื่อเล่นของคุณด้านบน หรือกด Walk-in เข้าก๊วนก่อนเปลี่ยนสถานะ');
+                                    onPromptIdentifyMember?.();
+                                  } else {
+                                    setActionNotice(`คุณเข้าใช้งานในชื่อของคุณ ไม่สามารถปรับสถานะของ ${player.nickname} ได้ (สิทธิ์นี้สำหรับผู้จัดก๊วนเท่านั้น)`);
+                                  }
+                                  setTimeout(() => setActionNotice(null), 4000);
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900/80 text-slate-500 border border-slate-800 text-[11px] hover:border-slate-700 hover:text-slate-400 transition"
+                                title="เฉพาะผู้จัดก๊วน หรือเจ้าของชื่อเท่านั้น"
+                              >
+                                <Coffee className="w-3 h-3" />
+                                <span>ขอพัก</span>
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Resting Players List (if any) */}
       {restingPlayers.length > 0 && (
