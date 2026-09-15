@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCqub_p5koak894EwApEexlUGVMoGAkg3E",
@@ -13,3 +14,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 export const db = getFirestore(app);
+export const auth = getAuth(app);
+
+// Firebase Authentication UID for the GuanGuan organizer account.
+// The UID itself is not a password/secret.
+export const ORGANIZER_UID = 'DWpEIuKxqRTBptDKqM4FIKjMPmf1';

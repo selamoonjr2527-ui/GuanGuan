@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
+import {
+  onAuthStateChanged,
+  signInAnonymously,
+  signOut,
+} from 'firebase/auth';
+import { auth, ORGANIZER_UID } from './firebase';
 import { Header } from './components/Header';
 import { PreMatchView } from './components/PreMatchView';
 import { CheckInView } from './components/CheckInView';
@@ -47,6 +53,13 @@ import {
 export default function App() {
   const [appState, setAppState] = useState(() => loadAppState());
 
+  // Firebase Authentication
+  // Members use anonymous auth automatically.
+  // Organizer mode is granted only after Firebase Auth confirms ORGANIZER_UID.
+  const [authReady, setAuthReady] = useState(false);
+  const [authUserUid, setAuthUserUid] = useState('');
+  const anonymousSignInInProgressRef = useRef(false);
+
   // Firestore realtime sync status
   const [syncStatus, setSyncStatus] = useState<'connecting' | 'saving' | 'synced' | 'error'>('connecting');
   const [archiveRevision, setArchiveRevision] = useState(0);
@@ -62,15 +75,9 @@ export default function App() {
 
   const [currentTab, setCurrentTab] = useState<TabType>('prematch');
   
-  // Default to Member View! Can be set to organizer via PIN or URL param ?mode=organizer
-  const [isOrganizerMode, setIsOrganizerMode] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('mode') === 'organizer') return true;
-      if (params.get('mode') === 'member') return false;
-    }
-    return false; // Default to Member View
-  });
+  // Never trust ?mode=organizer by itself.
+  // Organizer mode is enabled only after Firebase Auth confirms ORGANIZER_UID.
+  const [isOrganizerMode, setIsOrganizerMode] = useState<boolean>(false);
 
   // Track the active user identity (member/walk-in)
   const [currentMemberId, setCurrentMemberId] = useState<string>(() => {
@@ -91,7 +98,10 @@ export default function App() {
     }
   };
 
-  const [isPinModalOpen, setIsPinModalOpen] = useState<boolean>(false);
+  const [isPinModalOpen, setIsPinModalOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('mode') === 'organizer';
+  });
   const [isArchiveModalOpen, setIsArchiveModalOpen] = useState<boolean>(false);
 
   // Modals
@@ -114,10 +124,77 @@ export default function App() {
   });
   const [selectedPlayerForAssessment, setSelectedPlayerForAssessment] = useState<Player | null>(null);
 
+  // Keep Firebase Authentication ready before opening Firestore listeners.
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setAuthReady(false);
+        setAuthUserUid('');
+        setIsOrganizerMode(false);
+
+        if (!anonymousSignInInProgressRef.current) {
+          anonymousSignInInProgressRef.current = true;
+
+          try {
+            await signInAnonymously(auth);
+          } catch (error) {
+            console.error('Anonymous Firebase login failed', error);
+            anonymousSignInInProgressRef.current = false;
+          }
+        }
+
+        return;
+      }
+
+      anonymousSignInInProgressRef.current = false;
+      setAuthUserUid(user.uid);
+      setAuthReady(true);
+
+      const params =
+        typeof window !== 'undefined'
+          ? new URLSearchParams(window.location.search)
+          : null;
+      const forceMemberMode = params?.get('mode') === 'member';
+
+      setIsOrganizerMode(user.uid === ORGANIZER_UID && !forceMemberMode);
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
+
+  const handleExitOrganizerMode = async () => {
+    setIsOrganizerMode(false);
+
+    if (currentTab === 'courts' || currentTab === 'finance') {
+      setCurrentTab('prematch');
+    }
+
+    if (auth.currentUser?.uid === ORGANIZER_UID) {
+      try {
+        setAuthReady(false);
+        await signOut(auth);
+        // onAuthStateChanged() restores Anonymous auth automatically.
+      } catch (error) {
+        console.error('Organizer logout failed', error);
+      }
+    }
+  };
+
+  const handleToggleOrganizerMode = () => {
+    if (isOrganizerMode) {
+      void handleExitOrganizerMode();
+    } else {
+      setIsPinModalOpen(true);
+    }
+  };
+
   // Firestore realtime subscription.
   // - If Firestore already has a current session, use it as the shared source of truth.
   // - If the document does not exist yet, upload this browser's migrated LocalStorage state once.
   useEffect(() => {
+    if (!authReady || !authUserUid) return;
+
+    firestoreReadyRef.current = false;
     setSyncStatus('connecting');
 
     const unsubscribe = subscribeToCurrentSessionFromFirestore(
@@ -169,14 +246,14 @@ export default function App() {
         pushTimerRef.current = null;
       }
     };
-    // Intentionally subscribe only once when the app starts.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authReady, authUserUid]);
 
   // Realtime sync for Archive and Fund collections.
   // Existing components can keep using the LocalStorage-based helpers;
   // Firestore continuously refreshes those local caches.
   useEffect(() => {
+    if (!authReady || !authUserUid) return;
+
     let archiveFirstSnapshot = true;
     let fundFirstSnapshot = true;
 
@@ -236,12 +313,13 @@ export default function App() {
       unsubscribeArchives();
       unsubscribeFund();
     };
-  }, []);
+  }, [authReady, authUserUid]);
 
   // Keep LocalStorage as a backup and debounce writes to Firestore.
   useEffect(() => {
     saveAppState(appState);
 
+    if (!authReady || !authUserUid) return;
     if (!firestoreReadyRef.current) return;
 
     // This state was just received from Firestore; do not write it straight back.
@@ -274,7 +352,7 @@ export default function App() {
         pushTimerRef.current = null;
       }
     };
-  }, [appState]);
+  }, [appState, authReady, authUserUid]);
 
   const { sessionConfig, players, activeMatches, matchHistory } = appState;
 
@@ -892,16 +970,7 @@ export default function App() {
         activeMatchesCount={activeMatches.length}
         waitingCount={waitingCount}
         isOrganizerMode={isOrganizerMode}
-        onToggleOrganizerMode={() => {
-          if (isOrganizerMode) {
-            setIsOrganizerMode(false);
-            if (currentTab === 'courts' || currentTab === 'finance') {
-              setCurrentTab('prematch');
-            }
-          } else {
-            setIsPinModalOpen(true);
-          }
-        }}
+        onToggleOrganizerMode={handleToggleOrganizerMode}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onResetSession={handleResetSession}
         onShareMemberLink={handleShareMemberLink}
@@ -943,16 +1012,7 @@ export default function App() {
             setCurrentTab(tab);
           }}
           isOrganizerMode={isOrganizerMode}
-          onToggleOrganizerMode={() => {
-            if (isOrganizerMode) {
-              setIsOrganizerMode(false);
-              if (currentTab === 'courts' || currentTab === 'finance') {
-                setCurrentTab('prematch');
-              }
-            } else {
-              setIsPinModalOpen(true);
-            }
-          }}
+          onToggleOrganizerMode={handleToggleOrganizerMode}
           onShareMemberLink={handleShareMemberLink}
           copiedShareLink={copiedShareLink}
           waitingQueueIndex={
@@ -1099,6 +1159,14 @@ export default function App() {
             {syncStatus === 'saving' && '☁️ กำลังบันทึกขึ้น Firestore...'}
             {syncStatus === 'connecting' && '☁️ กำลังเชื่อมต่อ Firestore...'}
             {syncStatus === 'error' && '⚠️ Firestore Sync มีปัญหา • ใช้ LocalStorage Backup'}
+            <span className="ml-2 text-slate-500">•</span>
+            <span className={`ml-2 ${isOrganizerMode ? 'text-amber-300' : authReady ? 'text-cyan-300' : 'text-slate-500'}`}>
+              {isOrganizerMode
+                ? '🔐 Organizer Auth'
+                : authReady
+                ? '🔒 Member Anonymous Auth'
+                : '🔑 กำลังตรวจสอบ Auth...'}
+            </span>
           </div>
         </div>
       </footer>
@@ -1138,7 +1206,6 @@ export default function App() {
       <OrganizerPinModal
         isOpen={isPinModalOpen}
         onClose={() => setIsPinModalOpen(false)}
-        correctPin={sessionConfig.organizerPin || '1234'}
         onSuccess={() => {
           setIsOrganizerMode(true);
           setIsPinModalOpen(false);
