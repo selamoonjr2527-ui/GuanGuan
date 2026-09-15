@@ -22,9 +22,13 @@ import {
 import {
   ShuttlePurchase,
   ShuttleUsageRecord,
+  ShuttleStockAdjustment,
   getShuttleInventorySummary,
   getSessionShuttleUsage,
   getSessionShuttleUsageSummary,
+  getShuttleMonthlySummary,
+  getShuttlePurchasePriceStats,
+  getSuggestedReorder,
 } from '../utils/shuttleInventory';
 
 interface FinancialStatsViewProps {
@@ -39,6 +43,17 @@ interface FinancialStatsViewProps {
   shuttleUsageLedger?: ShuttleUsageRecord[];
   onAddShuttlePurchase?: (purchase: ShuttlePurchase) => void;
   onDeleteShuttlePurchase?: (purchaseId: string) => boolean;
+  shuttleLowStockThreshold?: number;
+  onSetShuttleLowStockThreshold?: (value: number) => void;
+  shuttleStockAdjustments?: ShuttleStockAdjustment[];
+  shuttleTargetStock?: number;
+  shuttleDefaultPiecesPerTube?: number;
+  onSetShuttleReorderSettings?: (targetStock: number, piecesPerTube: number) => void;
+  onStocktakeShuttles?: (
+    actualCount: number,
+    reason: ShuttleStockAdjustment['reason'],
+    note?: string
+  ) => boolean;
 }
 
 export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
@@ -53,6 +68,13 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
   shuttleUsageLedger = [],
   onAddShuttlePurchase,
   onDeleteShuttlePurchase,
+  shuttleLowStockThreshold = 12,
+  onSetShuttleLowStockThreshold,
+  shuttleStockAdjustments = [],
+  shuttleTargetStock = 36,
+  shuttleDefaultPiecesPerTube = 12,
+  onSetShuttleReorderSettings,
+  onStocktakeShuttles,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'today' | 'history' | 'treasury' | 'shuttles'>('today');
   const [pinInput, setPinInput] = useState('');
@@ -80,6 +102,24 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
   const [stockPricePerTube, setStockPricePerTube] = useState('');
   const [stockNote, setStockNote] = useState('');
   const [recordStockPurchaseToTreasury, setRecordStockPurchaseToTreasury] = useState(true);
+  const [stockReportMonth, setStockReportMonth] = useState(
+    (sessionConfig.date || new Date().toISOString().split('T')[0]).slice(0, 7)
+  );
+  const [lowStockDraft, setLowStockDraft] = useState(
+    String(Math.max(0, Number(shuttleLowStockThreshold || 12)))
+  );
+  const [targetStockDraft, setTargetStockDraft] = useState(
+    String(Math.max(0, Number(shuttleTargetStock || 36)))
+  );
+  const [piecesPerTubeDraft, setPiecesPerTubeDraft] = useState(
+    String(Math.max(1, Number(shuttleDefaultPiecesPerTube || 12)))
+  );
+  const [isStocktakeOpen, setIsStocktakeOpen] = useState(false);
+  const [stocktakeActual, setStocktakeActual] = useState('');
+  const [stocktakeReason, setStocktakeReason] =
+    useState<ShuttleStockAdjustment['reason']>('stocktake');
+  const [stocktakeNote, setStocktakeNote] = useState('');
+  const [stockSupplier, setStockSupplier] = useState('');
 
   // Selected archive for detailed inspection
   const [selectedArchive, setSelectedArchive] = useState<DailySessionArchive | null>(null);
@@ -178,7 +218,8 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
   const inventorySummary = getShuttleInventorySummary(
     shuttlePurchases,
     shuttleUsageLedger,
-    sessionConfig.shuttlecockPrice
+    sessionConfig.shuttlecockPrice,
+    shuttleStockAdjustments
   );
 
   const currentSessionUsageRows = getSessionShuttleUsage(
@@ -193,12 +234,47 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
     inventorySummary.averageUnitCost || sessionConfig.shuttlecockPrice
   );
 
+  const monthlyShuttleSummary = getShuttleMonthlySummary(
+    shuttlePurchases,
+    shuttleUsageLedger,
+    stockReportMonth,
+    shuttleFee,
+    shuttleStockAdjustments
+  );
+
+  const shuttlePriceStats = getShuttlePurchasePriceStats(
+    shuttlePurchases,
+    stockReportMonth
+  );
+
+  const reorderSuggestion = getSuggestedReorder(
+    inventorySummary.stockQuantity,
+    shuttleTargetStock,
+    shuttleDefaultPiecesPerTube
+  );
+
+  const currentSessionStockLossCost = shuttleStockAdjustments
+    .filter(
+      (item) =>
+        item.date === sessionConfig.date &&
+        Number(item.valueDelta || 0) < 0
+    )
+    .reduce((sum, item) => sum + Math.abs(Number(item.valueDelta || 0)), 0);
+
+  const isLowStock =
+    shuttlePurchases.length > 0 &&
+    inventorySummary.stockQuantity <= Math.max(0, shuttleLowStockThreshold);
+
   // P&L expense recognizes only the shuttles ACTUALLY CONSUMED in this session.
   // Purchasing stock is a cash movement / inventory asset, not all an expense today.
   const venueShuttleCost = currentSessionShuttleUsage.totalCost;
 
   const extraExpensesTotal = (sessionConfig.extraExpenses || []).reduce((acc, curr) => acc + curr.amount, 0);
-  const totalRealExpense = venueCourtCost + venueShuttleCost + extraExpensesTotal;
+  const totalRealExpense =
+    venueCourtCost +
+    venueShuttleCost +
+    extraExpensesTotal +
+    currentSessionStockLossCost;
 
   // 3. PROFIT / LOSS (กำไร / ขาดทุน)
   const expectedNetProfit = totalExpectedRevenue - totalRealExpense;
@@ -268,6 +344,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
       date: stockDate || sessionConfig.date,
       brand: stockBrand.trim() || undefined,
       model: stockModel.trim() || undefined,
+      supplier: stockSupplier.trim() || undefined,
       tubes,
       piecesPerTube,
       pricePerTube,
@@ -302,6 +379,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
     setStockEntryType('purchase');
     setStockBrand('');
     setStockModel('');
+    setStockSupplier('');
     setStockTubes('1');
     setStockPiecesPerTube('12');
     setStockPricePerTube('');
@@ -387,6 +465,9 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
       [],
       ['รายจ่ายค่าเช่าคอร์ทสนาม', `${sessionConfig.courtCount} คอร์ท x ${sessionConfig.totalHours} ชม. x ${sessionConfig.courtHourlyRate}฿`, venueCourtCost.toString()],
       ['รายจ่ายค่าลูกขนไก่จริง', `${currentSessionShuttleUsage.quantity} ลูก • ต้นทุนเฉลี่ย ${currentSessionShuttleUsage.averageUnitCost.toFixed(2)}฿/ลูก`, venueShuttleCost.toFixed(2)],
+      ...(currentSessionStockLossCost > 0
+        ? [['ปรับ Stock ขาด/เสียหาย', '', currentSessionStockLossCost.toFixed(2)]]
+        : []),
       ...sessionConfig.extraExpenses.map((exp) => [`ค่าใช้จ่ายอื่นๆ: ${exp.name}`, '', exp.amount.toString()]),
       ['รวมรายจ่ายต้นทุนจริงทั้งหมด', '', totalRealExpense.toString()],
       [],
@@ -600,7 +681,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
           <Package className="w-4 h-4" />
           <span>4. คลังลูกแบด (Shuttle Stock)</span>
           <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-            inventorySummary.stockQuantity <= 12
+            isLowStock
               ? 'bg-rose-950 text-rose-300'
               : 'bg-slate-800 text-slate-300'
           }`}>
@@ -682,6 +763,16 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                   <div className="flex justify-between">
                     <span>ค่าใช้จ่ายอื่นๆ:</span>
                     <span className="text-slate-300">{extraExpensesTotal.toLocaleString()} ฿</span>
+                  </div>
+                )}
+                {currentSessionStockLossCost > 0 && (
+                  <div className="flex justify-between">
+                    <span>Stock ขาด/เสียหาย:</span>
+                    <span className="text-rose-300">
+                      {currentSessionStockLossCost.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })} ฿
+                    </span>
                   </div>
                 )}
               </div>
@@ -1336,15 +1427,17 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                 Stock คงเหลือ
               </div>
               <div className={`text-3xl font-black mt-1 ${
-                inventorySummary.stockQuantity <= 12
+                isLowStock
                   ? 'text-rose-400'
                   : 'text-white'
               }`}>
                 {inventorySummary.stockQuantity.toLocaleString()}
                 <span className="text-xs font-normal text-slate-500 ml-1">ลูก</span>
               </div>
-              {inventorySummary.stockQuantity <= 12 && (
-                <div className="text-[10px] text-rose-300 mt-1">⚠️ Stock ใกล้หมด</div>
+              {isLowStock && (
+                <div className="text-[10px] text-rose-300 mt-1">
+                  ⚠️ Stock ใกล้หมด • จุดเตือน {shuttleLowStockThreshold} ลูก
+                </div>
               )}
             </div>
 
@@ -1407,20 +1500,288 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setIsAddShuttleOpen(true)}
-                className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black flex items-center justify-center gap-1.5"
-              >
-                <ShoppingCart className="w-4 h-4" />
-                + ซื้อเข้า / เพิ่ม Stock
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStocktakeActual(String(Math.max(0, inventorySummary.stockQuantity)));
+                    setIsStocktakeOpen(true);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-700/50 text-cyan-300 text-xs font-black flex items-center justify-center gap-1.5"
+                >
+                  <Scale className="w-4 h-4" />
+                  ตรวจนับ / ปรับ Stock
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsAddShuttleOpen(true)}
+                  className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black flex items-center justify-center gap-1.5"
+                >
+                  <ShoppingCart className="w-4 h-4" />
+                  + ซื้อเข้า / เพิ่ม Stock
+                </button>
+              </div>
             </div>
 
             <div className="mt-4 rounded-xl bg-cyan-950/20 border border-cyan-800/40 p-3 text-[11px] text-cyan-100 leading-relaxed">
               <strong>การลงบัญชี:</strong> เงินซื้อ Stock เป็น “เงินออกกองกลาง”
               แต่กำไร/ขาดทุนของรอบเล่นจะรับรู้เฉพาะ <strong>ต้นทุนลูกที่ใช้จริง</strong>
               เท่านั้น เพื่อไม่ให้ซื้อ 1 ลังแล้วกลายเป็นขาดทุนทั้งลังในวันเดียว
+            </div>
+
+            <div className={`mt-3 rounded-xl border p-3 ${
+              isLowStock
+                ? 'bg-rose-950/30 border-rose-700/50'
+                : 'bg-slate-950 border-slate-800'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className={`text-xs font-bold ${
+                    isLowStock ? 'text-rose-300' : 'text-slate-300'
+                  }`}>
+                    🔔 แจ้งเตือน Stock ต่ำ
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">
+                    เมื่อ Stock เหลือน้อยกว่าหรือเท่ากับจำนวนนี้ ระบบจะแจ้งเตือนผู้จัดบนหน้าหลัก
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={lowStockDraft}
+                    onChange={(e) => setLowStockDraft(e.target.value)}
+                    className="w-24 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white text-center"
+                  />
+                  <span className="text-xs text-slate-500">ลูก</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const value = Math.max(
+                        0,
+                        Math.floor(Number(lowStockDraft || 0))
+                      );
+                      setLowStockDraft(String(value));
+                      onSetShuttleLowStockThreshold?.(value);
+                    }}
+                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-white font-bold"
+                  >
+                    บันทึก
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-xl bg-amber-950/20 border border-amber-800/40 p-3">
+              <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-bold text-amber-300">
+                    📦 Reorder Suggestion
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">
+                    ตั้ง Stock เป้าหมาย แล้วระบบคำนวณจำนวนหลอดที่ควรซื้อ
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-end gap-2">
+                  <div>
+                    <div className="text-[9px] text-slate-500 mb-1">Stock เป้าหมาย</div>
+                    <input
+                      type="number"
+                      min="0"
+                      value={targetStockDraft}
+                      onChange={(e) => setTargetStockDraft(e.target.value)}
+                      className="w-24 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white text-center"
+                    />
+                  </div>
+                  <div>
+                    <div className="text-[9px] text-slate-500 mb-1">ลูก/หลอด</div>
+                    <input
+                      type="number"
+                      min="1"
+                      value={piecesPerTubeDraft}
+                      onChange={(e) => setPiecesPerTubeDraft(e.target.value)}
+                      className="w-20 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white text-center"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = Math.max(0, Math.floor(Number(targetStockDraft || 0)));
+                      const pieces = Math.max(1, Math.floor(Number(piecesPerTubeDraft || 12)));
+                      setTargetStockDraft(String(target));
+                      setPiecesPerTubeDraft(String(pieces));
+                      onSetShuttleReorderSettings?.(target, pieces);
+                    }}
+                    className="px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white text-xs font-bold"
+                  >
+                    บันทึก
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                <div className="rounded-lg bg-slate-950 border border-slate-800 p-2">
+                  <div className="text-[9px] text-slate-500">Stock ตอนนี้</div>
+                  <div className="font-black text-white">{inventorySummary.stockQuantity} ลูก</div>
+                </div>
+                <div className="rounded-lg bg-slate-950 border border-slate-800 p-2">
+                  <div className="text-[9px] text-slate-500">เป้าหมาย</div>
+                  <div className="font-black text-amber-300">{shuttleTargetStock} ลูก</div>
+                </div>
+                <div className="rounded-lg bg-slate-950 border border-slate-800 p-2">
+                  <div className="text-[9px] text-slate-500">แนะนำซื้อ</div>
+                  <div className={`font-black ${
+                    reorderSuggestion.suggestedTubes > 0 ? 'text-rose-300' : 'text-emerald-400'
+                  }`}>
+                    {reorderSuggestion.suggestedTubes > 0
+                      ? `${reorderSuggestion.suggestedTubes} หลอด`
+                      : 'เพียงพอ'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-black text-white flex items-center gap-2">
+                  <BarChart2 className="w-4 h-4 text-indigo-400" />
+                  Monthly Shuttle Report
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  เงินซื้อ Stock • จำนวนที่ใช้ • รายรับค่าลูกฐาน • กำไร/ขาดทุนค่าลูก
+                </p>
+              </div>
+
+              <input
+                type="month"
+                value={stockReportMonth}
+                onChange={(e) => setStockReportMonth(e.target.value)}
+                className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3">
+                <div className="text-[10px] text-slate-500">ซื้อ Stock เดือนนี้</div>
+                <div className="text-xl font-black text-white mt-1">
+                  {monthlyShuttleSummary.purchaseCashOutflow.toLocaleString(undefined, {
+                    maximumFractionDigits: 2,
+                  })}฿
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">
+                  {monthlyShuttleSummary.purchaseTubes} หลอด / {monthlyShuttleSummary.purchaseQuantity} ลูก
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3">
+                <div className="text-[10px] text-slate-500">ใช้จริงเดือนนี้</div>
+                <div className="text-xl font-black text-amber-400 mt-1">
+                  {monthlyShuttleSummary.usedQuantity} ลูก
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">
+                  {monthlyShuttleSummary.matchCount} Match
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3">
+                <div className="text-[10px] text-slate-500">ต้นทุนลูกที่ใช้จริง</div>
+                <div className="text-xl font-black text-rose-400 mt-1">
+                  {monthlyShuttleSummary.usedCost.toLocaleString(undefined, {
+                    maximumFractionDigits: 2,
+                  })}฿
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">
+                  เฉลี่ย {monthlyShuttleSummary.averageUsedCost.toFixed(2)}฿/ลูก
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3">
+                <div className="text-[10px] text-slate-500">รายรับค่าลูกฐาน</div>
+                <div className="text-xl font-black text-emerald-400 mt-1">
+                  {monthlyShuttleSummary.baseMemberRevenue.toLocaleString(undefined, {
+                    maximumFractionDigits: 2,
+                  })}฿
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">
+                  จาก Match ที่จบแล้ว
+                </div>
+              </div>
+
+              <div className={`rounded-xl border p-3 col-span-2 lg:col-span-1 ${
+                monthlyShuttleSummary.grossMargin >= 0
+                  ? 'bg-emerald-950/20 border-emerald-800/50'
+                  : 'bg-rose-950/20 border-rose-800/50'
+              }`}>
+                <div className="text-[10px] text-slate-400">กำไร/ขาดทุนค่าลูกฐาน</div>
+                <div className={`text-xl font-black mt-1 ${
+                  monthlyShuttleSummary.grossMargin >= 0
+                    ? 'text-emerald-400'
+                    : 'text-rose-400'
+                }`}>
+                  {monthlyShuttleSummary.grossMargin >= 0 ? '+' : ''}
+                  {monthlyShuttleSummary.grossMargin.toLocaleString(undefined, {
+                    maximumFractionDigits: 2,
+                  })}฿
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">
+                  รายรับฐาน - ต้นทุนที่ใช้จริง
+                </div>
+              </div>
+            </div>
+
+            {monthlyShuttleSummary.stockLossCost > 0 && (
+              <div className="rounded-xl bg-rose-950/25 border border-rose-800/40 p-3 text-[10px] text-rose-200">
+                Stock ขาด/เสียหายเดือนนี้:
+                <strong className="ml-1">
+                  {monthlyShuttleSummary.stockLossCost.toLocaleString(undefined, {
+                    maximumFractionDigits: 2,
+                  })}฿
+                </strong>
+                {' • '}จำนวนปรับสุทธิ {monthlyShuttleSummary.stockAdjustmentQuantity} ลูก
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3">
+                <div className="text-[9px] text-slate-500">ราคาหลอดล่าสุด</div>
+                <div className="text-lg font-black text-white">
+                  {shuttlePriceStats.latestPricePerTube.toLocaleString()}฿
+                </div>
+                {shuttlePriceStats.latestSupplier && (
+                  <div className="text-[9px] text-slate-500 truncate">
+                    {shuttlePriceStats.latestSupplier}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3">
+                <div className="text-[9px] text-slate-500">ต่ำสุด/หลอด</div>
+                <div className="text-lg font-black text-emerald-400">
+                  {shuttlePriceStats.minPricePerTube.toLocaleString()}฿
+                </div>
+              </div>
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3">
+                <div className="text-[9px] text-slate-500">สูงสุด/หลอด</div>
+                <div className="text-lg font-black text-rose-400">
+                  {shuttlePriceStats.maxPricePerTube.toLocaleString()}฿
+                </div>
+              </div>
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-3">
+                <div className="text-[9px] text-slate-500">เฉลี่ย/หลอด</div>
+                <div className="text-lg font-black text-cyan-400">
+                  {shuttlePriceStats.averagePricePerTube.toFixed(2)}฿
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-indigo-950/20 border border-indigo-800/40 p-3 text-[10px] text-indigo-200 leading-relaxed">
+              <strong>ตัวอย่าง:</strong> 25฿/คน/Match × 4 คน = 100฿ รายรับฐานต่อ Match
+              ส่วนต้นทุนใช้ราคาจริงจาก Stock Weighted Average ณ ตอน Finish Match
             </div>
           </div>
 
@@ -1457,6 +1818,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                           </div>
                           <div className="text-[10px] text-slate-500">
                             {purchase.entryType === 'opening' ? 'ยอดตั้งต้น' : 'ซื้อเข้า'}
+                            {purchase.supplier ? ` • ${purchase.supplier}` : ''}
                             {purchase.note ? ` • ${purchase.note}` : ''}
                           </div>
                         </td>
@@ -1502,6 +1864,81 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
 
           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
             <div className="p-4 border-b border-slate-800">
+              <h3 className="font-bold text-white text-sm">ประวัติปรับยอด Stock</h3>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                ใช้สำหรับตรวจนับจริง, ลูกเสีย, ลูกหาย หรือพบ Stock เพิ่ม
+              </p>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
+                  <tr>
+                    <th className="px-4 py-3">วันที่</th>
+                    <th className="px-3 py-3">เหตุผล</th>
+                    <th className="px-3 py-3 text-center">ระบบเดิม</th>
+                    <th className="px-3 py-3 text-center">นับจริง</th>
+                    <th className="px-3 py-3 text-center">ปรับ</th>
+                    <th className="px-4 py-3 text-right">มูลค่า</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {shuttleStockAdjustments.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-800/40">
+                      <td className="px-4 py-3 text-slate-300">{item.date}</td>
+                      <td className="px-3 py-3 text-white">
+                        <div className="font-semibold">
+                          {item.reason === 'stocktake'
+                            ? 'ตรวจนับ Stock'
+                            : item.reason === 'damaged'
+                            ? 'ลูกเสีย'
+                            : item.reason === 'lost'
+                            ? 'ลูกหาย'
+                            : item.reason === 'found'
+                            ? 'พบ Stock เพิ่ม'
+                            : 'อื่นๆ'}
+                        </div>
+                        {item.note && (
+                          <div className="text-[10px] text-slate-500">{item.note}</div>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-center text-slate-400">
+                        {item.previousSystemCount}
+                      </td>
+                      <td className="px-3 py-3 text-center text-white font-bold">
+                        {item.actualCount}
+                      </td>
+                      <td className={`px-3 py-3 text-center font-black ${
+                        item.quantityDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                      }`}>
+                        {item.quantityDelta >= 0 ? '+' : ''}
+                        {item.quantityDelta}
+                      </td>
+                      <td className={`px-4 py-3 text-right font-bold ${
+                        item.valueDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                      }`}>
+                        {item.valueDelta >= 0 ? '+' : ''}
+                        {item.valueDelta.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}฿
+                      </td>
+                    </tr>
+                  ))}
+
+                  {shuttleStockAdjustments.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-500">
+                        ยังไม่มีการปรับยอด Stock
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+            <div className="p-4 border-b border-slate-800">
               <h3 className="font-bold text-white text-sm">ลูกที่ใช้จริงรอบนี้</h3>
               <p className="text-[11px] text-slate-500 mt-0.5">
                 ตัด Stock เมื่อกด Finish Match • ราคาต้นทุนถูก Freeze ตามค่าเฉลี่ย ณ เวลาที่ใช้
@@ -1516,7 +1953,8 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                     <th className="px-3 py-3">Court</th>
                     <th className="px-3 py-3 text-center">ใช้จริง</th>
                     <th className="px-3 py-3 text-right">ต้นทุน/ลูก</th>
-                    <th className="px-4 py-3 text-right">ต้นทุนรวม</th>
+                    <th className="px-3 py-3 text-right">ต้นทุนรวม</th>
+                    <th className="px-4 py-3 text-right">รายรับฐาน</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
@@ -1536,8 +1974,18 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                       <td className="px-3 py-3 text-right text-cyan-400">
                         {usage.unitCost.toFixed(2)}฿
                       </td>
-                      <td className="px-4 py-3 text-right text-white font-bold">
+                      <td className="px-3 py-3 text-right text-white font-bold">
                         {usage.totalCost.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}฿
+                      </td>
+                      <td className="px-4 py-3 text-right text-emerald-400 font-bold">
+                        {(
+                          typeof usage.baseMemberRevenue === 'number'
+                            ? usage.baseMemberRevenue
+                            : (usage.memberCount || 4) *
+                              (usage.memberRatePerMatch || shuttleFee)
+                        ).toLocaleString(undefined, {
                           maximumFractionDigits: 2,
                         })}฿
                       </td>
@@ -1546,7 +1994,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
 
                   {currentSessionUsageRows.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-10 text-center text-slate-500">
+                      <td colSpan={6} className="py-10 text-center text-slate-500">
                         รอบนี้ยังไม่มี Match ที่จบ • ยังไม่ตัด Stock
                       </td>
                     </tr>
@@ -1554,6 +2002,121 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stocktake / Reconcile Modal */}
+      {isStocktakeOpen && (
+        <div className="fixed inset-0 z-[65] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-cyan-500/30 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-black text-white">
+                  ตรวจนับ / ปรับ Stock
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  ระบบตอนนี้ {inventorySummary.stockQuantity} ลูก
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsStocktakeOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-slate-400">จำนวนที่นับจริง</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={stocktakeActual}
+                onChange={(e) => setStocktakeActual(e.target.value)}
+                className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-3 text-xl text-white font-black text-center"
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-2">
+                <div className="text-[9px] text-slate-500">ในระบบ</div>
+                <div className="font-black text-white">{inventorySummary.stockQuantity}</div>
+              </div>
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-2">
+                <div className="text-[9px] text-slate-500">นับจริง</div>
+                <div className="font-black text-cyan-400">
+                  {Math.max(0, Number(stocktakeActual || 0))}
+                </div>
+              </div>
+              <div className="rounded-xl bg-slate-950 border border-slate-800 p-2">
+                <div className="text-[9px] text-slate-500">ส่วนต่าง</div>
+                <div className={`font-black ${
+                  Number(stocktakeActual || 0) - inventorySummary.stockQuantity >= 0
+                    ? 'text-emerald-400'
+                    : 'text-rose-400'
+                }`}>
+                  {Number(stocktakeActual || 0) - inventorySummary.stockQuantity >= 0 ? '+' : ''}
+                  {Math.floor(Number(stocktakeActual || 0) - inventorySummary.stockQuantity)}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-slate-400">เหตุผล</label>
+              <select
+                value={stocktakeReason}
+                onChange={(e) =>
+                  setStocktakeReason(
+                    e.target.value as ShuttleStockAdjustment['reason']
+                  )
+                }
+                className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white"
+              >
+                <option value="stocktake">ตรวจนับ Stock</option>
+                <option value="damaged">ลูกเสีย / ใช้งานไม่ได้</option>
+                <option value="lost">ลูกหาย</option>
+                <option value="found">พบ Stock เพิ่ม</option>
+                <option value="other">อื่นๆ</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-slate-400">หมายเหตุ</label>
+              <input
+                value={stocktakeNote}
+                onChange={(e) => setStocktakeNote(e.target.value)}
+                placeholder="เช่น ตรวจนับปลายเดือน"
+                className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white"
+              />
+            </div>
+
+            <div className="rounded-xl bg-amber-950/20 border border-amber-800/40 p-3 text-[10px] text-amber-200">
+              การปรับลด Stock จะบันทึกมูลค่าที่หายไปตามต้นทุนเฉลี่ยปัจจุบัน
+              และนับเป็น Stock Loss ในรายงานการเงิน
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const actual = Math.max(0, Math.floor(Number(stocktakeActual || 0)));
+                const ok = onStocktakeShuttles?.(
+                  actual,
+                  stocktakeReason,
+                  stocktakeNote
+                );
+                if (ok) {
+                  setIsStocktakeOpen(false);
+                  setStocktakeNote('');
+                  setStocktakeReason('stocktake');
+                }
+              }}
+              className="w-full py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-sm"
+            >
+              ยืนยันปรับ Stock
+            </button>
           </div>
         </div>
       )}
@@ -1616,6 +2179,16 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                   type="date"
                   value={stockDate}
                   onChange={(e) => setStockDate(e.target.value)}
+                  className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400">ร้าน / Supplier</label>
+                <input
+                  value={stockSupplier}
+                  onChange={(e) => setStockSupplier(e.target.value)}
+                  placeholder="เช่น ร้าน ABC / Shopee ร้าน..."
                   className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white"
                 />
               </div>

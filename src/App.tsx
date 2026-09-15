@@ -5,7 +5,7 @@ import {
   signInAnonymously,
   signOut,
 } from 'firebase/auth';
-import { auth, ORGANIZER_UID } from './firebase';
+import { auth, isOrganizerUid } from './firebase';
 import { Header } from './components/Header';
 import { PreMatchView } from './components/PreMatchView';
 import { CheckInView } from './components/CheckInView';
@@ -21,6 +21,7 @@ import { FinancialStatsView } from './components/FinancialStatsView';
 import { MemberAccessBar } from './components/MemberAccessBar';
 import { MemberGateModal } from './components/MemberGateModal';
 import { MemberCenterModal } from './components/MemberCenterModal';
+import { MemberPinModal } from './components/MemberPinModal';
 import {
   DeletedMemberRecord,
   MemberLifetimeStatsMap,
@@ -44,8 +45,10 @@ import {
 import {
   ShuttlePurchase,
   ShuttleUsageRecord,
+  ShuttleStockAdjustment,
   getShuttlePurchases,
   getShuttleUsageLedger,
+  getShuttleStockAdjustments,
   getShuttleInventorySummary,
   getCurrentShuttleAverageCost,
   getSessionShuttleUsageSummary,
@@ -132,7 +135,7 @@ export default function App() {
 
   // Firebase Authentication
   // Members use anonymous auth automatically.
-  // Organizer mode is granted only after Firebase Auth confirms ORGANIZER_UID.
+  // Organizer mode is granted only after Firebase Auth confirms an allowed Organizer UID.
   const [authReady, setAuthReady] = useState(false);
   const [authUserUid, setAuthUserUid] = useState('');
   const anonymousSignInInProgressRef = useRef(false);
@@ -222,7 +225,7 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<TabType>('prematch');
   
   // Never trust ?mode=organizer by itself.
-  // Organizer mode is enabled only after Firebase Auth confirms ORGANIZER_UID.
+  // Organizer mode is enabled only after Firebase Auth confirms an allowed Organizer UID.
   const [isOrganizerMode, setIsOrganizerMode] = useState<boolean>(false);
 
   // Track the active user identity (member/walk-in)
@@ -256,6 +259,7 @@ export default function App() {
   const [addPlayerDefaultType, setAddPlayerDefaultType] = useState<'registered' | 'walkin'>('registered');
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isMemberPinModalOpen, setIsMemberPinModalOpen] = useState(false);
   const [isSelfCheckInOpen, setIsSelfCheckInOpen] = useState(false);
   const [isMemberGateOpen, setIsMemberGateOpen] = useState<boolean>(() => {
     // If not in organizer mode and no active member identified, gate immediately
@@ -330,7 +334,7 @@ export default function App() {
           : null;
       const forceMemberMode = params?.get('mode') === 'member';
 
-      setIsOrganizerMode(user.uid === ORGANIZER_UID && !forceMemberMode);
+      setIsOrganizerMode(isOrganizerUid(user.uid) && !forceMemberMode);
     });
 
     return () => unsubscribeAuth();
@@ -343,7 +347,7 @@ export default function App() {
       setCurrentTab('prematch');
     }
 
-    if (auth.currentUser?.uid === ORGANIZER_UID) {
+    if (isOrganizerUid(auth.currentUser?.uid)) {
       try {
         setAuthReady(false);
         await signOut(auth);
@@ -539,6 +543,29 @@ export default function App() {
   const promotionRedemptions: PromotionRedemption[] = getPromotionRedemptions(appState as any);
   const shuttlePurchases: ShuttlePurchase[] = getShuttlePurchases(appState as any);
   const shuttleUsageLedger: ShuttleUsageRecord[] = getShuttleUsageLedger(appState as any);
+  const shuttleStockAdjustments: ShuttleStockAdjustment[] =
+    getShuttleStockAdjustments(appState as any);
+  const shuttleLowStockThreshold = Math.max(
+    0,
+    Number((appState as any).shuttleLowStockThreshold ?? 12)
+  );
+  const shuttleInventorySummary = getShuttleInventorySummary(
+    shuttlePurchases,
+    shuttleUsageLedger,
+    sessionConfig.shuttlecockPrice,
+    shuttleStockAdjustments
+  );
+  const isShuttleStockLow =
+    shuttlePurchases.length > 0 &&
+    shuttleInventorySummary.stockQuantity <= shuttleLowStockThreshold;
+  const shuttleTargetStock = Math.max(
+    0,
+    Number((appState as any).shuttleTargetStock ?? 36)
+  );
+  const shuttleDefaultPiecesPerTube = Math.max(
+    1,
+    Number((appState as any).shuttleDefaultPiecesPerTube ?? 12)
+  );
 
   // Daily billing source of truth:
   // gamesPlayed / matchesPlayed must reflect FINISHED matches in current matchHistory only.
@@ -1128,6 +1155,7 @@ export default function App() {
     setAppState((prev) => {
       const currentPurchases = getShuttlePurchases(prev as any);
       const usages = getShuttleUsageLedger(prev as any);
+      const adjustments = getShuttleStockAdjustments(prev as any);
 
       const nextPurchases = [
         purchase,
@@ -1144,7 +1172,8 @@ export default function App() {
       const inventory = getShuttleInventorySummary(
         nextPurchases,
         usages,
-        prev.sessionConfig.shuttlecockPrice
+        prev.sessionConfig.shuttlecockPrice,
+        adjustments
       );
 
       return {
@@ -1171,18 +1200,16 @@ export default function App() {
     const remainingPurchases = shuttlePurchases.filter(
       (item) => item.id !== purchaseId
     );
-    const remainingPurchasedQuantity = remainingPurchases.reduce(
-      (sum, item) => sum + Math.max(0, Number(item.quantity || 0)),
-      0
-    );
-    const alreadyUsedQuantity = shuttleUsageLedger.reduce(
-      (sum, item) => sum + Math.max(0, Number(item.quantity || 0)),
-      0
+    const hypotheticalInventory = getShuttleInventorySummary(
+      remainingPurchases,
+      shuttleUsageLedger,
+      sessionConfig.shuttlecockPrice,
+      shuttleStockAdjustments
     );
 
-    if (remainingPurchasedQuantity < alreadyUsedQuantity) {
+    if (hypotheticalInventory.stockQuantity < 0) {
       window.alert(
-        `ลบรายการนี้ไม่ได้ เพราะมีการใช้ลูกจาก Stock ไปแล้ว\n\nStock ซื้อสะสมหลังลบ: ${remainingPurchasedQuantity} ลูก\nใช้ไปแล้ว: ${alreadyUsedQuantity} ลูก`
+        `ลบรายการนี้ไม่ได้ เพราะจะทำให้ Stock ติดลบ\n\nStock หลังลบ: ${hypotheticalInventory.stockQuantity} ลูก`
       );
       return false;
     }
@@ -1224,6 +1251,75 @@ export default function App() {
         },
       } as any;
     });
+
+    return true;
+  };
+
+  const handleSetShuttleLowStockThreshold = (value: number) => {
+    const threshold = Math.max(0, Math.floor(Number(value || 0)));
+    setAppState((prev) => ({
+      ...prev,
+      shuttleLowStockThreshold: threshold,
+    } as any));
+  };
+
+  const handleSetShuttleReorderSettings = (
+    targetStock: number,
+    piecesPerTube: number
+  ) => {
+    const safeTarget = Math.max(0, Math.floor(Number(targetStock || 0)));
+    const safePieces = Math.max(1, Math.floor(Number(piecesPerTube || 12)));
+
+    setAppState((prev) => ({
+      ...prev,
+      shuttleTargetStock: safeTarget,
+      shuttleDefaultPiecesPerTube: safePieces,
+    } as any));
+  };
+
+  const handleStocktakeShuttles = (
+    actualCount: number,
+    reason: ShuttleStockAdjustment['reason'],
+    note?: string
+  ): boolean => {
+    const actual = Math.max(0, Math.floor(Number(actualCount || 0)));
+    const current = shuttleInventorySummary.stockQuantity;
+    const delta = actual - current;
+
+    if (delta === 0) {
+      window.alert('จำนวน Stock จริงตรงกับในระบบแล้ว ไม่ต้องปรับยอด');
+      return false;
+    }
+
+    const unitCost = Math.max(
+      0,
+      Number(
+        shuttleInventorySummary.averageUnitCost ||
+          sessionConfig.shuttlecockPrice ||
+          0
+      )
+    );
+
+    const adjustment: ShuttleStockAdjustment = {
+      id: `stock-adjust-${Date.now()}`,
+      date: sessionConfig.date,
+      actualCount: actual,
+      previousSystemCount: current,
+      quantityDelta: delta,
+      unitCost,
+      valueDelta: delta * unitCost,
+      reason,
+      note: note?.trim() || undefined,
+      createdAt: Date.now(),
+    };
+
+    setAppState((prev) => ({
+      ...prev,
+      shuttleStockAdjustments: [
+        adjustment,
+        ...getShuttleStockAdjustments(prev as any),
+      ],
+    } as any));
 
     return true;
   };
@@ -1394,7 +1490,8 @@ export default function App() {
       const usageUnitCost = getCurrentShuttleAverageCost(
         purchases,
         existingUsages,
-        prev.sessionConfig.shuttlecockPrice
+        prev.sessionConfig.shuttlecockPrice,
+        getShuttleStockAdjustments(prev as any)
       );
 
       const newUsage: ShuttleUsageRecord | null =
@@ -1407,6 +1504,14 @@ export default function App() {
               quantity: shuttlecocksCount,
               unitCost: usageUnitCost,
               totalCost: shuttlecocksCount * usageUnitCost,
+              memberCount: allPlayerIds.size,
+              memberRatePerMatch:
+                prev.sessionConfig.shuttlecockFeePerMatchPerPerson,
+              baseMemberRevenue:
+                allPlayerIds.size *
+                Number(
+                  prev.sessionConfig.shuttlecockFeePerMatchPerPerson || 0
+                ),
               createdAt: Date.now(),
             }
           : null;
@@ -1715,6 +1820,61 @@ export default function App() {
     }));
   };
 
+  const handleChangeOwnMemberPin = (playerId: string, newPin: string) => {
+    const safePin = newPin.trim();
+
+    if (!/^\d{4}$/.test(safePin)) {
+      window.alert('PIN ต้องเป็นตัวเลข 4 หลัก');
+      return;
+    }
+
+    // Members may only change the PIN of the currently active member identity.
+    if (isOrganizerMode || !currentMemberId || playerId !== currentMemberId) {
+      window.alert('ไม่สามารถเปลี่ยน PIN ของสมาชิกคนอื่นได้');
+      return;
+    }
+
+    setAppState((prev) => ({
+      ...prev,
+      players: prev.players.map((p) =>
+        p.id === playerId
+          ? {
+              ...p,
+              pin: safePin,
+            }
+          : p
+      ),
+    }));
+  };
+
+  const handleOrganizerResetMemberPin = (
+    playerId: string,
+    newPin: string
+  ) => {
+    if (!isOrganizerMode) {
+      window.alert('เฉพาะ Organizer เท่านั้นที่ Reset PIN สมาชิกได้');
+      return;
+    }
+
+    const safePin = newPin.trim();
+    if (!/^\d{4}$/.test(safePin)) {
+      window.alert('PIN ต้องเป็นตัวเลข 4 หลัก');
+      return;
+    }
+
+    setAppState((prev) => ({
+      ...prev,
+      players: prev.players.map((p) =>
+        p.id === playerId
+          ? {
+              ...p,
+              pin: safePin,
+            }
+          : p
+      ),
+    }));
+  };
+
   const handleUpdateSessionConfig = (newConfig: SessionConfig) => {
     setAppState((prev) => ({ ...prev, sessionConfig: newConfig }));
   };
@@ -1759,6 +1919,35 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Organizer low-stock alert */}
+        {isOrganizerMode && isShuttleStockLow && (
+          <div className="mb-4 rounded-2xl border border-rose-700/60 bg-gradient-to-r from-rose-950/70 to-amber-950/40 p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-xl shrink-0">
+                🪶
+              </div>
+              <div>
+                <div className="font-black text-rose-300 text-sm">
+                  Shuttle Stock ใกล้หมด
+                </div>
+                <div className="text-xs text-slate-300 mt-0.5">
+                  เหลือ {shuttleInventorySummary.stockQuantity} ลูก • จุดเตือน {shuttleLowStockThreshold} ลูก
+                  {shuttleInventorySummary.averageUnitCost > 0
+                    ? ` • ต้นทุนเฉลี่ย ${shuttleInventorySummary.averageUnitCost.toFixed(2)}฿/ลูก`
+                    : ''}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCurrentTab('finance')}
+              className="px-3.5 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 text-white text-xs font-black shrink-0"
+            >
+              ไป Finance / Shuttle Stock
+            </button>
+          </div>
+        )}
+
         {/* Top Member / Organizer status & access toolbar */}
         <MemberAccessBar
           players={players}
@@ -1807,6 +1996,20 @@ export default function App() {
               : undefined
           }
         />
+
+        {!isOrganizerMode && currentMemberId && (
+          <div className="mb-4 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setIsMemberPinModalOpen(true)}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-cyan-950/45 hover:bg-cyan-900/55 border border-cyan-700/45 text-cyan-300 text-xs font-black transition"
+              title="เปลี่ยน PIN ส่วนตัว"
+            >
+              <span>🔐</span>
+              <span>เปลี่ยน PIN ของฉัน</span>
+            </button>
+          </div>
+        )}
 
         {currentTab === 'prematch' && (
           <PreMatchView
@@ -1925,6 +2128,13 @@ export default function App() {
             shuttleUsageLedger={shuttleUsageLedger}
             onAddShuttlePurchase={handleAddShuttlePurchase}
             onDeleteShuttlePurchase={handleDeleteShuttlePurchase}
+            shuttleLowStockThreshold={shuttleLowStockThreshold}
+            onSetShuttleLowStockThreshold={handleSetShuttleLowStockThreshold}
+            shuttleStockAdjustments={shuttleStockAdjustments}
+            shuttleTargetStock={shuttleTargetStock}
+            shuttleDefaultPiecesPerTube={shuttleDefaultPiecesPerTube}
+            onSetShuttleReorderSettings={handleSetShuttleReorderSettings}
+            onStocktakeShuttles={handleStocktakeShuttles}
           />
         )}
       </main>
@@ -1963,6 +2173,17 @@ export default function App() {
       </footer>
 
       {/* Modals */}
+      <MemberPinModal
+        isOpen={isMemberPinModalOpen}
+        player={
+          currentMemberId
+            ? players.find((p) => p.id === currentMemberId) || null
+            : null
+        }
+        onClose={() => setIsMemberPinModalOpen(false)}
+        onSavePin={handleChangeOwnMemberPin}
+      />
+
       <MemberCenterModal
         isOpen={isMemberCenterOpen}
         onClose={() => setIsMemberCenterOpen(false)}
@@ -1979,6 +2200,7 @@ export default function App() {
         onSavePromotionRule={handleSavePromotionRule}
         onDeletePromotionRule={handleDeletePromotionRule}
         onRedeemPromotion={handleRedeemCustomPromotion}
+        onResetMemberPin={handleOrganizerResetMemberPin}
       />
 
       <PlayerModal
@@ -2057,6 +2279,19 @@ export default function App() {
             promotionRedemptions: getPromotionRedemptions(prev as any),
             shuttlePurchases: getShuttlePurchases(prev as any),
             shuttleUsageLedger: getShuttleUsageLedger(prev as any),
+            shuttleLowStockThreshold: Math.max(
+              0,
+              Number((prev as any).shuttleLowStockThreshold ?? 12)
+            ),
+            shuttleStockAdjustments: getShuttleStockAdjustments(prev as any),
+            shuttleTargetStock: Math.max(
+              0,
+              Number((prev as any).shuttleTargetStock ?? 36)
+            ),
+            shuttleDefaultPiecesPerTube: Math.max(
+              1,
+              Number((prev as any).shuttleDefaultPiecesPerTube ?? 12)
+            ),
           } as any));
           setIsArchiveModalOpen(false);
         }}

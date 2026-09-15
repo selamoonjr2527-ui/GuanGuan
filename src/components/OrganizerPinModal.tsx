@@ -13,7 +13,7 @@ import {
   ShieldCheck,
   LoaderCircle,
 } from 'lucide-react';
-import { auth, ORGANIZER_UID } from '../firebase';
+import { auth, isOrganizerUid } from '../firebase';
 
 interface OrganizerPinModalProps {
   isOpen: boolean;
@@ -74,7 +74,7 @@ export const OrganizerPinModal: React.FC<OrganizerPinModalProps> = ({
         password
       );
 
-      if (credential.user.uid !== ORGANIZER_UID) {
+      if (!isOrganizerUid(credential.user.uid)) {
         await restoreAnonymousSession();
         setPassword('');
         setErrorMsg('บัญชีนี้ Login ได้ แต่ไม่ได้รับสิทธิ์ Organizer ของก๊วนกวน');

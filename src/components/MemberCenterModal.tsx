@@ -20,6 +20,8 @@ import {
   ToggleRight,
   Percent,
   BadgeDollarSign,
+  KeyRound,
+  ShieldCheck,
 } from 'lucide-react';
 import { Player, SessionConfig } from '../types';
 import {
@@ -55,6 +57,7 @@ interface Props {
   onSavePromotionRule: (rule: PromotionRule) => void;
   onDeletePromotionRule: (promotionId: string) => void;
   onRedeemPromotion: (playerId: string, promotionId: string) => void;
+  onResetMemberPin: (playerId: string, newPin: string) => void;
 }
 
 const NEW_RULE = (): PromotionRule => ({
@@ -85,10 +88,15 @@ export const MemberCenterModal: React.FC<Props> = ({
   onSavePromotionRule,
   onDeletePromotionRule,
   onRedeemPromotion,
+  onResetMemberPin,
 }) => {
   const [tab, setTab] = useState<'stats' | 'promotions' | 'trash'>('stats');
   const [search, setSearch] = useState('');
   const [editingRule, setEditingRule] = useState<PromotionRule | null>(null);
+  const [resetPinPlayer, setResetPinPlayer] = useState<Player | null>(null);
+  const [resetPin, setResetPin] = useState('');
+  const [resetPinConfirm, setResetPinConfirm] = useState('');
+  const [resetPinError, setResetPinError] = useState('');
 
   const statsRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -367,6 +375,32 @@ export const MemberCenterModal: React.FC<Props> = ({
                             onChange={(e) => onUpdateBirthday(player.id, e.target.value)}
                             className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"
                           />
+                        </div>
+
+                        <div className="rounded-xl bg-cyan-950/15 border border-cyan-800/35 p-3 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                              <KeyRound className="w-3.5 h-3.5" />
+                              Member PIN
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              {String((player as any).pin || '').replace(/\D/g, '').length === 4
+                                ? 'มี PIN ส่วนตัวแล้ว'
+                                : 'ยังไม่มี PIN ส่วนตัว • อาจใช้เบอร์โทรยืนยัน'}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setResetPinPlayer(player);
+                              setResetPin('');
+                              setResetPinConfirm('');
+                              setResetPinError('');
+                            }}
+                            className="px-3 py-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-[10px] font-black shrink-0"
+                          >
+                            Reset PIN
+                          </button>
                         </div>
 
                         <div className="space-y-2">
@@ -662,6 +696,110 @@ export const MemberCenterModal: React.FC<Props> = ({
           </div>
         </div>
       </div>
+
+          {resetPinPlayer && (
+            <div className="fixed inset-0 z-[21000] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-cyan-700/50 shadow-2xl p-5 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 flex items-center justify-center shrink-0">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-black text-white">Organizer Reset PIN</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      สมาชิก: {resetPinPlayer.nickname}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setResetPinPlayer(null)}
+                    className="text-slate-500 hover:text-white"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="rounded-xl bg-amber-950/25 border border-amber-800/40 p-3 text-[11px] text-amber-200">
+                  ใช้กรณีสมาชิกลืม PIN เท่านั้น หลัง Reset สมาชิกต้องใช้ PIN ใหม่นี้ในการเข้าใช้งานครั้งถัดไป
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] text-slate-400">PIN ใหม่</label>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={4}
+                      value={resetPin}
+                      onChange={(e) =>
+                        setResetPin(e.target.value.replace(/\D/g, '').slice(0, 4))
+                      }
+                      placeholder="••••"
+                      className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-center text-lg tracking-[0.35em] pl-[0.35em] font-black font-mono text-white focus:outline-none focus:border-cyan-400"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] text-slate-400">ยืนยัน PIN</label>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={4}
+                      value={resetPinConfirm}
+                      onChange={(e) =>
+                        setResetPinConfirm(
+                          e.target.value.replace(/\D/g, '').slice(0, 4)
+                        )
+                      }
+                      placeholder="••••"
+                      className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-center text-lg tracking-[0.35em] pl-[0.35em] font-black font-mono text-white focus:outline-none focus:border-cyan-400"
+                    />
+                  </div>
+                </div>
+
+                {resetPinError && (
+                  <div className="rounded-xl bg-rose-950/50 border border-rose-800/50 p-2.5 text-xs text-rose-200">
+                    {resetPinError}
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setResetPinPlayer(null)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetPinError('');
+
+                      if (!/^\d{4}$/.test(resetPin)) {
+                        setResetPinError('PIN ใหม่ต้องเป็นตัวเลข 4 หลัก');
+                        return;
+                      }
+
+                      if (resetPin !== resetPinConfirm) {
+                        setResetPinError('PIN ใหม่และยืนยัน PIN ไม่ตรงกัน');
+                        return;
+                      }
+
+                      onResetMemberPin(resetPinPlayer.id, resetPin);
+                      setResetPinPlayer(null);
+                      setResetPin('');
+                      setResetPinConfirm('');
+                      setResetPinError('');
+                    }}
+                    className="flex-1 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-black"
+                  >
+                    ยืนยัน Reset PIN
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
     </div>,
     document.body
   );

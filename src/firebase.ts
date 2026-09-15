@@ -16,6 +16,15 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 
-// Firebase Authentication UID for the GuanGuan organizer account.
-// The UID itself is not a password/secret.
+// Firebase Authentication Organizer allow-list.
+// UIDs are account identifiers, not passwords/secrets.
 export const ORGANIZER_UID = 'DWpEIuKxqRTBptDKqM4FIKjMPmf1';
+
+export const ORGANIZER_UIDS = [
+  ORGANIZER_UID,
+  'Ofkc1m00ikbEg84VifbePLk1k0l2',
+] as const;
+
+export function isOrganizerUid(uid?: string | null): boolean {
+  return Boolean(uid && ORGANIZER_UIDS.includes(uid as (typeof ORGANIZER_UIDS)[number]));
+}
