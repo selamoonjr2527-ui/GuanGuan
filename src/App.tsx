@@ -75,7 +75,10 @@ import {
 } from './utils/storage';
 import {
   saveCurrentSessionToFirestore,
+  saveCurrentSessionMergedToFirestore,
   subscribeToCurrentSessionFromFirestore,
+  mergeLocalChanges,
+  areFirestoreStatesEqual,
 } from './utils/firestoreSync';
 import {
   seedFundTransactionsToFirestore,
@@ -147,11 +150,19 @@ export default function App() {
   const firestoreReadyRef = useRef(false);
   const applyingRemoteStateRef = useRef(false);
   const pushTimerRef = useRef<number | null>(null);
+  const appStateRef = useRef(appState);
+  const lastSyncedStateRef = useRef<typeof appState | null>(null);
+  const localDirtyRef = useRef(false);
+  const localChangeSeqRef = useRef(0);
+  const lastSyncedRevisionRef = useRef(0);
+  const hasInitialRemoteSnapshotRef = useRef(false);
   const clientIdRef = useRef(
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
       : `client-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
+
+  appStateRef.current = appState;
 
   const normalizeIncomingAppState = (incomingState: typeof appState) => {
     const normalizedPlayers = Array.isArray(incomingState?.players)
@@ -366,51 +377,115 @@ export default function App() {
     }
   };
 
-  // Firestore realtime subscription.
-  // - If Firestore already has a current session, use it as the shared source of truth.
-  // - If the document does not exist yet, upload this browser's migrated LocalStorage state once.
+  // Firestore realtime subscription with three-way merge protection.
+  //
+  // When another browser updates Firestore while this browser still has local
+  // unsaved edits, we DO NOT discard those local edits. Instead:
+  //   previous Firestore base + local edits + newest Firestore remote
+  // are merged field-by-field.
   useEffect(() => {
     if (!authReady || !authUserUid) return;
 
     firestoreReadyRef.current = false;
+    hasInitialRemoteSnapshotRef.current = false;
+    lastSyncedStateRef.current = null;
+    lastSyncedRevisionRef.current = 0;
+    localDirtyRef.current = false;
     setSyncStatus('connecting');
 
     const unsubscribe = subscribeToCurrentSessionFromFirestore(
-      (remoteState, updatedBy) => {
+      (remoteState, updatedBy, revision = 0) => {
         firestoreReadyRef.current = true;
 
-        // Ignore our own Firestore echo. Local state is already current.
-        if (updatedBy === clientIdRef.current) {
+        const normalizedRemoteState =
+          normalizeIncomingAppState(remoteState);
+
+        // First Firestore snapshot is the shared source of truth.
+        if (!hasInitialRemoteSnapshotRef.current) {
+          hasInitialRemoteSnapshotRef.current = true;
+          lastSyncedStateRef.current = normalizedRemoteState;
+          lastSyncedRevisionRef.current = revision;
+          localDirtyRef.current = false;
+
+          if (
+            !areFirestoreStatesEqual(
+              appStateRef.current,
+              normalizedRemoteState
+            )
+          ) {
+            applyingRemoteStateRef.current = true;
+            appStateRef.current = normalizedRemoteState;
+            saveAppState(normalizedRemoteState);
+            setAppState(normalizedRemoteState);
+          } else {
+            saveAppState(normalizedRemoteState);
+          }
+
           setSyncStatus('synced');
           return;
         }
 
-        // A newer state arrived from another device.
-        // Cancel any pending local push so stale local data does not immediately overwrite it.
-        if (pushTimerRef.current !== null) {
-          window.clearTimeout(pushTimerRef.current);
-          pushTimerRef.current = null;
+        const previousBase =
+          lastSyncedStateRef.current || normalizedRemoteState;
+        const currentLocal = appStateRef.current;
+        const hadUnsavedLocalChanges = localDirtyRef.current;
+
+        // Update the known Firestore base first.
+        lastSyncedStateRef.current = normalizedRemoteState;
+        lastSyncedRevisionRef.current = revision;
+
+        // If local edits are pending, replay only those local deltas on top of
+        // the newest remote state. This preserves changes from both devices.
+        const nextLocalState = hadUnsavedLocalChanges
+          ? normalizeIncomingAppState(
+              mergeLocalChanges(
+                previousBase,
+                currentLocal,
+                normalizedRemoteState
+              )
+            )
+          : normalizedRemoteState;
+
+        if (
+          !areFirestoreStatesEqual(
+            currentLocal,
+            nextLocalState
+          )
+        ) {
+          applyingRemoteStateRef.current = true;
+          appStateRef.current = nextLocalState;
+          saveAppState(nextLocalState);
+          setAppState(nextLocalState);
+        } else {
+          saveAppState(nextLocalState);
         }
 
-        applyingRemoteStateRef.current = true;
-
-        // Firestore may still contain legacy skill values such as S / S- / S+.
-        // Normalize before rendering any view so Member/Check-in pages cannot crash.
-        const normalizedRemoteState = normalizeIncomingAppState(remoteState);
-        saveAppState(normalizedRemoteState); // LocalStorage remains an offline/local backup.
-        setAppState(normalizedRemoteState);
-        setSyncStatus('synced');
+        setSyncStatus(
+          hadUnsavedLocalChanges ? 'saving' : 'synced'
+        );
       },
       async () => {
-        // First run: no shared Firestore state yet.
+        // First install / migration: no shared Firestore document exists yet.
         firestoreReadyRef.current = true;
         setSyncStatus('saving');
 
         try {
-          await saveCurrentSessionToFirestore(appState, clientIdRef.current);
+          const initialState = appStateRef.current;
+          await saveCurrentSessionToFirestore(
+            initialState,
+            clientIdRef.current
+          );
+
+          hasInitialRemoteSnapshotRef.current = true;
+          lastSyncedStateRef.current = initialState;
+          lastSyncedRevisionRef.current = 1;
+          localDirtyRef.current = false;
           setSyncStatus('synced');
         } catch (error) {
-          console.error('Failed to create initial Firestore session', error);
+          console.error(
+            'Failed to create initial Firestore session',
+            error
+          );
           setSyncStatus('error');
         }
       },
@@ -497,36 +572,100 @@ export default function App() {
     };
   }, [authReady, authUserUid]);
 
-  // Keep LocalStorage as a backup and debounce writes to Firestore.
+  // Keep LocalStorage as backup and debounce concurrency-safe Firestore writes.
+  //
+  // The transaction compares:
+  //   lastSyncedStateRef (base) -> appState (local)
+  // and applies only that delta over the newest Firestore state.
   useEffect(() => {
+    appStateRef.current = appState;
     saveAppState(appState);
 
     if (!authReady || !authUserUid) return;
     if (!firestoreReadyRef.current) return;
+    if (!hasInitialRemoteSnapshotRef.current) return;
 
-    // This state was just received from Firestore; do not write it straight back.
-    if (applyingRemoteStateRef.current) {
+    const wasRemoteApplication = applyingRemoteStateRef.current;
+    if (wasRemoteApplication) {
       applyingRemoteStateRef.current = false;
-      return;
+
+      // Pure remote update: nothing local needs to be written back.
+      if (!localDirtyRef.current) {
+        return;
+      }
+
+      // If local edits were pending, the subscription merged them on top of
+      // the new remote snapshot. Continue below and persist that merged delta.
+    } else {
+      localDirtyRef.current = true;
+      localChangeSeqRef.current += 1;
     }
 
     if (pushTimerRef.current !== null) {
       window.clearTimeout(pushTimerRef.current);
+      pushTimerRef.current = null;
     }
 
     setSyncStatus('saving');
 
+    const scheduledSeq = localChangeSeqRef.current;
+    const scheduledLocalState = appState;
+    const scheduledBaseState =
+      lastSyncedStateRef.current || appState;
+
     pushTimerRef.current = window.setTimeout(async () => {
       try {
-        await saveCurrentSessionToFirestore(appState, clientIdRef.current);
-        setSyncStatus('synced');
+        const result =
+          await saveCurrentSessionMergedToFirestore(
+            scheduledLocalState,
+            scheduledBaseState,
+            clientIdRef.current
+          );
+
+        const normalizedMergedState =
+          normalizeIncomingAppState(result.state);
+
+        lastSyncedStateRef.current = normalizedMergedState;
+        lastSyncedRevisionRef.current = result.revision;
+
+        const noNewerLocalEdit =
+          scheduledSeq === localChangeSeqRef.current;
+
+        if (noNewerLocalEdit) {
+          localDirtyRef.current = false;
+
+          // Transaction may have preserved changes from another device that
+          // were not present in the scheduled local state. Bring them into UI.
+          if (
+            !areFirestoreStatesEqual(
+              appStateRef.current,
+              normalizedMergedState
+            )
+          ) {
+            applyingRemoteStateRef.current = true;
+            appStateRef.current = normalizedMergedState;
+            saveAppState(normalizedMergedState);
+            setAppState(normalizedMergedState);
+          }
+
+          setSyncStatus('synced');
+        } else {
+          // Another local action happened while this transaction was running.
+          // Do not mark synced; the newer effect will persist that edit.
+          localDirtyRef.current = true;
+          setSyncStatus('saving');
+        }
       } catch (error) {
-        console.error('Failed to save state to Firestore', error);
+        console.error(
+          'Failed to merge/save state to Firestore',
+          error
+        );
+        localDirtyRef.current = true;
         setSyncStatus('error');
       } finally {
         pushTimerRef.current = null;
       }
-    }, 500);
+    }, 350);
 
     return () => {
       if (pushTimerRef.current !== null) {
