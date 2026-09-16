@@ -54,7 +54,6 @@ interface FinancialStatsViewProps {
     reason: ShuttleStockAdjustment['reason'],
     note?: string
   ) => boolean;
-  onResetAllShuttleData?: () => boolean;
 }
 
 export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
@@ -76,7 +75,6 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
   shuttleDefaultPiecesPerTube = 12,
   onSetShuttleReorderSettings,
   onStocktakeShuttles,
-  onResetAllShuttleData,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'today' | 'history' | 'treasury' | 'shuttles'>('today');
   const [pinInput, setPinInput] = useState('');
@@ -2318,31 +2316,6 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                 บันทึก Stock
               </button>
             </form>
-          </div>
-        </div>
-      )}
-
-
-      {/* RESET_SHUTTLE_DANGER_ZONE */}
-      {isOrganizerMode && onResetAllShuttleData && (
-        <div className="mt-6 rounded-2xl border border-rose-900/70 bg-rose-950/20 p-4 sm:p-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-extrabold text-rose-300">
-                ⚠️ Danger Zone — ข้อมูลลูกขนไก่
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                เริ่ม Stock ลูกใหม่ทั้งหมด โดยไม่ลบสมาชิก Match การชำระเงิน Archive หรือ Fund
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => onResetAllShuttleData()}
-              className="shrink-0 rounded-xl border border-rose-700 bg-rose-950/70 hover:bg-rose-900/70 px-4 py-2.5 text-xs font-extrabold text-rose-200 transition"
-            >
-              🗑️ รีเซ็ต Stock ลูกทั้งหมด
-            </button>
           </div>
         </div>
       )}

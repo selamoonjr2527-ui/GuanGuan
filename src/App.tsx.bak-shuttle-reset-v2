@@ -1485,55 +1485,6 @@ export default function App() {
     return true;
   };
 
-  const handleResetAllShuttleData = (): boolean => {
-    if (activeMatches.length > 0) {
-      window.alert(
-        'ยังรีเซ็ตลูกไม่ได้ เพราะมี Match กำลังเล่นอยู่\n\nกรุณาจบ Match ในสนามก่อน'
-      );
-      return false;
-    }
-
-    const confirmed = window.confirm(
-      '⚠️ รีเซ็ตข้อมูลลูกขนไก่ทั้งหมด?\n\n' +
-      'ระบบจะล้าง:\n' +
-      '• Stock / รายการซื้อลูกทั้งหมด\n' +
-      '• ประวัติการใช้ลูก (Usage Ledger)\n' +
-      '• รายการปรับ Stock\n' +
-      '• จำนวนลูกที่ใช้วันนี้\n' +
-      '• ยี่ห้อ / รุ่นลูกในตั้งค่าก๊วน\n' +
-      '• ราคาต้นทุนลูกในตั้งค่าก๊วน\n\n' +
-      'จะไม่ลบสมาชิก, Match History, การชำระเงิน, Archive หรือ Fund\n\n' +
-      'กด OK เพื่อรีเซ็ต'
-    );
-
-    if (!confirmed) return false;
-
-    setAppState((prev) => ({
-      ...prev,
-      shuttlePurchases: [],
-      shuttleUsageLedger: [],
-      shuttleStockAdjustments: [],
-      shuttleLowStockThreshold: 12,
-      shuttleTargetStock: 36,
-      shuttleDefaultPiecesPerTube: 12,
-      sessionConfig: {
-        ...prev.sessionConfig,
-        shuttlecockBrand: '',
-        shuttlecockPrice: 0,
-        shuttlecocksUsedTotal: 0,
-      },
-    } as any));
-
-    window.alert(
-      '✅ รีเซ็ตข้อมูลลูกเรียบร้อยแล้ว\n\n' +
-      'Stock = 0 ลูก\n' +
-      'ต้นทุน = 0.00 บาท/ลูก\n\n' +
-      'จากนี้ให้เพิ่ม Stock ใหม่จากหน้าลูกขนไก่'
-    );
-
-    return true;
-  };
-
   const handleStartMatch = (
     courtId: string,
     courtName: string,
@@ -2441,7 +2392,6 @@ export default function App() {
             shuttleDefaultPiecesPerTube={shuttleDefaultPiecesPerTube}
             onSetShuttleReorderSettings={handleSetShuttleReorderSettings}
             onStocktakeShuttles={handleStocktakeShuttles}
-            onResetAllShuttleData={handleResetAllShuttleData}
           />
         )}
       </main>
