@@ -2072,19 +2072,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
-      {!isOrganizerMode &&
-        (currentTab === 'checkin' || isSelfCheckInOpen) && (
-          <button
-            type="button"
-            onClick={handleCloseMemberScreen}
-            className="fixed top-3 right-3 z-[2147483647] inline-flex items-center gap-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 border-2 border-rose-500/70 px-3.5 py-2.5 text-xs font-extrabold text-white shadow-2xl"
-            title="ปิดหน้าต่างนี้และกลับไปหน้า Pre-Match"
-          >
-            <span className="text-rose-400 text-lg leading-none">✕</span>
-            <span>ปิด / กลับหน้าคิว</span>
-          </button>
-        )}
-
       {/* Top Header */}
       <Header
         currentTab={currentTab}
