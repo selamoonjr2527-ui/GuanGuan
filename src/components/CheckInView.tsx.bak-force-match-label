@@ -638,7 +638,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
 
                   <div className="flex items-center gap-3">
                     <div className="text-slate-400">
-                      เล่นไปแล้ว: <strong className="text-white font-bold">{player.matchesPlayed ?? Math.floor((player.gamesPlayed || 0) / 2)}</strong> Match
+                      เล่นไปแล้ว: <strong className="text-white font-bold">{player.gamesPlayed}</strong> เกม
                     </div>
                     {player.isCheckedIn && player.checkInTime && (
                       <div className="text-[11px] text-slate-500 flex items-center gap-1">

@@ -203,17 +203,6 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
     return players.find((p) => p.id === id);
   };
 
-  // Queue / member display uses MATCH as the primary unit.
-  const getMatchCountForDisplay = (player: Player): number => {
-    const matches = Number(player.matchesPlayed ?? 0);
-    if (Number.isFinite(matches) && matches >= 0) return matches;
-    return Math.max(0, Math.floor(Number(player.gamesPlayed || 0) / 2));
-  };
-
-  const getEffectiveMatchCountForDisplay = (player: Player): number => {
-    return getMatchCountForDisplay(player) + Math.max(0, Number(player.walkInPenaltyMatches ?? 0));
-  };
-
   // Organizer manual picker can see every checked-in player:
   // Waiting, Playing, Resting, PM1 and PM2.
   const manualSelectablePlayers = useMemo(() => {
@@ -1197,7 +1186,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                               )}
                             </div>
                             <div className="text-[10px] text-slate-400">
-                              เล่น {getMatchCountForDisplay(p)} Match • มือ {p.skillLevel}
+                              เล่น {p.gamesPlayed} เกม • มือ {p.skillLevel}
                               {isWalkIn && (p.walkInPenaltyMatches ?? 1) > 0 && (
                                 <span className="text-amber-400 ml-1">(+{(p.walkInPenaltyMatches ?? 1) * 2} โทษ)</span>
                               )}
@@ -1237,7 +1226,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                               )}
                             </div>
                             <div className="text-[10px] text-slate-400">
-                              เล่น {getMatchCountForDisplay(p)} Match • มือ {p.skillLevel}
+                              เล่น {p.gamesPlayed} เกม • มือ {p.skillLevel}
                               {isWalkIn && (p.walkInPenaltyMatches ?? 1) > 0 && (
                                 <span className="text-amber-400 ml-1">(+{(p.walkInPenaltyMatches ?? 1) * 2} โทษ)</span>
                               )}
@@ -1536,7 +1525,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                               )}
                             </div>
                             <div className="text-[10px] text-slate-400">
-                              เล่น {getMatchCountForDisplay(p)} Match • มือ {p.skillLevel}
+                              เล่น {p.gamesPlayed} เกม • มือ {p.skillLevel}
                               {isWalkIn && (p.walkInPenaltyMatches ?? 1) > 0 && (
                                 <span className="text-amber-400 ml-1">(+{(p.walkInPenaltyMatches ?? 1) * 2} โทษ)</span>
                               )}
@@ -1576,7 +1565,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                               )}
                             </div>
                             <div className="text-[10px] text-slate-400">
-                              เล่น {getMatchCountForDisplay(p)} Match • มือ {p.skillLevel}
+                              เล่น {p.gamesPlayed} เกม • มือ {p.skillLevel}
                               {isWalkIn && (p.walkInPenaltyMatches ?? 1) > 0 && (
                                 <span className="text-amber-400 ml-1">(+{(p.walkInPenaltyMatches ?? 1) * 2} โทษ)</span>
                               )}
@@ -1742,7 +1731,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="text-xs font-bold text-white truncate">{p.nickname}</div>
-                          <div className="text-[10px] text-slate-400">เล่น {getMatchCountForDisplay(p)} Match • มือ {p.skillLevel}</div>
+                          <div className="text-[10px] text-slate-400">เล่น {p.gamesPlayed} เกม • มือ {p.skillLevel}</div>
                         </div>
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-medium">
                           คิวถัดไป
@@ -1909,7 +1898,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                           {stagedA1 && (
                             <>
                               <span className="text-[10px] text-slate-400 block">
-                                เล่น {getMatchCountForDisplay(stagedA1)} Match • มือ {stagedA1.skillLevel}
+                                เล่น {stagedA1.gamesPlayed} เกม • มือ {stagedA1.skillLevel}
                               </span>
                               <span className={`text-[10px] font-bold block mt-0.5 ${getPlayerLocationClass(getPlayerLocationStatus(stagedA1.id).kind)}`}>
                                 สถานะ: {getPlayerLocationStatus(stagedA1.id).label}
@@ -1953,7 +1942,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                           {stagedA2 && (
                             <>
                               <span className="text-[10px] text-slate-400 block">
-                                เล่น {getMatchCountForDisplay(stagedA2)} Match • มือ {stagedA2.skillLevel}
+                                เล่น {stagedA2.gamesPlayed} เกม • มือ {stagedA2.skillLevel}
                               </span>
                               <span className={`text-[10px] font-bold block mt-0.5 ${getPlayerLocationClass(getPlayerLocationStatus(stagedA2.id).kind)}`}>
                                 สถานะ: {getPlayerLocationStatus(stagedA2.id).label}
@@ -2006,7 +1995,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                           {stagedB1 && (
                             <>
                               <span className="text-[10px] text-slate-400 block">
-                                เล่น {getMatchCountForDisplay(stagedB1)} Match • มือ {stagedB1.skillLevel}
+                                เล่น {stagedB1.gamesPlayed} เกม • มือ {stagedB1.skillLevel}
                               </span>
                               <span className={`text-[10px] font-bold block mt-0.5 ${getPlayerLocationClass(getPlayerLocationStatus(stagedB1.id).kind)}`}>
                                 สถานะ: {getPlayerLocationStatus(stagedB1.id).label}
@@ -2050,7 +2039,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                           {stagedB2 && (
                             <>
                               <span className="text-[10px] text-slate-400 block">
-                                เล่น {getMatchCountForDisplay(stagedB2)} Match • มือ {stagedB2.skillLevel}
+                                เล่น {stagedB2.gamesPlayed} เกม • มือ {stagedB2.skillLevel}
                               </span>
                               <span className={`text-[10px] font-bold block mt-0.5 ${getPlayerLocationClass(getPlayerLocationStatus(stagedB2.id).kind)}`}>
                                 สถานะ: {getPlayerLocationStatus(stagedB2.id).label}
@@ -2145,7 +2134,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                   <tr>
                     <th className="px-3 py-2.5 w-14 text-center">อันดับ</th>
                     <th className="px-3 py-2.5">ผู้เล่น</th>
-                    <th className="px-3 py-2.5 text-center">Match ที่เล่นแล้ว</th>
+                    <th className="px-3 py-2.5 text-center">เกมที่เล่นแล้ว</th>
                     <th className="px-3 py-2.5">เวลารอพัก</th>
                     <th className="px-3 py-2.5 text-center">สถานะ</th>
                     <th className="px-3 py-2.5 text-right">ปรับสถานะ</th>
@@ -2232,14 +2221,14 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                           </div>
                         </td>
 
-                        {/* Matches Played */}
+                        {/* Games Played */}
                         <td className="px-3 py-3 text-center">
                           <div className="font-bold text-slate-200">
-                            {getMatchCountForDisplay(player)} Match
+                            {player.gamesPlayed} เกม
                           </div>
                           {player.registrationType === 'walkin' && (player.walkInPenaltyMatches ?? 1) > 0 ? (
                             <div className="text-[10px] text-amber-400 font-medium">
-                              คิวคำนวณ: {getEffectiveMatchCountForDisplay(player)} Match
+                              คิวคำนวณ: {getPlayerEffectiveGames(player)} เกม
                             </div>
                           ) : null}
                         </td>
