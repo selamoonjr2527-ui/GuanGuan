@@ -21,7 +21,6 @@ interface PreMatchViewProps {
   confirmedPreMatch2?: ConfirmedPreMatch | null;
   onConfirmPreMatch?: (preMatch: ConfirmedPreMatch, slot: 1 | 2) => void;
   onCancelPreMatch?: (slot: 1 | 2) => void;
-  onRemovePlayerFromPreMatch?: (playerId: string, slot: 1 | 2) => void;
   onStartConfirmedPreMatch?: (courtId: string, preMatch: ConfirmedPreMatch, slot: 1 | 2) => void;
   onSelectPlayerStatus?: (playerId: string, status: 'waiting' | 'resting') => void;
   onNavigateToCourts?: () => void;
@@ -41,7 +40,6 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
   confirmedPreMatch2,
   onConfirmPreMatch,
   onCancelPreMatch,
-  onRemovePlayerFromPreMatch,
   onStartConfirmedPreMatch,
   onSelectPlayerStatus,
   onNavigateToCourts,
@@ -80,18 +78,6 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
     return new Set([...fromActive, ...markedPlaying]);
   }, [activeMatches, players]);
 
-  // FINAL RULE:
-  // Resting / Left / Not Check-in must NEVER appear in PM.
-  const isPmEligiblePlayer = (playerId: string) => {
-    const player = players.find((p) => p.id === playerId);
-    return Boolean(
-      player &&
-      player.isCheckedIn &&
-      player.status !== 'resting' &&
-      player.status !== 'left'
-    );
-  };
-
   // Organizer may reserve a player who is currently playing.
   // Only duplicates inside the same Pre-Match make the lineup invalid.
   const safeConfirmedPreMatch1 = useMemo(() => {
@@ -119,69 +105,6 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
     return new Set([...safeConfirmedPreMatch2.teamA, ...safeConfirmedPreMatch2.teamB]);
   }, [safeConfirmedPreMatch2]);
 
-  // ORGANIZER_PM_MEMBER_CHANGE_ALERT
-  // Member may request Rest / Check-out from another device.
-  // Firestore sync updates players here, then only organizer receives this confirmation.
-  const organizerPmAlertedRef = React.useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (!isOrganizerMode || !onRemovePlayerFromPreMatch) return;
-
-    const inspectSlot = (pmData: ConfirmedPreMatch | null | undefined, slot: 1 | 2) => {
-      if (!pmData) return;
-
-      const ids = [...pmData.teamA, ...pmData.teamB]
-        .filter((id) => id && !id.startsWith('__PM_VACANT__'));
-
-      ids.forEach((playerId) => {
-        const player = players.find((p) => p.id === playerId);
-        if (!player) return;
-
-        const isResting = player.status === 'resting';
-        const isLeaving = !player.isCheckedIn || player.status === 'left';
-        if (!isResting && !isLeaving) return;
-
-        const actionText = isResting ? 'ขอพักเหนื่อย' : 'ขอกลับ / Check-out';
-        const key = `${slot}:${player.id}:${actionText}`;
-
-        if (organizerPmAlertedRef.current.has(key)) return;
-        organizerPmAlertedRef.current.add(key);
-
-        const ok = window.confirm(
-          `🚨 แจ้งผู้จัดก๊วน\n\n` +
-          `${player.nickname} ${actionText}\n` +
-          `แต่มีชื่ออยู่ใน Pre-Match #${slot} ที่ Confirm แล้ว\n\n` +
-          `กด OK = เอา ${player.nickname} ออกจาก PM#${slot} และเปิดช่องให้เลือกคนแทน\n` +
-          `กด Cancel = ยังไม่แก้ PM ตอนนี้`
-        );
-
-        if (ok) {
-          onRemovePlayerFromPreMatch(player.id, slot);
-          setStagingSlot(slot);
-          setIsEditingSlot(slot);
-          setActionNotice(
-            `⚠️ เอา ${player.nickname} ออกจาก Pre-Match #${slot} แล้ว • กรุณาเลือกผู้เล่นแทน`
-          );
-          setTimeout(() => setActionNotice(null), 6000);
-        } else {
-          setActionNotice(
-            `⚠️ ${player.nickname} ${actionText} แต่ยังอยู่ใน Pre-Match #${slot} • ยังเปิดสนามไม่ได้จนกว่าจะจัดคนใหม่`
-          );
-          setTimeout(() => setActionNotice(null), 7000);
-        }
-      });
-    };
-
-    inspectSlot(confirmedPreMatch, 1);
-    inspectSlot(confirmedPreMatch2, 2);
-  }, [
-    isOrganizerMode,
-    players,
-    confirmedPreMatch,
-    confirmedPreMatch2,
-    onRemovePlayerFromPreMatch,
-  ]);
-
   // Priority sorted queue for players ready to play ('waiting')
   // STRICTLY EXCLUDES players currently on court or with status 'resting'/'left'
   const waitingQueue = useMemo(() => {
@@ -206,13 +129,8 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
   // Organizer manual picker can see every checked-in player:
   // Waiting, Playing, Resting, PM1 and PM2.
   const manualSelectablePlayers = useMemo(() => {
-    return players.filter(
-      (p) =>
-        p.isCheckedIn &&
-        p.status === 'waiting' &&
-        !playingPlayerIds.has(p.id)
-    );
-  }, [players, playingPlayerIds]);
+    return players.filter((p) => p.isCheckedIn && p.status !== 'left');
+  }, [players]);
 
   const manualSelectablePlayerIds = useMemo(() => {
     return new Set(manualSelectablePlayers.map((p) => p.id));
@@ -708,14 +626,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
       return 5;
     };
 
-    return manualSelectablePlayers
-      .filter(
-        (p) =>
-          p.isCheckedIn &&
-          p.status === 'waiting' &&
-          !playingPlayerIds.has(p.id)
-      )
-      .sort((a, b) => {
+    return [...manualSelectablePlayers].sort((a, b) => {
       const rankDiff = statusRank(a) - statusRank(b);
       if (rankDiff !== 0) return rankDiff;
       if (a.status === 'waiting' && b.status === 'waiting') {

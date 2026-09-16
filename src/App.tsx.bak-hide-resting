@@ -865,11 +865,22 @@ export default function App() {
         }
         return p;
       });
-      // IMPORTANT: If this member is already in a CONFIRMED Pre-Match,
-      // keep the PM for now. Organizer will receive an alert and decide.
+
+      // Clear from pre-match if present
+      let nextPre1 = prev.confirmedPreMatch;
+      let nextPre2 = prev.confirmedPreMatch2;
+      if (nextPre1 && [...nextPre1.teamA, ...nextPre1.teamB].includes(playerId)) {
+        nextPre1 = null;
+      }
+      if (nextPre2 && [...nextPre2.teamA, ...nextPre2.teamB].includes(playerId)) {
+        nextPre2 = null;
+      }
+
       return {
         ...prev,
         players: updatedPlayers,
+        confirmedPreMatch: nextPre1,
+        confirmedPreMatch2: nextPre2,
       };
     });
 
@@ -894,11 +905,24 @@ export default function App() {
       const updatedPlayers = prev.players.map((p) =>
         p.id === playerId ? { ...p, status } : p
       );
-      // IMPORTANT: Resting/left member stays in CONFIRMED PM temporarily.
-      // Organizer will get a cross-device alert and must acknowledge removal.
+
+      // If a player is marked resting or left, clear them from confirmed pre-match if present
+      let nextPre1 = prev.confirmedPreMatch;
+      let nextPre2 = prev.confirmedPreMatch2;
+      if (status === 'resting' || status === 'left') {
+        if (nextPre1 && [...nextPre1.teamA, ...nextPre1.teamB].includes(playerId)) {
+          nextPre1 = null;
+        }
+        if (nextPre2 && [...nextPre2.teamA, ...nextPre2.teamB].includes(playerId)) {
+          nextPre2 = null;
+        }
+      }
+
       return {
         ...prev,
         players: updatedPlayers,
+        confirmedPreMatch: nextPre1,
+        confirmedPreMatch2: nextPre2,
       };
     });
   };
@@ -1858,52 +1882,7 @@ export default function App() {
     }));
   };
 
-  const handleRemovePlayerFromPreMatch = (playerId: string, slotNumber: 1 | 2) => {
-    setAppState((prev) => {
-      const source = slotNumber === 1 ? prev.confirmedPreMatch : prev.confirmedPreMatch2;
-      if (!source) return prev;
-
-      const allIds = [...source.teamA, ...source.teamB];
-      if (!allIds.includes(playerId)) return prev;
-
-      // Unique placeholder keeps the remaining 3 names in the same PM
-      // and makes the removed position visibly available for replacement.
-      const vacantId = `__PM_VACANT__${playerId}__${Date.now()}`;
-
-      const replacePlayer = (team: [string, string]): [string, string] =>
-        team.map((id) => (id === playerId ? vacantId : id)) as [string, string];
-
-      const updatedPreMatch: ConfirmedPreMatch = {
-        ...source,
-        teamA: replacePlayer(source.teamA),
-        teamB: replacePlayer(source.teamB),
-        pairingLabelThai: '⚠️ รอผู้เล่นแทน',
-        explanationThai: 'มีสมาชิกขอพัก/กลับหลังจาก Confirm แล้ว ผู้จัดต้องเลือกผู้เล่นแทนก่อนลงคอร์ท',
-        confirmedAt: Date.now(),
-      };
-
-      return {
-        ...prev,
-        confirmedPreMatch: slotNumber === 1 ? updatedPreMatch : prev.confirmedPreMatch,
-        confirmedPreMatch2: slotNumber === 2 ? updatedPreMatch : prev.confirmedPreMatch2,
-      };
-    });
-  };
-
   const handleStartConfirmedPreMatch = (courtId: string, preMatch: ConfirmedPreMatch, slotNumber: 1 | 2 = 1) => {
-    // PM_START_READY_GUARD
-    const readyIds = [...preMatch.teamA, ...preMatch.teamB];
-    const invalidForStart = readyIds.some((id) => {
-      if (!id || id.startsWith('__PM_VACANT__')) return true;
-      const p = players.find((x) => x.id === id);
-      return !p || !p.isCheckedIn || p.status === 'resting' || p.status === 'left';
-    });
-
-    if (invalidForStart) {
-      window.alert('ยังเปิดสนามไม่ได้ เพราะ Pre-Match มีช่องว่าง หรือมีสมาชิกที่พัก/กลับแล้ว กรุณาเลือกผู้เล่นแทนก่อน');
-      return;
-    }
-
     // A currently-playing member may be RESERVED in Pre-Match,
     // but the Pre-Match cannot start until every selected player is off court.
     const selectedIds = new Set([...preMatch.teamA, ...preMatch.teamB]);
@@ -2273,7 +2252,6 @@ export default function App() {
             confirmedPreMatch2={appState.confirmedPreMatch2}
             onConfirmPreMatch={handleConfirmPreMatch}
             onCancelPreMatch={handleCancelPreMatch}
-            onRemovePlayerFromPreMatch={handleRemovePlayerFromPreMatch}
             onStartConfirmedPreMatch={handleStartConfirmedPreMatch}
             onSelectPlayerStatus={(id, status) => handleUpdatePlayerStatus(id, status)}
             onNavigateToCourts={() => setCurrentTab('courts')}
