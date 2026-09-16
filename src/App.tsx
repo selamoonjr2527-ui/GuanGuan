@@ -145,6 +145,14 @@ export default function App() {
 
   // Firestore realtime sync status
   const [syncStatus, setSyncStatus] = useState<'connecting' | 'saving' | 'synced' | 'error'>('connecting');
+
+  // Network status for PWA / Tablet offline mode.
+  // navigator.onLine is used only for UI + retry control; LocalStorage remains
+  // the immediate backup source while the device has no Internet.
+  const [isOnline, setIsOnline] = useState<boolean>(() =>
+    typeof navigator === 'undefined' ? true : navigator.onLine
+  );
+
   const [archiveRevision, setArchiveRevision] = useState(0);
   const [fundRevision, setFundRevision] = useState(0);
   const firestoreReadyRef = useRef(false);
@@ -312,6 +320,31 @@ export default function App() {
     window.addEventListener('keydown', handleEscapeKey);
     return () => window.removeEventListener('keydown', handleEscapeKey);
   }, [isOrganizerMode, isMemberGateOpen, currentMemberId]);
+
+  // Track browser network state. When Internet returns, changing isOnline
+  // re-runs the Firestore save effect below so any LocalStorage-only edits made
+  // while offline are retried automatically.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleOnline = () => {
+      setIsOnline(true);
+      setSyncStatus((current) => (current === 'error' ? 'connecting' : current));
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    setIsOnline(navigator.onLine);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // Keep Firebase Authentication ready before opening Firestore listeners.
   useEffect(() => {
@@ -581,6 +614,19 @@ export default function App() {
     appStateRef.current = appState;
     saveAppState(appState);
 
+    // Offline-first behavior:
+    // - always keep the newest state in LocalStorage
+    // - do not attempt the Firestore transaction while offline
+    // - mark local data dirty so it will be retried when Internet returns
+    if (!isOnline) {
+      if (!applyingRemoteStateRef.current) {
+        localDirtyRef.current = true;
+        localChangeSeqRef.current += 1;
+      }
+      setSyncStatus('saving');
+      return;
+    }
+
     if (!authReady || !authUserUid) return;
     if (!firestoreReadyRef.current) return;
     if (!hasInitialRemoteSnapshotRef.current) return;
@@ -673,7 +719,7 @@ export default function App() {
         pushTimerRef.current = null;
       }
     };
-  }, [appState, authReady, authUserUid]);
+  }, [appState, authReady, authUserUid, isOnline]);
 
   const { sessionConfig, players, activeMatches, matchHistory } = appState;
   const deletedMembers: DeletedMemberRecord[] = getDeletedMembers(appState as any);
@@ -2058,6 +2104,31 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Offline / reconnect status */}
+        {!isOnline && (
+          <div className="mb-4 rounded-2xl border border-amber-600/60 bg-amber-950/45 px-4 py-3 shadow-lg">
+            <div className="flex items-start gap-3">
+              <div className="text-2xl leading-none">📴</div>
+              <div className="min-w-0">
+                <div className="text-sm font-black text-amber-300">OFFLINE MODE</div>
+                <div className="mt-1 text-xs sm:text-sm text-amber-100/90 leading-relaxed">
+                  ใช้งานต่อได้บน Tablet • ข้อมูลจะบันทึกไว้ในเครื่องก่อน
+                  และจะพยายาม Sync ขึ้น Firestore อัตโนมัติเมื่อ Internet กลับมา
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isOnline && syncStatus === 'saving' && (
+          <div className="mb-4 rounded-2xl border border-cyan-700/50 bg-cyan-950/35 px-4 py-3">
+            <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-cyan-300">
+              <span>🔄</span>
+              <span>ONLINE • กำลัง Sync ข้อมูลล่าสุดขึ้น Firestore...</span>
+            </div>
+          </div>
+        )}
+
         {/* Organizer low-stock alert */}
         {isOrganizerMode && isShuttleStockLow && (
           <div className="mb-4 rounded-2xl border border-rose-700/60 bg-gradient-to-r from-rose-950/70 to-amber-950/40 p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2288,17 +2359,20 @@ export default function App() {
           </div>
           <div
             className={`text-[11px] ${
-              syncStatus === 'synced'
+              !isOnline
+                ? 'text-amber-300'
+                : syncStatus === 'synced'
                 ? 'text-emerald-400'
                 : syncStatus === 'error'
                 ? 'text-rose-400'
-                : 'text-amber-400'
+                : 'text-cyan-300'
             }`}
           >
-            {syncStatus === 'synced' && '☁️ Firestore Sync แล้ว • LocalStorage Backup'}
-            {syncStatus === 'saving' && '☁️ กำลังบันทึกขึ้น Firestore...'}
-            {syncStatus === 'connecting' && '☁️ กำลังเชื่อมต่อ Firestore...'}
-            {syncStatus === 'error' && '⚠️ Firestore Sync มีปัญหา • ใช้ LocalStorage Backup'}
+            {!isOnline && '📴 OFFLINE MODE • บันทึกในเครื่องแล้ว • รอ Sync เมื่อ Internet กลับมา'}
+            {isOnline && syncStatus === 'synced' && '🟢 ONLINE • Firestore Sync แล้ว • LocalStorage Backup'}
+            {isOnline && syncStatus === 'saving' && '🔄 ONLINE • กำลัง Sync ขึ้น Firestore...'}
+            {isOnline && syncStatus === 'connecting' && '🟡 ONLINE • กำลังเชื่อมต่อ Firestore...'}
+            {isOnline && syncStatus === 'error' && '⚠️ ONLINE แต่ Firestore Sync มีปัญหา • ใช้ LocalStorage Backup'}
             <span className="ml-2 text-slate-500">•</span>
             <span className={`ml-2 ${isOrganizerMode ? 'text-amber-300' : authReady ? 'text-cyan-300' : 'text-slate-500'}`}>
               {isOrganizerMode
