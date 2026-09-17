@@ -2322,11 +2322,7 @@ export default function App() {
           onCheckInMember={(player) => {
             handleCheckInPlayer(player.id);
           }}
-          
-          onCheckOutMember={(playerId) => {
-            handleCheckOutPlayer(playerId);
-          }}
-onUpdateMemberStatus={(playerId, status) => {
+          onUpdateMemberStatus={(playerId, status) => {
             handleUpdatePlayerStatus(playerId, status);
           }}
           onNavigateToTab={(tab) => {

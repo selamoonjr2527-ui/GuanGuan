@@ -13,7 +13,6 @@ interface MemberAccessBarProps {
   onOpenWalkInModal: () => void;
   onOpenMemberGate?: () => void;
   onCheckInMember: (player: Player) => void;
-  onCheckOutMember: (playerId: string) => void;
   onUpdateMemberStatus: (playerId: string, status: PlayerStatus) => void;
   onNavigateToTab: (tab: TabType, targetMemberId?: string) => void;
   isOrganizerMode: boolean;
@@ -32,7 +31,6 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
   onOpenWalkInModal,
   onOpenMemberGate,
   onCheckInMember,
-  onCheckOutMember,
   onUpdateMemberStatus,
   onNavigateToTab,
   isOrganizerMode,
@@ -195,11 +193,11 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
                   <button
                     type="button"
                     onClick={() => onUpdateMemberStatus(currentMember.id, 'resting')}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-400 text-xs font-bold transition shadow-sm"
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-xs font-semibold transition"
                     title="ขอพักเหนื่อยรอบนี้ ระบบจะไม่จัดลงคอร์ทถัดไป"
                   >
                     <Coffee className="w-3.5 h-3.5 text-amber-400" />
-                    <span>ขอพักเหนื่อย</span>
+                    <span>พอแล้วจ้าาาา</span>
                   </button>
                 )}
 
@@ -215,35 +213,14 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
                   </button>
                 )}
 
-                
-                {/* MEMBER_STOP_PLAYING_V14 */}
-                {/* STOP_THEN_GO_BILLING_V15 */}
-                {!isPlaying && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (window.confirm('ยืนยันเลิกเล่นและไปหน้าจ่ายเงินหรือไม่?')) {
-                        onCheckOutMember(currentMember.id);
-                        onNavigateToTab('billing', currentMember.id);
-                      }
-                    }}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white border border-rose-500 text-xs font-bold transition shadow-sm"
-                    title="เลิกเล่นและออกจากคิว"
-                  >
-                    <span className="text-sm leading-none">■</span>
-                    <span>เลิกเล่น</span>
-                  </button>
-                )}
-
-                {/* MEMBER_ACTIONS_3COLOR_V14 */}
-<button
+                <button
                   type="button"
                   onClick={() => onNavigateToTab('billing', currentMember.id)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 border border-emerald-400 text-xs font-bold transition shadow-sm"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition shadow-sm"
                   title="ดูยอดชำระเงินและสแกนพร้อมเพย์ของฉัน"
                 >
                   <QrCode className="w-3.5 h-3.5" />
-                  <span>จ่ายเงิน</span>
+                  <span>ยอดเงิน/สแกนจ่าย</span>
                 </button>
               </>
             )}

@@ -217,14 +217,12 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
 
                 
                 {/* MEMBER_STOP_PLAYING_V14 */}
-                {/* STOP_THEN_GO_BILLING_V15 */}
                 {!isPlaying && (
                   <button
                     type="button"
                     onClick={() => {
-                      if (window.confirm('ยืนยันเลิกเล่นและไปหน้าจ่ายเงินหรือไม่?')) {
+                      if (window.confirm('ยืนยันเลิกเล่นและออกจากคิวหรือไม่?')) {
                         onCheckOutMember(currentMember.id);
-                        onNavigateToTab('billing', currentMember.id);
                       }
                     }}
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white border border-rose-500 text-xs font-bold transition shadow-sm"
