@@ -100,8 +100,6 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
 
     return (
       <div className="mb-6 bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950/70 border border-indigo-500/30 rounded-2xl p-4 sm:p-5 shadow-lg">
-
-      
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           {/* Member Profile Info */}
           <div className="flex items-center gap-3.5">
@@ -142,8 +140,6 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
                   </span>
                 ) : null}
               </div>
-
-              
 
               {/* Status Message */}
               <div className="flex items-center gap-2 mt-1 text-xs text-slate-300 flex-wrap">
@@ -197,7 +193,7 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
                     title="ขอพักเหนื่อยรอบนี้ ระบบจะไม่จัดลงคอร์ทถัดไป"
                   >
                     <Coffee className="w-3.5 h-3.5 text-amber-400" />
-                    <span>พอแล้ว</span>
+                    <span>ขอพักรอบนี้</span>
                   </button>
                 )}
 
@@ -225,7 +221,21 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
               </>
             )}
 
-            
+            <button
+              type="button"
+              onClick={() => {
+                if (onOpenMemberGate) {
+                  onOpenMemberGate();
+                } else {
+                  setIsSelectingAnother(true);
+                }
+              }}
+              className="flex items-center gap-1 px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 text-xs transition"
+              title="สลับไปใช้งานในชื่อสมาชิกคนอื่น (ต้องยืนยันตัวตน)"
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+              <span>สลับชื่อ</span>
+            </button>
           </div>
         </div>
       </div>

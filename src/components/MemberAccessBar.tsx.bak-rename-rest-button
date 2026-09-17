@@ -197,7 +197,7 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
                     title="ขอพักเหนื่อยรอบนี้ ระบบจะไม่จัดลงคอร์ทถัดไป"
                   >
                     <Coffee className="w-3.5 h-3.5 text-amber-400" />
-                    <span>พอแล้ว</span>
+                    <span>ขอพักรอบนี้</span>
                   </button>
                 )}
 

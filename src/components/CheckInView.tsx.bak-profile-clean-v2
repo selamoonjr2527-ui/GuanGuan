@@ -209,8 +209,27 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
         </div>
       )}
 
-            {/* SECURITY_BANNER_REMOVED_V8 */}
+      {/* Top Security & Safety Banner */}
+      <div className="bg-gradient-to-r from-emerald-950/50 via-slate-900 to-cyan-950/40 border border-emerald-500/30 rounded-2xl p-3.5 sm:p-4 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+        <div className="flex items-start sm:items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 shrink-0">
+            <ShieldCheck className="w-5 h-5" />
+          </div>
+          <div className="space-y-0.5">
+            <div className="font-bold text-white flex items-center gap-2">
+              <span>🛡️ ระบบความปลอดภัย: ป้องกันการกดเช็คอิน / เช็คเอาท์ผิดชื่อ</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 font-semibold">
+                ยืนยัน 2 ขั้นตอน
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-300">
+              สมาชิกยืนยันตัวตนด้วยรหัส 4 หลัก (เลข 4 ตัวท้ายของเบอร์โทรศัพท์ หรือ PIN) ป้องกันการเผลอกดแทนกันหรือทำให้เพื่อนหลุดคิว
+            </p>
+          </div>
+        </div>
 
+        {/* REMOVE_SELF_CHECKIN_ONLY */}
+      </div>
 
       {/* Top Overview Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

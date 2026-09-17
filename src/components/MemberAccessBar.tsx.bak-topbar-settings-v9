@@ -101,7 +101,25 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
     return (
       <div className="mb-6 bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950/70 border border-indigo-500/30 rounded-2xl p-4 sm:p-5 shadow-lg">
 
-      
+      {/* FLOATING_MEMBER_SWITCH_V8 */}
+      <button
+        type="button"
+        onClick={() => {
+          if (onOpenMemberGate) {
+            onOpenMemberGate();
+          } else {
+            setIsSelectingAnother(true);
+          }
+        }}
+        className="fixed left-3 sm:left-5 top-20 z-40 inline-flex items-center gap-2 rounded-xl border border-indigo-700/60 bg-slate-950/95 px-3 py-2 text-left text-indigo-100 shadow-lg backdrop-blur hover:bg-slate-900 transition"
+        title="เปลี่ยนไปใช้งานในชื่อสมาชิกคนอื่น"
+      >
+        <ArrowLeftRight className="w-4 h-4 text-indigo-300 shrink-0" />
+        <span className="leading-tight">
+          <span className="block text-[10px] font-semibold text-indigo-400">สลับสมาชิก</span>
+          <span className="block text-xs font-black text-white">คุณ {currentMember.nickname}</span>
+        </span>
+      </button>
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           {/* Member Profile Info */}
           <div className="flex items-center gap-3.5">
@@ -197,7 +215,7 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
                     title="ขอพักเหนื่อยรอบนี้ ระบบจะไม่จัดลงคอร์ทถัดไป"
                   >
                     <Coffee className="w-3.5 h-3.5 text-amber-400" />
-                    <span>พอแล้ว</span>
+                    <span>ขอพักรอบนี้</span>
                   </button>
                 )}
 

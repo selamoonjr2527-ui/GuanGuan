@@ -74,40 +74,38 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Quick Session Stats, Role Switcher & Tools */}
           <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 flex-wrap sm:flex-nowrap">
             {/* Organizer vs Member Mode Badge & Switcher */}
-                        {isOrganizerMode && (
-              <button
-                            type="button"
-                            onClick={onToggleOrganizerMode}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition border shadow-sm ${
-                              isOrganizerMode
-                                ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
-                                : 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/25'
-                            }`}
-                            title={
-                              isOrganizerMode
-                                ? 'คุณอยู่ในโหมดผู้จัดก๊วน (คลิกเพื่อสลับดูมุมมองสมาชิก)'
-                                : 'คุณอยู่ในมุมมองสมาชิก (คลิกเพื่อใส่ PIN ปลดล็อคโหมดผู้จัด)'
-                            }
-                          >
-                            {isOrganizerMode ? (
-                              <>
-                                <Unlock className="w-3.5 h-3.5 text-amber-400" />
-                                <span>โหมด: ผู้จัดก๊วน (Admin)</span>
-                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800 ml-1">
-                                  สลับดูมุมมองสมาชิก
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                <Lock className="w-3.5 h-3.5 text-indigo-400" />
-                                <span>มุมมอง: สมาชิกทั่วไป</span>
-                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-950 text-indigo-300 border border-indigo-800 ml-1">
-                                  ปลดล็อคผู้จัด 🔒
-                                </span>
-                              </>
-                            )}
-                          </button>
-            )}
+            <button
+              type="button"
+              onClick={onToggleOrganizerMode}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition border shadow-sm ${
+                isOrganizerMode
+                  ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
+                  : 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/25'
+              }`}
+              title={
+                isOrganizerMode
+                  ? 'คุณอยู่ในโหมดผู้จัดก๊วน (คลิกเพื่อสลับดูมุมมองสมาชิก)'
+                  : 'คุณอยู่ในมุมมองสมาชิก (คลิกเพื่อใส่ PIN ปลดล็อคโหมดผู้จัด)'
+              }
+            >
+              {isOrganizerMode ? (
+                <>
+                  <Unlock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>โหมด: ผู้จัดก๊วน (Admin)</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800 ml-1">
+                    สลับดูมุมมองสมาชิก
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>มุมมอง: สมาชิกทั่วไป</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-950 text-indigo-300 border border-indigo-800 ml-1">
+                    ปลดล็อคผู้จัด 🔒
+                  </span>
+                </>
+              )}
+            </button>
 
             {/* Quick Metrics */}
             <div className="hidden lg:flex items-center gap-1.5 bg-slate-800/80 p-1.5 rounded-lg border border-slate-700 text-xs">
@@ -132,8 +130,6 @@ export const Header: React.FC<HeaderProps> = ({
                   <span className="hidden sm:inline">{copiedShareLink ? 'คัดลอกแล้ว!' : 'แชร์ก๊วน'}</span>
                 </button>
               )}
-              {/* SETTINGS_ORGANIZER_ONLY_V9 */}
-            {isOrganizerMode && (
               <button
                 type="button"
                 onClick={onOpenSettings}
@@ -142,7 +138,6 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <Settings className="w-4 h-4" />
               </button>
-            )}
               {isOrganizerMode && (
                 <button
                   type="button"
@@ -163,8 +158,6 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={() => onSelectTab('prematch')}
-              /* MEMBER_MENU_ORDER_123: Member only */
-              style={!isOrganizerMode ? { order: 1 } : undefined}
             className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition whitespace-nowrap shrink-0 ${
               currentTab === 'prematch'
                 ? 'bg-indigo-600 text-white font-semibold shadow'
@@ -184,8 +177,6 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={() => onSelectTab('checkin')}
-              /* MEMBER_MENU_ORDER_123: Member only */
-              style={!isOrganizerMode ? { order: 2 } : undefined}
             className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition whitespace-nowrap shrink-0 ${
               currentTab === 'checkin'
                 ? 'bg-emerald-500 text-slate-950 font-semibold shadow-sm'
@@ -214,10 +205,6 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           {/* 4. Assessment (Organizer Only or Locked) */}
-          {/* HIDE_ASSESSMENT_FROM_MEMBER */}
-          {isOrganizerMode && (
-            <>
-
           <button
             type="button"
             onClick={() => onSelectTab('assessment')}
@@ -237,16 +224,11 @@ export const Header: React.FC<HeaderProps> = ({
               )
             )}
           </button>
-            </>
-          )}
-
 
           {/* 5. Billing & PromptPay */}
           <button
             type="button"
             onClick={() => onSelectTab('billing')}
-              /* MEMBER_MENU_ORDER_123: Member only */
-              style={!isOrganizerMode ? { order: 3 } : undefined}
             className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition whitespace-nowrap shrink-0 ${
               currentTab === 'billing'
                 ? 'bg-emerald-500 text-slate-950 font-semibold shadow-sm'
@@ -254,7 +236,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-            <span>{/* MEMBER_BILLING_NUMBER_3 */}{isOrganizerMode ? '5.' : '3.'} คิดเงิน</span>
+            <span>5. คิดเงิน</span>
           </button>
 
           {/* 6. Financial Summary & Profit/Loss (Organizer Only - Hidden from members) */}

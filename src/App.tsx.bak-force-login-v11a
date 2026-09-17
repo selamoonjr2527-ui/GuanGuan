@@ -248,16 +248,12 @@ export default function App() {
   const [isOrganizerMode, setIsOrganizerMode] = useState<boolean>(false);
 
   // Track the active user identity (member/walk-in)
-  // FORCE_MEMBER_LOGIN_EVERY_LOAD_V11A
-  // Member identity is session-only. Refresh/reopen must verify again.
-  const [currentMemberId, setCurrentMemberId] = useState<string>('');
-
-  // CLEAR_SAVED_MEMBER_ID_V11A
-  useEffect(() => {
+  const [currentMemberId, setCurrentMemberId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('badminton_active_member_id');
+      return localStorage.getItem('badminton_active_member_id') || '';
     }
-  }, []);
+    return '';
+  });
 
   const [copiedShareLink, setCopiedShareLink] = useState(false);
 
@@ -285,11 +281,16 @@ export default function App() {
   const [isMemberPinModalOpen, setIsMemberPinModalOpen] = useState(false);
   const [isSelfCheckInOpen, setIsSelfCheckInOpen] = useState(false);
   const [isMemberGateOpen, setIsMemberGateOpen] = useState<boolean>(() => {
-    // FORCE_MEMBER_LOGIN_EVERY_LOAD_V11A
-    // Member mode always starts at the member login screen.
-    if (typeof window === 'undefined') return true;
-    const params = new URLSearchParams(window.location.search);
-    return params.get('mode') !== 'organizer';
+    // If not in organizer mode and no active member identified, gate immediately
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const isOrg = params.get('mode') === 'organizer';
+      const savedMemberId = localStorage.getItem('badminton_active_member_id');
+      if (!isOrg && !savedMemberId) {
+        return true;
+      }
+    }
+    return false;
   });
   const [selectedPlayerForAssessment, setSelectedPlayerForAssessment] = useState<Player | null>(null);
 

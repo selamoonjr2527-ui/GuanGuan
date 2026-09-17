@@ -248,16 +248,12 @@ export default function App() {
   const [isOrganizerMode, setIsOrganizerMode] = useState<boolean>(false);
 
   // Track the active user identity (member/walk-in)
-  // FORCE_MEMBER_LOGIN_EVERY_LOAD_V11A
-  // Member identity is session-only. Refresh/reopen must verify again.
-  const [currentMemberId, setCurrentMemberId] = useState<string>('');
-
-  // CLEAR_SAVED_MEMBER_ID_V11A
-  useEffect(() => {
+  const [currentMemberId, setCurrentMemberId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('badminton_active_member_id');
+      return localStorage.getItem('badminton_active_member_id') || '';
     }
-  }, []);
+    return '';
+  });
 
   const [copiedShareLink, setCopiedShareLink] = useState(false);
 
@@ -285,11 +281,16 @@ export default function App() {
   const [isMemberPinModalOpen, setIsMemberPinModalOpen] = useState(false);
   const [isSelfCheckInOpen, setIsSelfCheckInOpen] = useState(false);
   const [isMemberGateOpen, setIsMemberGateOpen] = useState<boolean>(() => {
-    // FORCE_MEMBER_LOGIN_EVERY_LOAD_V11A
-    // Member mode always starts at the member login screen.
-    if (typeof window === 'undefined') return true;
-    const params = new URLSearchParams(window.location.search);
-    return params.get('mode') !== 'organizer';
+    // If not in organizer mode and no active member identified, gate immediately
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const isOrg = params.get('mode') === 'organizer';
+      const savedMemberId = localStorage.getItem('badminton_active_member_id');
+      if (!isOrg && !savedMemberId) {
+        return true;
+      }
+    }
+    return false;
   });
   const [selectedPlayerForAssessment, setSelectedPlayerForAssessment] = useState<Player | null>(null);
 
@@ -2174,56 +2175,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
-            {/* TOP_ACCOUNT_MODE_BAR_V9 */}
-      <div className="border-b border-slate-800/80 bg-slate-950/95">
-        <div
-          className={`max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-2 ${
-            !isOrganizerMode && currentTab === 'checkin' ? 'pt-14 sm:pt-2' : ''
-          }`}
-        >
-          {!isOrganizerMode ? (
-            <button
-              type="button"
-              onClick={() => setIsMemberGateOpen(true)}
-              className="min-w-0 inline-flex items-center gap-2 rounded-xl border border-indigo-700/50 bg-slate-900 hover:bg-slate-800 px-3 py-2 text-left transition"
-              title="สลับไปใช้งานในชื่อสมาชิกคนอื่น"
-            >
-              <span className="text-indigo-300 text-base shrink-0">↔</span>
-              <span className="min-w-0 leading-tight">
-                <span className="block text-[9px] sm:text-[10px] font-semibold text-indigo-400">
-                  สลับสมาชิก
-                </span>
-                <span className="block max-w-[130px] sm:max-w-[220px] truncate text-xs font-black text-white">
-                  {currentMemberId
-                    ? `คุณ ${players.find((p) => p.id === currentMemberId)?.nickname || 'สมาชิก'}`
-                    : 'เลือกสมาชิก'}
-                </span>
-              </span>
-            </button>
-          ) : (
-            <div className="inline-flex items-center gap-2 rounded-xl border border-amber-700/50 bg-amber-950/30 px-3 py-2">
-              <span>🛡️</span>
-              <span className="text-xs font-black text-amber-300">Organizer Mode</span>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={handleToggleOrganizerMode}
-            className={`shrink-0 inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[11px] sm:text-xs font-black transition ${
-              isOrganizerMode
-                ? 'border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-200'
-                : 'border-amber-700/60 bg-amber-950/40 hover:bg-amber-900/50 text-amber-300'
-            }`}
-            title={isOrganizerMode ? 'กลับไปโหมดสมาชิก' : 'เข้าสู่โหมดผู้จัด'}
-          >
-            <span>{isOrganizerMode ? '👤' : '🛡️'}</span>
-            <span>{isOrganizerMode ? 'โหมดสมาชิก' : 'โหมดผู้จัด'}</span>
-          </button>
-        </div>
-      </div>
-
-{/* Top Header */}
+      {/* Top Header */}
       <Header
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
@@ -2234,7 +2186,7 @@ export default function App() {
         waitingCount={isOrganizerMode ? waitingCount : 0}
         isOrganizerMode={isOrganizerMode}
         onToggleOrganizerMode={handleToggleOrganizerMode}
-        onOpenSettings={() => { if (isOrganizerMode) setIsSettingsOpen(true); }}
+        onOpenSettings={() => setIsSettingsOpen(true)}
         onResetSession={handleResetSession}
         onShareMemberLink={handleShareMemberLink}
         copiedShareLink={copiedShareLink}
@@ -2576,9 +2528,7 @@ export default function App() {
         existingPlayers={players}
       />
 
-      {/* SETTINGS_MODAL_ORGANIZER_ONLY_V9 */}
-      {isOrganizerMode && (
-        <SessionSettingsModal
+      <SessionSettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         config={sessionConfig}
@@ -2586,7 +2536,6 @@ export default function App() {
         onExportBackup={handleExportBackup}
         onImportBackup={handleImportBackup}
       />
-      )}
 
       <SelfCheckInModal
         isOpen={isSelfCheckInOpen}

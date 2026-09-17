@@ -132,8 +132,6 @@ export const Header: React.FC<HeaderProps> = ({
                   <span className="hidden sm:inline">{copiedShareLink ? 'คัดลอกแล้ว!' : 'แชร์ก๊วน'}</span>
                 </button>
               )}
-              {/* SETTINGS_ORGANIZER_ONLY_V9 */}
-            {isOrganizerMode && (
               <button
                 type="button"
                 onClick={onOpenSettings}
@@ -142,7 +140,6 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <Settings className="w-4 h-4" />
               </button>
-            )}
               {isOrganizerMode && (
                 <button
                   type="button"

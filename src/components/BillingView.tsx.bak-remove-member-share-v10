@@ -44,6 +44,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
   promotionRedemptions = [],
 }) => {
   const [copiedLine, setCopiedLine] = useState(false);
+  const [copiedMemberLink, setCopiedMemberLink] = useState(false);
   const [copiedPromptPay, setCopiedPromptPay] = useState(false);
   const [selectedPlayerForQr, setSelectedPlayerForQr] = useState<Player | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
@@ -355,6 +356,14 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
     setTimeout(() => setCopiedLine(false), 2500);
   };
 
+  const handleCopyMemberLink = () => {
+    if (typeof window !== 'undefined') {
+      const url = `${window.location.origin}${window.location.pathname}?mode=member`;
+      navigator.clipboard.writeText(url);
+      setCopiedMemberLink(true);
+      setTimeout(() => setCopiedMemberLink(false), 2500);
+    }
+  };
 
   // Export to CSV
   const handleExportCsv = () => {
@@ -1174,7 +1183,15 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
             <span>{copiedPromptPay ? 'คัดลอกแล้ว!' : 'คัดลอกเบอร์พร้อมเพย์'}</span>
           </button>
 
-          {/* MEMBER_SHARE_REMOVED_V10 */}
+          <button
+            type="button"
+            onClick={handleCopyMemberLink}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition shadow-sm"
+            title="แชร์ลิงก์มุมมองสมาชิกสำหรับให้สมาชิกเช็คยอดและสแกนจ่าย"
+          >
+            {copiedMemberLink ? <Check className="w-4 h-4 text-emerald-300" /> : <Share2 className="w-4 h-4" />}
+            <span>{copiedMemberLink ? 'คัดลอกลิงก์แล้ว!' : 'แชร์ลิงก์สมาชิก 📱'}</span>
+          </button>
 
           {isOrganizerMode && (
             <>

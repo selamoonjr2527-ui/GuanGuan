@@ -100,8 +100,6 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
 
     return (
       <div className="mb-6 bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950/70 border border-indigo-500/30 rounded-2xl p-4 sm:p-5 shadow-lg">
-
-      
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           {/* Member Profile Info */}
           <div className="flex items-center gap-3.5">
@@ -114,9 +112,27 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs text-slate-400 font-medium">เข้าใช้งานในชื่อ:</span>
-                <h2 className="text-base sm:text-lg font-extrabold text-white truncate">
-                  คุณ {currentMember.nickname}
-                </h2>
+                {/* MEMBER_NAME_SWITCH_V6 */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onOpenMemberGate) {
+                      onOpenMemberGate();
+                    } else {
+                      setIsSelectingAnother(true);
+                    }
+                  }}
+                  className="group inline-flex items-center gap-1.5 rounded-lg px-1.5 py-0.5 -ml-1.5 hover:bg-slate-800/80 transition max-w-full"
+                  title="กดเพื่อสลับชื่อสมาชิก"
+                >
+                  <span className="text-base sm:text-lg font-extrabold text-white truncate group-hover:text-indigo-300 transition">
+                    คุณ {currentMember.nickname}
+                  </span>
+                  <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-300 shrink-0" />
+                  <span className="text-[10px] font-bold text-indigo-300 whitespace-nowrap">
+                    กดเพื่อสลับชื่อ
+                  </span>
+                </button>
                 {/* PIN_TRIGGER_INSIDE_MEMBER_CARD_V5 */}
                 <button
                   type="button"
@@ -142,8 +158,6 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
                   </span>
                 ) : null}
               </div>
-
-              
 
               {/* Status Message */}
               <div className="flex items-center gap-2 mt-1 text-xs text-slate-300 flex-wrap">
@@ -197,7 +211,7 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
                     title="ขอพักเหนื่อยรอบนี้ ระบบจะไม่จัดลงคอร์ทถัดไป"
                   >
                     <Coffee className="w-3.5 h-3.5 text-amber-400" />
-                    <span>พอแล้ว</span>
+                    <span>ขอพักรอบนี้</span>
                   </button>
                 )}
 
