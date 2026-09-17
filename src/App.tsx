@@ -1785,6 +1785,12 @@ export default function App() {
                 ...p,
                 gamesPlayed: p.gamesPlayed + 2,
                 matchesPlayed: (p.matchesPlayed || 0) + 1,
+                // COURT_EXTRA_SHUTTLE_AUTO_BILL_V18
+                // ลูกแรกคิดรวมอยู่ในค่าลูกต่อ Match แล้ว
+                // ลูกที่ 2 เป็นต้นไปคิดเป็น "ลูกเพิ่ม" ให้ผู้เล่นทั้ง 4 คน
+                extraShuttlecocks:
+                  (p.extraShuttlecocks || 0) +
+                  Math.max(0, Number(shuttlecocksCount || 0) - 1),
                 status: 'waiting' as PlayerStatus,
                 lastMatchFinishTime: Date.now(),
               }

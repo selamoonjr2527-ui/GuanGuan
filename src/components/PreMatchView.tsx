@@ -24,6 +24,7 @@ interface PreMatchViewProps {
   onRemovePlayerFromPreMatch?: (playerId: string, slot: 1 | 2) => void;
   onStartConfirmedPreMatch?: (courtId: string, preMatch: ConfirmedPreMatch, slot: 1 | 2) => void;
   onSelectPlayerStatus?: (playerId: string, status: 'waiting' | 'resting') => void;
+  onUpdatePlayerExtraShuttlecocks?: (playerId: string, delta: number) => void;
   onNavigateToCourts?: () => void;
   onUnlockOrganizer?: () => void;
   onToggleWalkInPenalty?: (playerId: string) => void;
@@ -44,6 +45,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
   onRemovePlayerFromPreMatch,
   onStartConfirmedPreMatch,
   onSelectPlayerStatus,
+  onUpdatePlayerExtraShuttlecocks,
   onNavigateToCourts,
   onUnlockOrganizer,
   onToggleWalkInPenalty,
@@ -2296,6 +2298,8 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                                 <span>ขอพักเหนื่อย</span>
                               </button>
                             ) : isCurrentMember ? (
+                            <>
+                              {/* QUEUE_MEMBER_ACTION_FRAGMENT_V17C_FIX */}
                               <button
                                 type="button"
                                 onClick={() => onSelectPlayerStatus?.(player.id, 'resting')}
@@ -2305,7 +2309,10 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                                 <Coffee className="w-3.5 h-3.5 text-amber-400" />
                                 <span>ขอพักรอบนี้</span>
                               </button>
-                            ) : (
+                            {/* MEMBER_EXTRA_SHUTTLE_REMOVED_V18: Organizer controls extra shuttle from Court */}
+                            
+                            </>
+                          ) : (
                               <button
                                 type="button"
                                 onClick={() => {

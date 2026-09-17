@@ -627,8 +627,9 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
             </h3>
           </div>
 
-          <div className="space-y-2">
-            {matchHistory.slice(0, 5).map((hist) => (
+          <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1 scroll-smooth">
+            {/* SHOW_ALL_MATCH_HISTORY_V16 */
+              matchHistory.map((hist) => (
               <div
                 key={hist.id}
                 className="bg-slate-950 border border-slate-800/80 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
