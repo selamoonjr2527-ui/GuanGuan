@@ -42,6 +42,10 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
   waitingQueueIndex,
   currentPlayingCourt,
 }) => {
+  // TRANSIENT_PENDING_PAYMENT_V21
+  // "รอชำระเงิน" is shown only immediately after pressing เลิกเล่น in this page visit.
+  // Reload / new visit returns to normal Check-in UI.
+  const [pendingPaymentMemberId, setPendingPaymentMemberId] = useState<string | null>(null);
   const [isSelectingAnother, setIsSelectingAnother] = useState(false);
   const currentMember = players.find((p) => p.id === currentMemberId);
 
@@ -96,6 +100,12 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
   // In Member View: Case 1 - A member is identified and active
   if (currentMember && !isSelectingAnother) {
     const isCheckedIn = currentMember.isCheckedIn;
+    // PENDING_PAYMENT_BUTTON_V20
+    const isPendingPayment =
+      pendingPaymentMemberId === currentMember.id &&
+      !isCheckedIn &&
+      currentMember.status === 'left' &&
+      !currentMember.paid;
     const isPlaying = isCheckedIn && currentMember.status === 'playing';
     const isWaiting = isCheckedIn && currentMember.status === 'waiting';
     const isResting = isCheckedIn && currentMember.status === 'resting';
@@ -147,9 +157,15 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
 
               
 
+              {/* PENDING_PAYMENT_STATUS_V20 */}
               {/* Status Message */}
               <div className="flex items-center gap-2 mt-1 text-xs text-slate-300 flex-wrap">
-                {!isCheckedIn ? (
+                {isPendingPayment ? (
+                  <span className="text-amber-300 font-bold flex items-center gap-1">
+                    <span>⏳</span>
+                    <span>รอชำระเงิน</span>
+                  </span>
+                ) : !isCheckedIn ? (
                   <span className="text-amber-400 font-bold flex items-center gap-1">
                     <AlertCircle className="w-3.5 h-3.5" />
                     <span>คุณยังไม่ได้เช็คอินเข้าสนาม (กรุณากดเช็คอินเพื่อเข้าคิวลงเล่น)</span>
@@ -178,12 +194,26 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
             </div>
           </div>
 
+          {/* PENDING_PAYMENT_ACTION_V20 */}
           {/* Quick Member Action Buttons */}
           <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
-            {!isCheckedIn ? (
+            {isPendingPayment ? (
               <button
                 type="button"
-                onClick={() => onCheckInMember(currentMember)}
+                onClick={() => onNavigateToTab('billing', currentMember.id)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold transition shadow-md"
+                title="เปิดหน้าชำระเงิน"
+              >
+                <span>⏳</span>
+                <span>รอชำระเงิน</span>
+              </button>
+            ) : !isCheckedIn ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingPaymentMemberId(null);
+                  onCheckInMember(currentMember);
+                }}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 text-xs font-extrabold transition shadow-md"
               >
                 <Check className="w-4 h-4" />
@@ -223,7 +253,9 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
                 <button
                     type="button"
                     onClick={() => {
-                      if (window.confirm('ยืนยันเลิกเล่นและออกจากคิวหรือไม่?')) {
+                      if (window.confirm('ยืนยันเลิกเล่นและเปลี่ยนสถานะเป็นรอจ่ายเงินหรือไม่?')) {
+                        // STOP_TO_PENDING_PAYMENT_V19
+                        setPendingPaymentMemberId(currentMember.id);
                         onCheckOutMember(currentMember.id);
                       }
                     }}

@@ -851,6 +851,8 @@ export default function App() {
   };
 
   const handleCheckOutPlayer = (playerId: string) => {
+    // CHECKOUT_STAY_MEMBER_PAGE_V20
+    // Member stays on the Member page after pressing "เลิกเล่น".
     setAppState((prev) => {
       const updatedPlayers = prev.players.map((p) => {
         if (p.id === playerId) {
@@ -875,7 +877,6 @@ export default function App() {
     if (!isOrganizerMode && currentMemberId === playerId) {
       setIsSelfCheckInOpen(false);
       setIsMemberGateOpen(false);
-      setCurrentTab('prematch');
     }
   };
 
