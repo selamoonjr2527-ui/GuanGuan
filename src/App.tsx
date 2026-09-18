@@ -1964,6 +1964,27 @@ export default function App() {
   };
 
   const handleStartConfirmedPreMatch = (courtId: string, preMatch: ConfirmedPreMatch, slotNumber: 1 | 2 = 1) => {
+
+    // GUANGUAN_PM_START_GUARD_V26
+    // Protect PM order across organizer screens using the first confirmedAt time.
+    const confirmedQueue = [appState.confirmedPreMatch, appState.confirmedPreMatch2]
+      .filter((pm): pm is ConfirmedPreMatch => Boolean(pm))
+      .sort((a, b) => {
+        const timeA = Number(a.confirmedAt || 0);
+        const timeB = Number(b.confirmedAt || 0);
+        if (timeA !== timeB) return timeA - timeB;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
+
+    const nextPreMatch = confirmedQueue[0];
+
+    if (nextPreMatch && nextPreMatch.id !== preMatch.id) {
+      window.alert(
+        `PM นี้ยังไม่ถึงคิว\nต้องส่ง Pre-Match #${nextPreMatch.slotNumber || '?'} ลงสนามก่อน`
+      );
+      return;
+    }
+
     // PM_START_READY_GUARD
     const readyIds = [...preMatch.teamA, ...preMatch.teamB];
     const invalidForStart = readyIds.some((id) => {

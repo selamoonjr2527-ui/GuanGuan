@@ -121,6 +121,86 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
     return new Set([...safeConfirmedPreMatch2.teamA, ...safeConfirmedPreMatch2.teamB]);
   }, [safeConfirmedPreMatch2]);
 
+  // GUANGUAN_PM_PRIORITY_V26
+  // PM1 / PM2 are independent slots. The actual "NEXT" order follows
+  // the first confirmation time, not the slot number.
+  const confirmedPreMatchQueue = useMemo(() => {
+    const items = [safeConfirmedPreMatch1, safeConfirmedPreMatch2].filter(
+      (pm): pm is ConfirmedPreMatch => Boolean(pm)
+    );
+
+    return [...items].sort((a, b) => {
+      const timeA = Number(a.confirmedAt || 0);
+      const timeB = Number(b.confirmedAt || 0);
+      if (timeA !== timeB) return timeA - timeB;
+      return String(a.id || '').localeCompare(String(b.id || ''));
+    });
+  }, [safeConfirmedPreMatch1, safeConfirmedPreMatch2]);
+
+  const nextConfirmedPreMatchId = confirmedPreMatchQueue[0]?.id || null;
+
+  const getConfirmedQueuePosition = (preMatch?: ConfirmedPreMatch | null): number => {
+    if (!preMatch) return 0;
+    const index = confirmedPreMatchQueue.findIndex((pm) => pm.id === preMatch.id);
+    return index >= 0 ? index + 1 : 0;
+  };
+
+  const isNextConfirmedPreMatch = (preMatch?: ConfirmedPreMatch | null): boolean =>
+    Boolean(preMatch && nextConfirmedPreMatchId && preMatch.id === nextConfirmedPreMatchId);
+
+  const isPreMatchWaitingForPlayer = (preMatch?: ConfirmedPreMatch | null): boolean => {
+    if (!preMatch) return false;
+    return [...preMatch.teamA, ...preMatch.teamB].some((id) => playingPlayerIds.has(id));
+  };
+
+  const getPreMatchPriorityLabel = (preMatch?: ConfirmedPreMatch | null): string => {
+    if (!preMatch) return 'ยังไม่ยืนยัน';
+
+    const position = getConfirmedQueuePosition(preMatch);
+    if (position > 1) {
+      return `🔵 QUEUE #${position} • รอ PM ก่อนหน้า`;
+    }
+
+    if (isPreMatchWaitingForPlayer(preMatch)) {
+      return '🟠 NEXT • รอผู้เล่นจบ';
+    }
+
+    return '🟢 NEXT • ส่งลงสนามถัดไป';
+  };
+
+  const formatConfirmedTime = (value?: number): string => {
+    if (!value) return '--:--';
+    try {
+      return new Date(value).toLocaleTimeString('th-TH', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return '--:--';
+    }
+  };
+
+  const requestStartPreMatch = (
+    courtId: string,
+    preMatch: ConfirmedPreMatch,
+    slot: 1 | 2
+  ) => {
+    if (!isNextConfirmedPreMatch(preMatch)) {
+      const next = confirmedPreMatchQueue[0];
+      const nextSlot = next?.slotNumber || '?';
+      setActionNotice(
+        `⏳ PM นี้ยังไม่ถึงคิว • ต้องส่ง Pre-Match #${nextSlot} ลงสนามก่อน`
+      );
+      window.setTimeout(() => setActionNotice(null), 4000);
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      onStartConfirmedPreMatch?.(courtId, preMatch, slot);
+    });
+  };
+
+
   // ORGANIZER_PM_MEMBER_CHANGE_ALERT
   // Member may request Rest / Check-out from another device.
   // Firestore sync updates players here, then only organizer receives this confirmation.
@@ -599,7 +679,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
           teamA: lineup.teamA,
           teamB: lineup.teamB,
           notes: lineup.notes ?? confirmed.notes ?? '',
-          confirmedAt: Date.now(),
+          confirmedAt: confirmed.confirmedAt || Date.now(),
         },
         slot
       );
@@ -1261,7 +1341,12 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                   <div className="text-emerald-300 flex items-center justify-between">
                     <span className="font-semibold flex items-center gap-1.5">
                       <span>🔔</span>
-                      <span>ยืนยันคิวแล้ว • เตรียมวอร์มร่างกาย</span>
+                      <span>
+                        {getPreMatchPriorityLabel(safeConfirmedPreMatch1)}
+                        <span className="ml-1 text-slate-400 font-normal">
+                          • ยืนยัน {formatConfirmedTime(safeConfirmedPreMatch1?.confirmedAt)}
+                        </span>
+                      </span>
                     </span>
                     {activeCourtsData[0]?.isAvailable ? (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">
@@ -1290,7 +1375,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                         <button
                           type="button"
                           disabled={slot1HasPlayingPlayer}
-                          onClick={() => onStartConfirmedPreMatch?.(activeCourtsData[0].courtId, safeConfirmedPreMatch1, 1)}
+                          onClick={() => requestStartPreMatch(activeCourtsData[0].courtId, safeConfirmedPreMatch1, 1)}
                           className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-950 font-bold text-xs transition shadow-sm"
                         >
                           <Play className="w-3.5 h-3.5 fill-current" />
@@ -1300,7 +1385,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                         <button
                           type="button"
                           disabled={slot1HasPlayingPlayer}
-                          onClick={() => onStartConfirmedPreMatch?.(availableCourts[0].courtId, safeConfirmedPreMatch1, 1)}
+                          onClick={() => requestStartPreMatch(availableCourts[0].courtId, safeConfirmedPreMatch1, 1)}
                           className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-950 font-bold text-xs transition shadow-sm"
                           title={slot1HasPlayingPlayer ? 'มีผู้เล่นใน Pre-Match นี้ที่ยังอยู่ในสนาม' : `${activeCourtsData[0]?.courtName || 'คอร์ท 1'} กำลังแข่งอยู่ สั่งลง ${availableCourts[0].courtName} ที่ว่างแทนทันที`}
                         >
@@ -1600,7 +1685,12 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                   <div className="text-indigo-300 flex items-center justify-between">
                     <span className="font-semibold flex items-center gap-1.5">
                       <span>🔔</span>
-                      <span>ยืนยันคิวแล้ว • เตรียมวอร์มร่างกาย</span>
+                      <span>
+                        {getPreMatchPriorityLabel(safeConfirmedPreMatch2)}
+                        <span className="ml-1 text-slate-400 font-normal">
+                          • ยืนยัน {formatConfirmedTime(safeConfirmedPreMatch2?.confirmedAt)}
+                        </span>
+                      </span>
                     </span>
                     {activeCourtsData[1]?.isAvailable ? (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">
@@ -1629,7 +1719,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                         <button
                           type="button"
                           disabled={slot2HasPlayingPlayer}
-                          onClick={() => onStartConfirmedPreMatch?.(activeCourtsData[1].courtId, safeConfirmedPreMatch2, 2)}
+                          onClick={() => requestStartPreMatch(activeCourtsData[1].courtId, safeConfirmedPreMatch2, 2)}
                           className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-950 font-bold text-xs transition shadow-sm"
                         >
                           <Play className="w-3.5 h-3.5 fill-current" />
@@ -1639,7 +1729,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                         <button
                           type="button"
                           disabled={slot2HasPlayingPlayer}
-                          onClick={() => onStartConfirmedPreMatch?.(availableCourts[0].courtId, safeConfirmedPreMatch2, 2)}
+                          onClick={() => requestStartPreMatch(availableCourts[0].courtId, safeConfirmedPreMatch2, 2)}
                           className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed text-slate-950 font-bold text-xs transition shadow-sm"
                           title={slot2HasPlayingPlayer ? 'มีผู้เล่นใน Pre-Match นี้ที่ยังอยู่ในสนาม' : `${activeCourtsData[1]?.courtName || 'คอร์ท 2'} กำลังแข่งอยู่ สั่งลง ${availableCourts[0].courtName} ที่ว่างแทนทันที`}
                         >
