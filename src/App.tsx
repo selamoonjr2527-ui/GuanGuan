@@ -134,6 +134,17 @@ class SectionErrorBoundary extends React.Component<
 }
 
 export default function App() {
+
+  // GUANGUAN_MEMBER_SESSION_V24B
+  // Remove legacy persistent member identity from older versions.
+  useEffect(() => {
+    try {
+      localStorage.removeItem('badminton_active_member_id');
+    } catch {
+      // Ignore storage access errors.
+    }
+  }, []);
+
   const [appState, setAppState] = useState(() => loadAppState());
 
   // Firebase Authentication
@@ -250,12 +261,17 @@ export default function App() {
   // Track the active user identity (member/walk-in)
   // FORCE_MEMBER_LOGIN_EVERY_LOAD_V11A
   // Member identity is session-only. Refresh/reopen must verify again.
-  const [currentMemberId, setCurrentMemberId] = useState<string>('');
+  const [currentMemberId, setCurrentMemberId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('badminton_active_member_id') || '';
+    }
+    return '';
+  })
 
   // CLEAR_SAVED_MEMBER_ID_V11A
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('badminton_active_member_id');
+      sessionStorage.removeItem('badminton_active_member_id');
     }
   }, []);
 
@@ -285,12 +301,14 @@ export default function App() {
   const [isMemberPinModalOpen, setIsMemberPinModalOpen] = useState(false);
   const [isSelfCheckInOpen, setIsSelfCheckInOpen] = useState(false);
   const [isMemberGateOpen, setIsMemberGateOpen] = useState<boolean>(() => {
-    // FORCE_MEMBER_LOGIN_EVERY_LOAD_V11A
-    // Member mode always starts at the member login screen.
-    if (typeof window === 'undefined') return true;
-    const params = new URLSearchParams(window.location.search);
-    return params.get('mode') !== 'organizer';
-  });
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const isOrg = params.get('mode') === 'organizer';
+      const savedMemberId = sessionStorage.getItem('badminton_active_member_id');
+      return !isOrg && !savedMemberId;
+    }
+    return false;
+  })
   const [selectedPlayerForAssessment, setSelectedPlayerForAssessment] = useState<Player | null>(null);
 
   // Member safety escape: close member overlays / Check-in page and return to Pre-Match.
@@ -977,7 +995,7 @@ export default function App() {
     // Automatically set as current active member session
     setCurrentMemberId(newPlayer.id);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('badminton_active_member_id', newPlayer.id);
+      sessionStorage.setItem('badminton_active_member_id', newPlayer.id);
     }
   };
 
@@ -1058,7 +1076,7 @@ export default function App() {
 
     if (currentMemberId === playerId) {
       setCurrentMemberId('');
-      localStorage.removeItem('badminton_active_member_id');
+      sessionStorage.removeItem('badminton_active_member_id');
     }
   };
 
@@ -2179,6 +2197,27 @@ export default function App() {
 
   const checkedInCount = players.filter((p) => p.isCheckedIn).length;
 
+  // GUANGUAN_SPLASH_V23B
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center px-6">
+        <div className="text-center">
+          <img
+            src="/icons/pwa-512x512.png"
+            alt="GuanGuan"
+            className="w-28 h-28 sm:w-32 sm:h-32 rounded-[2rem] object-cover mx-auto shadow-2xl ring-1 ring-cyan-300/30"
+          />
+          <div className="mt-4 text-2xl font-black tracking-tight text-white">GuanGuan</div>
+          <div className="mt-1 text-xs font-bold tracking-[0.22em] text-cyan-300">BADMINTON LIVE</div>
+          <div className="mt-5 flex items-center justify-center gap-2 text-xs text-slate-400">
+            <span className="inline-block w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+            <span>กำลังเชื่อมต่อระบบ...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
             {/* TOP_ACCOUNT_MODE_BAR_V9 */}
@@ -2311,7 +2350,7 @@ export default function App() {
           onSelectMember={(id) => {
             setCurrentMemberId(id);
             if (typeof window !== 'undefined') {
-              localStorage.setItem('badminton_active_member_id', id);
+              sessionStorage.setItem('badminton_active_member_id', id);
             }
           }}
           onClearMember={() => {
@@ -2705,7 +2744,7 @@ onUpdateMemberStatus={(playerId, status) => {
           }
           setCurrentMemberId(player.id);
           if (typeof window !== 'undefined') {
-            localStorage.setItem('badminton_active_member_id', player.id);
+            sessionStorage.setItem('badminton_active_member_id', player.id);
           }
           setIsMemberGateOpen(false);
           confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });

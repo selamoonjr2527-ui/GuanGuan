@@ -131,6 +131,18 @@ export const OrganizerPinModal: React.FC<OrganizerPinModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          {/* GUANGUAN_ORGANIZER_LOGO_V23B */}
+          <div className="flex flex-col items-center text-center gap-2 pb-1">
+            <img
+              src="/icons/pwa-192x192.png"
+              alt="GuanGuan Organizer"
+              className="w-20 h-20 rounded-2xl object-cover shadow-xl ring-1 ring-amber-300/30"
+            />
+            <div>
+              <div className="text-sm font-black text-white tracking-tight">GuanGuan</div>
+              <div className="text-[10px] font-extrabold tracking-[0.2em] text-amber-400">ORGANIZER</div>
+            </div>
+          </div>
           <div className="rounded-xl bg-emerald-950/30 border border-emerald-800/50 p-3 text-xs text-emerald-200">
             <div className="flex items-start gap-2">
               <Lock className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />

@@ -40,6 +40,18 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-md">
+        {/* GUANGUAN_BRAND_HEADER_V23B */}
+        <div className="flex items-center gap-2.5 shrink-0 mr-2">
+          <img
+            src="/icons/pwa-192x192.png"
+            alt="GuanGuan"
+            className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl object-cover shadow-lg ring-1 ring-white/15"
+          />
+          <div className="hidden sm:block leading-tight">
+            <div className="text-sm font-black tracking-tight text-white">GuanGuan</div>
+            <div className="text-[10px] font-semibold text-cyan-300/90 tracking-wide">BADMINTON LIVE</div>
+          </div>
+        </div>
       {/* Top Bar */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">

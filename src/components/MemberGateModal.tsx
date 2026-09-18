@@ -247,12 +247,13 @@ export const MemberGateModal: React.FC<MemberGateModalProps> = ({
           {/* Header */}
           <div className="px-5 sm:px-6 pt-6 pb-4 border-b border-slate-800/90 bg-gradient-to-b from-slate-900 to-slate-900/70">
             <div className="flex items-start gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 flex items-center justify-center shrink-0 shadow-inner">
-                {onClose ? (
-                  <ArrowLeftRight className="w-6 h-6" />
-                ) : (
-                  <ShieldCheck className="w-6 h-6" />
-                )}
+              <div className="w-14 h-14 rounded-2xl overflow-hidden shrink-0 shadow-xl ring-1 ring-cyan-300/30">
+                {/* GUANGUAN_MEMBER_GATE_LOGO_V23B */}
+                <img
+                  src="/icons/pwa-192x192.png"
+                  alt="GuanGuan"
+                  className="w-full h-full object-cover"
+                />
               </div>
 
               <div className="min-w-0 flex-1">

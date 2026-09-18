@@ -10,6 +10,7 @@ export default defineConfig(() => {
       react(),
       tailwindcss(),
       VitePWA({
+      // GUANGUAN_APP_ICON_V22
         // Safer for a live queue/payment app: a new version waits until the app
         // is restarted instead of forcing a reload while the organizer is editing.
         registerType: 'prompt',
@@ -20,31 +21,35 @@ export default defineConfig(() => {
           'apple-touch-icon.png',
         ],
         manifest: {
-          name: 'ก๊วนกวน LIVE',
-          short_name: 'ก๊วนกวน',
-          description: 'ระบบจัดก๊วนแบดมินตัน เช็คอิน จัดคิว แมตช์ และคิดค่าใช้จ่าย',
-          start_url: '/',
-          scope: '/',
-          display: 'standalone',
-          background_color: '#0f172a',
-          theme_color: '#0f766e',
-          orientation: 'any',
-          lang: 'th',
-          icons: [
-            {
-              src: '/pwa-192x192.png',
-              sizes: '192x192',
-              type: 'image/png',
-              purpose: 'any maskable',
-            },
-            {
-              src: '/pwa-512x512.png',
-              sizes: '512x512',
-              type: 'image/png',
-              purpose: 'any maskable',
-            },
-          ],
-        },
+        name: 'GuanGuan',
+        short_name: 'GuanGuan',
+        description: 'ระบบจัดก๊วนแบดมินตัน GuanGuan',
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        background_color: '#0758b8',
+        theme_color: '#0758b8',
+        icons: [
+          {
+            src: '/icons/pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/icons/pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/icons/pwa-maskable-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
+      },
         workbox: {
           cleanupOutdatedCaches: true,
           navigateFallback: '/index.html',
