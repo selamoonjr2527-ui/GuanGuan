@@ -19,7 +19,8 @@ import { OrganizerPinModal } from './components/OrganizerPinModal';
 import { DailyArchiveModal } from './components/DailyArchiveModal';
 import { FinancialStatsView } from './components/FinancialStatsView';
 import { MemberAccessBar } from './components/MemberAccessBar';
-import { MemberPlayNotification } from './components/MemberPlayNotification';
+import { MemberPlayNotification } from './components/MemberPlayNotification';
+import { OrganizerMemberStopNotification } from './components/OrganizerMemberStopNotification';
 import { MemberGateModal } from './components/MemberGateModal';
 import { MemberCenterModal } from './components/MemberCenterModal';
 import { MemberPinModal } from './components/MemberPinModal';
@@ -915,7 +916,7 @@ export default function App() {
                   status: 'left' as PlayerStatus,
                   stopAfterCurrentMatch: false,
                   stopAfterCurrentMatchId: undefined,
-                  stopRequestedAt: undefined,
+                  stopRequestedAt: Date.now(), // STOP_FALLBACK_ALERT_V49
                 }
               : p
           ),
@@ -988,6 +989,11 @@ export default function App() {
             checkInTime: undefined,
             checkInTimestamp: undefined,
             status: ('left' as PlayerStatus),
+            // MEMBER_CHECKOUT_ALERT_V49
+            // Only member self-checkout creates an organizer alert.
+            stopAfterCurrentMatch: false,
+            stopAfterCurrentMatchId: undefined,
+            stopRequestedAt: !isOrganizerMode ? Date.now() : p.stopRequestedAt,
           };
         }
         return p;
@@ -2891,7 +2897,12 @@ onUpdateMemberStatus={(playerId, status) => {
             </button>
           </div>
         )}
-        {/* MEMBER_PLAY_NOTIFICATION_V33 */}
+                {/* MEMBER_STOP_NOTIFICATION_RENDER_V49 */}
+        <OrganizerMemberStopNotification
+          players={players}
+          isOrganizerMode={isOrganizerMode}
+        />
+{/* MEMBER_PLAY_NOTIFICATION_V33 */}
         <MemberPlayNotification
           currentMemberId={currentMemberId}
           players={players}
@@ -3275,6 +3286,7 @@ onUpdateMemberStatus={(playerId, status) => {
     </div>
   );
 }
+
 
 
 

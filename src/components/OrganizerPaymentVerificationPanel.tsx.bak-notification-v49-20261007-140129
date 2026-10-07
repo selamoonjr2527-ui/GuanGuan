@@ -22,12 +22,7 @@ export const OrganizerPaymentVerificationPanel: React.FC<
   onMarkPlayerPaid,
 }) => {
   const [pendingItems, setPendingItems] = useState<PaymentTransaction[]>([]);
-  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
-    // PAYMENT_SOUND_DEFAULT_ON_V49
-    // Default ON. User can turn it off on this browser if desired.
-    if (typeof window === 'undefined') return true;
-    return localStorage.getItem('guanguan_payment_sound_enabled') !== '0';
-  });
+  const [soundEnabled, setSoundEnabled] = useState(false);
   const [toastItem, setToastItem] = useState<PaymentTransaction | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -91,46 +86,10 @@ export const OrganizerPaymentVerificationPanel: React.FC<
     }
   };
 
-  const toggleSound = async () => {
-    const next = !soundEnabled;
-    setSoundEnabled(next);
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(
-        'guanguan_payment_sound_enabled',
-        next ? '1' : '0'
-      );
-    }
-
-    // A click is a valid browser gesture, so this also unlocks WebAudio.
-    if (next) {
-      await playPaymentSound();
-    }
+  const enableSound = async () => {
+    setSoundEnabled(true);
+    await playPaymentSound();
   };
-
-  // PAYMENT_SOUND_UNLOCK_V49
-  // soundEnabled is ON by default, but some browsers block audio until
-  // the first user gesture. The first click/touch/key press unlocks WebAudio.
-  useEffect(() => {
-    if (!soundEnabled || typeof window === 'undefined') return;
-
-    const unlock = () => {
-      void playPaymentSound();
-      window.removeEventListener('pointerdown', unlock);
-      window.removeEventListener('keydown', unlock);
-      window.removeEventListener('touchstart', unlock);
-    };
-
-    window.addEventListener('pointerdown', unlock, { once: true });
-    window.addEventListener('keydown', unlock, { once: true });
-    window.addEventListener('touchstart', unlock, { once: true });
-
-    return () => {
-      window.removeEventListener('pointerdown', unlock);
-      window.removeEventListener('keydown', unlock);
-      window.removeEventListener('touchstart', unlock);
-    };
-  }, [soundEnabled]);
 
   useEffect(() => {
     return subscribeToPaymentTransactions(
@@ -299,7 +258,7 @@ export const OrganizerPaymentVerificationPanel: React.FC<
 
           <button
             type="button"
-            onClick={toggleSound}
+            onClick={enableSound}
             className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${
               soundEnabled
                 ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
@@ -308,7 +267,7 @@ export const OrganizerPaymentVerificationPanel: React.FC<
           >
             {soundEnabled
               ? '🔔 เสียงแจ้งเตือน: เปิด'
-              : '🔕 เสียงแจ้งเตือน: ปิด'}
+              : '🔕 กดเพื่อเปิดเสียง'}
           </button>
         </div>
 
@@ -373,4 +332,3 @@ export const OrganizerPaymentVerificationPanel: React.FC<
     </>
   );
 };
-
