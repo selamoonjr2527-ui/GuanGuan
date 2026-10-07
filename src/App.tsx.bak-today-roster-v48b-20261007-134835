@@ -855,7 +855,6 @@ export default function App() {
           return {
             ...p,
             isCheckedIn: true,
-            todayRoster: true, // TODAY_ROSTER_CHECKIN_V48B
             checkInTime: timeStr,
             checkInTimestamp: Date.now(),
             status: ('waiting' as PlayerStatus),
@@ -1006,31 +1005,6 @@ export default function App() {
     }
   };
 
-  // TODAY_ROSTER_HANDLER_V48B
-  const handleToggleTodayRoster = (playerId: string, inRoster: boolean) => {
-    setAppState((prev) => ({
-      ...prev,
-      players: prev.players.map((p) => {
-        if (p.id !== playerId) return p;
-
-        const hasTodayActivity =
-          p.isCheckedIn ||
-          (p.matchesPlayed || 0) > 0 ||
-          (p.extraShuttlecocks || 0) > 0 ||
-          Boolean(p.paid);
-
-        // Prevent accidental removal after the member has started today's session.
-        if (!inRoster && hasTodayActivity) {
-          return p;
-        }
-
-        return {
-          ...p,
-          todayRoster: inRoster,
-        };
-      }),
-    }));
-  };
   const handleToggleCheckIn = (playerId: string) => {
     const targetPlayer = appState.players.find((p) => p.id === playerId);
     if (targetPlayer && targetPlayer.isCheckedIn) {
@@ -1105,7 +1079,6 @@ export default function App() {
       registrationType,
       walkInPenaltyMatches: registrationType === 'walkin' ? 1 : 0,
       isCheckedIn: true,
-      todayRoster: true,
       checkInTime: timeStr,
       checkInTimestamp: Date.now(),
       status: 'waiting',
@@ -2939,7 +2912,6 @@ onUpdateMemberStatus={(playerId, status) => {
               onToggleCheckIn={handleToggleCheckIn}
               onCheckInPlayer={handleCheckInPlayer}
               onCheckOutPlayer={handleCheckOutPlayer}
-              onToggleTodayRoster={handleToggleTodayRoster}
               onUpdatePlayerStatus={handleUpdatePlayerStatus}
               onOpenAddPlayerModal={() => {
                 setEditingPlayer(null);
@@ -3230,15 +3202,7 @@ onUpdateMemberStatus={(playerId, status) => {
       >
       <MemberGateModal
         isOpen={isMemberGateOpen && !isOrganizerMode}
-        players={players.filter((p) =>
-          Boolean(
-            p.todayRoster ||
-            p.isCheckedIn ||
-            (p.matchesPlayed || 0) > 0 ||
-            (p.extraShuttlecocks || 0) > 0 ||
-            p.paid
-          )
-        )} /* MEMBER_GATE_TODAY_ONLY_V48C */
+        players={players}
         organizerPin={sessionConfig.organizerPin || '1234'}
         onClose={
           currentMemberId
@@ -3275,7 +3239,5 @@ onUpdateMemberStatus={(playerId, status) => {
     </div>
   );
 }
-
-
 
 

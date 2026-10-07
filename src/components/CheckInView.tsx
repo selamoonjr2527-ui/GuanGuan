@@ -17,6 +17,7 @@ interface CheckInViewProps {
   onToggleCheckIn: (playerId: string) => void;
   onCheckInPlayer?: (playerId: string, pin?: string) => void;
   onCheckOutPlayer?: (playerId: string) => void;
+  onToggleTodayRoster?: (playerId: string, inRoster: boolean) => void;
   onUpdatePlayerStatus: (playerId: string, status: PlayerStatus) => void;
   onOpenAddPlayerModal: () => void;
   onOpenAddWalkInModal?: () => void;
@@ -38,7 +39,8 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
   organizerPin = '1234',
   onToggleCheckIn,
   onCheckInPlayer,
-  onCheckOutPlayer,
+  onCheckOutPlayer,
+  onToggleTodayRoster,
   onUpdatePlayerStatus,
   onOpenAddPlayerModal,
   onOpenAddWalkInModal,
@@ -53,7 +55,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
 }) => {
   const showSkill = isOrganizerMode || !hideSkillFromMembers;
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState<'today' | 'all' | 'checked_in' | 'waiting' | 'playing' | 'resting' | 'absent'>('today'); // TODAY_MEMBERS_V47
+  const [selectedFilter, setSelectedFilter] = useState<'today' | 'all' | 'checked_in' | 'waiting' | 'playing' | 'resting' | 'absent'>('today'); // TODAY_ROSTER_FILTER_V48B
   const [skillFilter, setSkillFilter] = useState<SkillLevel | 'all'>('all');
   const [permissionNotice, setPermissionNotice] = useState<string | null>(null);
 
@@ -69,12 +71,25 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
     actionType: 'checkin',
   });
 
+  // TODAY_ROSTER_HELPER_V48B
+  const isTodayRosterPlayer = (p: Player) =>
+    Boolean(
+      p.todayRoster ||
+      p.isCheckedIn ||
+      (p.matchesPlayed || 0) > 0 ||
+      (p.extraShuttlecocks || 0) > 0 ||
+      p.paid
+    );
   // Computed counts
+  const todayRosterCount = players.filter(isTodayRosterPlayer).length;
   const checkedInCount = players.filter((p) => p.isCheckedIn).length;
   const playingCount = players.filter((p) => p.isCheckedIn && p.status === 'playing').length;
   const waitingCount = players.filter((p) => p.isCheckedIn && p.status === 'waiting').length;
   const restingCount = players.filter((p) => p.isCheckedIn && p.status === 'resting').length;
-  const absentCount = players.filter((p) => !p.isCheckedIn).length;
+  const absentCount = players.filter((p) => isTodayRosterPlayer(p) && !p.isCheckedIn).length;
+  const currentMemberForToday = currentMemberId
+    ? players.find((p) => p.id === currentMemberId)
+    : undefined;
 
   const filteredPlayers = players.filter((p) => {
     // Search query
@@ -89,7 +104,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
     // If user types in search, search the whole member master.
     const hasSearch = searchTerm.trim().length > 0;
 
-    if (selectedFilter === 'today' && !hasSearch && !p.isCheckedIn) {
+    if (selectedFilter === 'today' && !hasSearch && !isTodayRosterPlayer(p)) {
       return false;
     }
 
@@ -98,7 +113,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
     if (selectedFilter === 'waiting' && (!p.isCheckedIn || p.status !== 'waiting')) return false;
     if (selectedFilter === 'playing' && (!p.isCheckedIn || p.status !== 'playing')) return false;
     if (selectedFilter === 'resting' && (!p.isCheckedIn || p.status !== 'resting')) return false;
-    if (selectedFilter === 'absent' && p.isCheckedIn) return false;
+    if (selectedFilter === 'absent' && (p.isCheckedIn || !isTodayRosterPlayer(p))) return false;
 
     // Skill filter
     if (skillFilter !== 'all' && p.skillLevel !== skillFilter) return false;
@@ -338,7 +353,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
             <span className="text-lg">🏸</span>
             <div>
               <div className="text-xs font-bold text-white">
-                ผู้เล่นวันนี้ {checkedInCount} คน
+                รายชื่อวันนี้ {todayRosterCount} คน
               </div>
               <div className="text-[10px] text-slate-400">
                 Member Master ทั้งหมด {players.length} คน
@@ -373,7 +388,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
                   : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
               }`}
             >
-              วันนี้ ({checkedInCount})
+              วันนี้ ({todayRosterCount})
             </button>
 <button
               type="button"
@@ -449,6 +464,27 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
         </div>
       </div>
 
+      {/* TODAY_ROSTER_SELF_REGISTER_V48B */}
+      {!isOrganizerMode &&
+        currentMemberForToday &&
+        !isTodayRosterPlayer(currentMemberForToday) &&
+        onToggleTodayRoster && (
+          <div className="rounded-2xl border border-cyan-700/50 bg-cyan-950/30 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-black text-white">จะมาเล่นวันนี้ใช่ไหม?</div>
+              <div className="text-xs text-slate-400 mt-0.5">
+                ลงชื่อไว้ก่อนได้ ยังไม่ถือว่า Check-in จนกว่าจะมาถึงสนาม
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onToggleTodayRoster(currentMemberForToday.id, true)}
+              className="shrink-0 px-4 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-black transition"
+            >
+              + ลงชื่อเล่นวันนี้
+            </button>
+          </div>
+        )}
       {/* Player Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
         {filteredPlayers.map((player) => {
@@ -463,6 +499,12 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
           const hasVerification = Boolean(getPlayerVerificationCode(player));
           const isCurrentUser = Boolean(currentMemberId && player.id === currentMemberId);
           const canActOnPlayer = isOrganizerMode || isCurrentUser;
+          const inTodayRoster = isTodayRosterPlayer(player);
+          const hasTodayActivity =
+            player.isCheckedIn ||
+            (player.matchesPlayed || 0) > 0 ||
+            (player.extraShuttlecocks || 0) > 0 ||
+            Boolean(player.paid);
 
           return (
             <div
@@ -740,6 +782,23 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
                   )
                 )}
 
+                {/* TODAY_ROSTER_CARD_ACTION_V48B */}
+                {isOrganizerMode && onToggleTodayRoster && (
+                  <button
+                    type="button"
+                    disabled={inTodayRoster && hasTodayActivity}
+                    onClick={() => onToggleTodayRoster(player.id, !inTodayRoster)}
+                    className={`px-2.5 py-2 rounded-lg text-[10px] font-black border transition ${
+                      inTodayRoster
+                        ? hasTodayActivity
+                          ? 'bg-emerald-950/40 text-emerald-500/70 border-emerald-900/50 cursor-not-allowed'
+                          : 'bg-emerald-950/70 hover:bg-rose-950/70 text-emerald-300 hover:text-rose-300 border-emerald-800/60'
+                        : 'bg-cyan-950/60 hover:bg-cyan-900/70 text-cyan-300 border-cyan-800/60'
+                    }`}
+                  >
+                    {inTodayRoster ? '✓ วันนี้' : '+ วันนี้'}
+                  </button>
+                )}
                 {/* Edit & Delete Player Buttons (Organizer Only) */}
                 {isOrganizerMode && (
                   <>
@@ -790,4 +849,5 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
     </div>
   );
 };
+
 

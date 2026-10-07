@@ -1,4 +1,4 @@
-﻿export type SkillLevel = 'Newbie' | 'C' | 'B' | 'A' | 'PRO';
+export type SkillLevel = 'Newbie' | 'C' | 'B' | 'A' | 'PRO';
 
 export interface SkillLevelInfo {
   code: SkillLevel;
@@ -78,7 +78,6 @@ export interface Player {
   skillLevel: SkillLevel;
   skillScore: number;
   isCheckedIn: boolean;
-  todayRoster?: boolean; // สมาชิกที่อยู่ในรายชื่อเล่นของ session วันนี้
   checkInTime?: string;
   checkInTimestamp?: number;
   lastMatchFinishTime?: number;
@@ -223,4 +222,3 @@ export interface FundTransaction {
   category?: 'shuttlecocks_bulk' | 'equipment' | 'drink_snack' | 'initial_fund' | 'session_surplus' | 'other';
   createdAt: number;
 }
-

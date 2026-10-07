@@ -1,4 +1,4 @@
-﻿import { Player, SessionConfig, MatchHistoryItem, ActiveMatch, AssessmentQuestion, ConfirmedPreMatch, DailySessionArchive, FundTransaction, SkillLevel } from '../types';
+import { Player, SessionConfig, MatchHistoryItem, ActiveMatch, AssessmentQuestion, ConfirmedPreMatch, DailySessionArchive, FundTransaction, SkillLevel } from '../types';
 import {
   deleteFundTransactionFromFirestore,
   deleteSessionArchiveFromFirestore,
@@ -750,7 +750,6 @@ export function createNewDaySessionState(
     ? currentState.players.map((p) => ({
         ...p,
         isCheckedIn: false,
-        todayRoster: false, // TODAY_ROSTER_RESET_V48B
         checkInTime: undefined,
         checkInTimestamp: undefined,
         lastMatchFinishTime: undefined,
@@ -798,5 +797,4 @@ export function exportAppStateAsJSON(state: AppState): void {
     console.error('Failed to export state', e);
   }
 }
-
 
