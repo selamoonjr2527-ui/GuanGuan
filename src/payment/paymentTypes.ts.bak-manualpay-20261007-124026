@@ -1,6 +1,5 @@
 ﻿export type PaymentStatus =
   | 'pending'
-  | 'pending_verify'
   | 'paid'
   | 'failed'
   | 'expired'
@@ -11,27 +10,25 @@ export type PaymentMethod =
   | 'transfer'
   | 'cash';
 
-export type PaymentProvider =
-  | 'manual_promptpay'
-  | '2c2p';
-
 export interface PaymentTransaction {
   id: string;
+
   playerId: string;
   nickname?: string;
+
   sessionDate: string;
   amount: number;
   currency: 'THB';
+
   status: PaymentStatus;
+
   paymentMethod: PaymentMethod;
-  provider: PaymentProvider;
+  provider: '2c2p';
+
   transactionRef?: string;
+
   createdAt?: number;
-  updatedAt?: number;
-  reportedAt?: number;
   paidAt?: number;
-  verifiedAt?: number;
-  rejectedAt?: number;
 }
 
 export interface CreatePendingPaymentInput {

@@ -21,7 +21,6 @@ import {
 interface BillingViewProps {
   sessionConfig: SessionConfig;
   players: Player[];
-  activePlayerIds?: string[];
   isOrganizerMode?: boolean;
   organizerPin?: string;
   onUnlockOrganizer?: () => void;
@@ -45,7 +44,6 @@ interface BillingViewProps {
 export const BillingView: React.FC<BillingViewProps> = ({
   sessionConfig,
   players,
-  activePlayerIds = [],
   isOrganizerMode = true,
   organizerPin = '1234',
   onUnlockOrganizer,
@@ -64,11 +62,6 @@ export const BillingView: React.FC<BillingViewProps> = ({
   const [selectedPlayerForQr, setSelectedPlayerForQr] = useState<Player | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
-  // ACTIVE_MATCH_BILLING_LOCK_V43
-  const activePlayerIdSet = new Set(activePlayerIds);
-
-  const isPlayerInActiveMatch = (playerId: string): boolean =>
-    activePlayerIdSet.has(playerId);
 
   // Payment confirmation safety modal
   const [confirmPaymentData, setConfirmPaymentData] = useState<{
@@ -256,15 +249,6 @@ export const BillingView: React.FC<BillingViewProps> = ({
   };
 
   const handleOpenPlayerQr = async (player: Player) => {
-    // ACTIVE_MATCH_QR_LOCK_V43
-    if (isPlayerInActiveMatch(player.id)) {
-      window.alert(
-        `"${player.nickname}" กำลังอยู่ใน Match ที่กำลังเล่น\n\n` +
-        'ยังเปิด QR ชำระเงินไม่ได้ เพราะยอด Match ยังไม่ Final\n\n' +
-        'รอผู้จัด Finish Match ก่อน'
-      );
-      return;
-    }
     if (player.isCheckedIn) {
       window.alert(`กรุณา Check-out "${player.nickname}" ก่อนเปิด QR ชำระเงิน`);
       return;
@@ -302,14 +286,6 @@ export const BillingView: React.FC<BillingViewProps> = ({
   };
 
   const handleRequestTogglePayment = (player: Player, isMarkingPaid: boolean) => {
-    // ACTIVE_MATCH_MANUAL_PAY_LOCK_V43
-    if (isMarkingPaid && isPlayerInActiveMatch(player.id)) {
-      window.alert(
-        `"${player.nickname}" กำลังอยู่ใน Match ที่กำลังเล่น\n\n` +
-        'ยังไม่สามารถชำระเงินได้ เพราะยอด Match ยังไม่ Final'
-      );
-      return;
-    }
     // MEMBER_PAYMENT_REPORT_V40
     // Member can only open PromptPay and report that they transferred.
     // Only the organizer can confirm the payment as paid.
@@ -1685,6 +1661,5 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
     </div>
   );
 };
-
 
 

@@ -957,25 +957,6 @@ export default function App() {
   };
 
   const handleCheckOutPlayer = (playerId: string) => {
-    // ACTIVE_MATCH_CHECKOUT_LOCK_V43
-    // A player already placed on court must stay locked until that active match is resolved.
-    const activeMatchForCheckout = appState.activeMatches.find((match) =>
-      [...match.teamA, ...match.teamB].includes(playerId)
-    );
-
-    if (activeMatchForCheckout) {
-      const targetPlayer = appState.players.find(
-        (player) => player.id === playerId
-      );
-
-      window.alert(
-        `"${targetPlayer?.nickname || 'สมาชิก'}" กำลังอยู่ใน Match ที่กำลังเล่น\n\n` +
-        'ยังไม่สามารถ Check-out ได้ เพราะยอด Match ยังไม่ Final\n\n' +
-        '• เล่นต่อ → รอผู้จัดกด Finish Match ก่อน\n' +
-        '• ไม่ได้เล่น / ยกเลิก → ให้ผู้จัดปรับ Billing ของสมาชิกเพื่อยกเว้นค่าลูก Match นี้'
-      );
-      return;
-    }
     // CHECKOUT_STAY_MEMBER_PAGE_V20
     // Member stays on the Member page after pressing "เลิกเล่น".
     setAppState((prev) => {
@@ -2257,20 +2238,6 @@ export default function App() {
   ) => {
     const target = appState.players.find((p) => p.id === playerId);
     if (!target) return;
-    // ACTIVE_MATCH_PAYMENT_LOCK_V43
-    // Never finalize payment while the player is still on an active court.
-    const targetIsInActiveMatch = appState.activeMatches.some((match) =>
-      [...match.teamA, ...match.teamB].includes(playerId)
-    );
-
-    if (paid && targetIsInActiveMatch) {
-      window.alert(
-        `"${target.nickname}" ยังอยู่ใน Match ที่กำลังเล่น\n\n` +
-        'ยังไม่สามารถบันทึกชำระเงินได้ เพราะยอด Match ยังไม่ Final\n\n' +
-        'กรุณารอ Finish Match ก่อน หรือให้ผู้จัดปรับ Billing หาก Match นี้ถูกยกเลิก'
-      );
-      return;
-    }
 
     // Payment is allowed only AFTER checkout.
     if (paid && target.isCheckedIn) {
@@ -2973,10 +2940,6 @@ onUpdateMemberStatus={(playerId, status) => {
           <BillingView
             sessionConfig={sessionConfig}
             players={players}
-            activePlayerIds={activeMatches.flatMap((match) => [
-              ...match.teamA,
-              ...match.teamB,
-            ])}
             isOrganizerMode={isOrganizerMode}
             organizerPin={sessionConfig.organizerPin || '1234'}
             onUnlockOrganizer={isOrganizerMode ? () => setIsPinModalOpen(true) : undefined}
@@ -3239,5 +3202,4 @@ onUpdateMemberStatus={(playerId, status) => {
     </div>
   );
 }
-
 

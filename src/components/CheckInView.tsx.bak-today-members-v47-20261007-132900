@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { 
   UserPlus, Search, CheckCircle2, Circle, Clock, QrCode, 
   Award, RefreshCw, Flame, UserCheck, Coffee, LogOut, ChevronRight,
@@ -53,7 +53,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
 }) => {
   const showSkill = isOrganizerMode || !hideSkillFromMembers;
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState<'today' | 'all' | 'checked_in' | 'waiting' | 'playing' | 'resting' | 'absent'>('today'); // TODAY_MEMBERS_V47
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'checked_in' | 'waiting' | 'playing' | 'resting' | 'absent'>('all');
   const [skillFilter, setSkillFilter] = useState<SkillLevel | 'all'>('all');
   const [permissionNotice, setPermissionNotice] = useState<string | null>(null);
 
@@ -84,14 +84,6 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
       (p.phone && p.phone.includes(searchTerm));
 
     if (!matchSearch) return false;
-    // TODAY_SEARCH_ALL_V47
-    // Default = only today's checked-in players.
-    // If user types in search, search the whole member master.
-    const hasSearch = searchTerm.trim().length > 0;
-
-    if (selectedFilter === 'today' && !hasSearch && !p.isCheckedIn) {
-      return false;
-    }
 
     // Status filter
     if (selectedFilter === 'checked_in' && !p.isCheckedIn) return false;
@@ -332,30 +324,13 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
           </div>
         </div>
 
-        {/* TODAY_MEMBER_SUMMARY_V47 */}
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-800/40 bg-emerald-950/20 px-3.5 py-2.5">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">🏸</span>
-            <div>
-              <div className="text-xs font-bold text-white">
-                ผู้เล่นวันนี้ {checkedInCount} คน
-              </div>
-              <div className="text-[10px] text-slate-400">
-                Member Master ทั้งหมด {players.length} คน
-              </div>
-            </div>
-          </div>
-          <div className="text-[10px] text-emerald-300">
-            พิมพ์ค้นหาเพื่อเรียกสมาชิกที่ยังไม่มา
-          </div>
-        </div>
         {/* Filter Chips & Search Input */}
         <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 pt-2 border-t border-slate-800">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="ค้นหาสมาชิกทั้งหมดเพื่อ Check-in: ชื่อเล่น, ชื่อจริง หรือเบอร์โทร..."
+              placeholder="ค้นหาชื่อเล่น, ชื่อจริง หรือเบอร์โทรศัพท์..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
@@ -363,19 +338,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
-                        {/* TODAY_FILTER_BUTTON_V47 */}
             <button
-              type="button"
-              onClick={() => setSelectedFilter('today')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition ${
-                selectedFilter === 'today'
-                  ? 'bg-emerald-500 text-slate-950 font-bold'
-                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
-              }`}
-            >
-              วันนี้ ({checkedInCount})
-            </button>
-<button
               type="button"
               onClick={() => setSelectedFilter('all')}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition ${
@@ -384,7 +347,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
                   : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
               }`}
             >
-              สมาชิกทั้งหมด ({players.length})
+              ทั้งหมด ({players.length})
             </button>
             <button
               type="button"
@@ -790,4 +753,3 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
     </div>
   );
 };
-

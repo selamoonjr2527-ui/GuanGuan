@@ -5,6 +5,7 @@
   onSnapshot,
   serverTimestamp,
   setDoc,
+  updateDoc,
   type FirestoreError,
   type Unsubscribe,
 } from 'firebase/firestore';
@@ -12,6 +13,8 @@
 import { db } from '../firebase';
 import type {
   CreatePendingPaymentInput,
+  PaymentProvider,
+  PaymentStatus,
   PaymentTransaction,
 } from './paymentTypes';
 
@@ -29,32 +32,47 @@ function sanitizeInvoicePart(value: string): string {
     .slice(0, 24);
 }
 
-/**
- * One payment document per member per session.
- *
- * Example:
- * GG-20261007-p123456
- *
- * This prevents duplicate Pending documents when the member opens
- * the PromptPay QR more than once.
- */
 export function buildPaymentInvoiceId(
   sessionDate: string,
   playerId: string
 ): string {
   const safeDate = sessionDate.replace(/-/g, '');
   const safePlayer = sanitizeInvoicePart(playerId) || 'PLAYER';
-
   return `GG-${safeDate}-${safePlayer}`;
 }
 
-/**
- * Create/refresh only a PENDING payment request.
- *
- * IMPORTANT:
- * Browser/client never sets status = "paid".
- * A trusted backend/webhook will do that later.
- */
+function timestampToMillis(value: any): number | undefined {
+  return typeof value?.toMillis === 'function'
+    ? value.toMillis()
+    : undefined;
+}
+
+function normalizePaymentTransaction(
+  id: string,
+  data: any
+): PaymentTransaction {
+  return {
+    id,
+    playerId: String(data.playerId || ''),
+    nickname: data.nickname ? String(data.nickname) : undefined,
+    sessionDate: String(data.sessionDate || ''),
+    amount: Number(data.amount || 0),
+    currency: 'THB',
+    status: (data.status || 'pending') as PaymentStatus,
+    paymentMethod: data.paymentMethod || 'promptpay',
+    provider: (data.provider || 'manual_promptpay') as PaymentProvider,
+    transactionRef: data.transactionRef
+      ? String(data.transactionRef)
+      : undefined,
+    createdAt: timestampToMillis(data.createdAt),
+    updatedAt: timestampToMillis(data.updatedAt),
+    reportedAt: timestampToMillis(data.reportedAt),
+    paidAt: timestampToMillis(data.paidAt),
+    verifiedAt: timestampToMillis(data.verifiedAt),
+    rejectedAt: timestampToMillis(data.rejectedAt),
+  };
+}
+
 export async function createPendingPaymentTransaction(
   input: CreatePendingPaymentInput
 ): Promise<string> {
@@ -88,49 +106,19 @@ export async function createPendingPaymentTransaction(
   const existingSnapshot = await getDoc(paymentRef);
 
   if (existingSnapshot.exists()) {
-    const existing = existingSnapshot.data() as any;
-
-    // Never downgrade a confirmed payment back to pending.
-    if (existing.status === 'paid') {
-      return invoiceId;
-    }
-
-    await setDoc(
-      paymentRef,
-      {
-        invoiceNo: invoiceId,
-        playerId: input.playerId,
-        nickname: input.nickname || '',
-        sessionDate: input.sessionDate,
-        amount,
-        currency: 'THB',
-
-        status: 'pending',
-        paymentMethod: input.paymentMethod || 'promptpay',
-        provider: '2c2p',
-
-        transactionRef: existing.transactionRef || '',
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
-
     return invoiceId;
   }
 
   await setDoc(paymentRef, {
     invoiceNo: invoiceId,
-
     playerId: input.playerId,
     nickname: input.nickname || '',
     sessionDate: input.sessionDate,
     amount,
     currency: 'THB',
-
     status: 'pending',
     paymentMethod: input.paymentMethod || 'promptpay',
-    provider: '2c2p',
-
+    provider: 'manual_promptpay',
     transactionRef: '',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -139,9 +127,73 @@ export async function createPendingPaymentTransaction(
   return invoiceId;
 }
 
-/**
- * Realtime listener for all payment transactions.
- */
+export async function requestPaymentVerification(
+  invoiceId: string
+): Promise<void> {
+  const paymentRef = doc(
+    db,
+    'clubs',
+    'guanguan',
+    'paymentTransaction',
+    invoiceId
+  );
+
+  const snapshot = await getDoc(paymentRef);
+
+  if (!snapshot.exists()) {
+    throw new Error('Payment transaction not found');
+  }
+
+  const data = snapshot.data() as any;
+
+  if (data.status === 'paid' || data.status === 'pending_verify') {
+    return;
+  }
+
+  await updateDoc(paymentRef, {
+    status: 'pending_verify',
+    reportedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function confirmPaymentReceived(
+  invoiceId: string
+): Promise<void> {
+  const paymentRef = doc(
+    db,
+    'clubs',
+    'guanguan',
+    'paymentTransaction',
+    invoiceId
+  );
+
+  await updateDoc(paymentRef, {
+    status: 'paid',
+    paidAt: serverTimestamp(),
+    verifiedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function rejectPaymentVerification(
+  invoiceId: string
+): Promise<void> {
+  const paymentRef = doc(
+    db,
+    'clubs',
+    'guanguan',
+    'paymentTransaction',
+    invoiceId
+  );
+
+  await updateDoc(paymentRef, {
+    status: 'pending',
+    rejectedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export function subscribeToPaymentTransactions(
   onData: (transactions: PaymentTransaction[]) => void,
   onError?: (error: FirestoreError) => void
@@ -150,35 +202,14 @@ export function subscribeToPaymentTransactions(
     PAYMENT_COLLECTION,
     (snapshot) => {
       const transactions = snapshot.docs
-        .map((item) => {
-          const data = item.data() as any;
-
-          return {
-            id: item.id,
-            playerId: String(data.playerId || ''),
-            nickname: data.nickname
-              ? String(data.nickname)
-              : undefined,
-            sessionDate: String(data.sessionDate || ''),
-            amount: Number(data.amount || 0),
-            currency: 'THB' as const,
-            status: data.status || 'pending',
-            paymentMethod: data.paymentMethod || 'promptpay',
-            provider: data.provider || '2c2p',
-            transactionRef: data.transactionRef
-              ? String(data.transactionRef)
-              : undefined,
-            createdAt:
-              typeof data.createdAt?.toMillis === 'function'
-                ? data.createdAt.toMillis()
-                : undefined,
-            paidAt:
-              typeof data.paidAt?.toMillis === 'function'
-                ? data.paidAt.toMillis()
-                : undefined,
-          } satisfies PaymentTransaction;
-        })
-        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        .map((item) =>
+          normalizePaymentTransaction(item.id, item.data())
+        )
+        .sort(
+          (a, b) =>
+            (b.reportedAt || b.createdAt || 0) -
+            (a.reportedAt || a.createdAt || 0)
+        );
 
       onData(transactions);
     },
@@ -186,11 +217,6 @@ export function subscribeToPaymentTransactions(
   );
 }
 
-/**
- * Realtime listener for one invoice.
- * This will be used later to switch Pending -> Paid automatically
- * after the payment gateway webhook confirms the transaction.
- */
 export function subscribeToPaymentTransaction(
   invoiceId: string,
   onData: (transaction: PaymentTransaction | null) => void,
@@ -212,32 +238,12 @@ export function subscribeToPaymentTransaction(
         return;
       }
 
-      const data = snapshot.data() as any;
-
-      onData({
-        id: snapshot.id,
-        playerId: String(data.playerId || ''),
-        nickname: data.nickname
-          ? String(data.nickname)
-          : undefined,
-        sessionDate: String(data.sessionDate || ''),
-        amount: Number(data.amount || 0),
-        currency: 'THB',
-        status: data.status || 'pending',
-        paymentMethod: data.paymentMethod || 'promptpay',
-        provider: data.provider || '2c2p',
-        transactionRef: data.transactionRef
-          ? String(data.transactionRef)
-          : undefined,
-        createdAt:
-          typeof data.createdAt?.toMillis === 'function'
-            ? data.createdAt.toMillis()
-            : undefined,
-        paidAt:
-          typeof data.paidAt?.toMillis === 'function'
-            ? data.paidAt.toMillis()
-            : undefined,
-      });
+      onData(
+        normalizePaymentTransaction(
+          snapshot.id,
+          snapshot.data()
+        )
+      );
     },
     onError
   );

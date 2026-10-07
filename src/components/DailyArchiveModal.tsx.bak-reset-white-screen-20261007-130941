@@ -36,9 +36,6 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   if (!isOpen) return null;
 
   const { sessionConfig, players, activeMatches, matchHistory } = currentState;
-  // RESET_MODAL_WHITE_SCREEN_FIX_V45
-  // Used by the summary card in this modal.
-  const checkedInPlayers = players.filter((p) => p.isCheckedIn);
   const billingPlayers = players.filter(
     (p) =>
       p.isCheckedIn ||
@@ -529,5 +526,4 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
     </div>
   );
 };
-
 

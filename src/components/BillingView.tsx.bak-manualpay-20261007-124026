@@ -10,8 +10,6 @@ import { Player, SessionConfig, SKILL_LEVELS } from '../types';
 import { generatePromptPayPayload, formatPromptPayDisplay } from '../utils/promptpay';
 import { PaymentConfirmModal } from './PaymentConfirmModal';
 import { createPendingPaymentTransaction } from '../payment/paymentTransactions';
-import { MemberPaymentAction } from './MemberPaymentAction';
-import { OrganizerPaymentVerificationPanel } from './OrganizerPaymentVerificationPanel';
 import { OrganizerBillingAdjustments } from './OrganizerBillingAdjustments';
 import {
   PromotionRedemption,
@@ -21,7 +19,6 @@ import {
 interface BillingViewProps {
   sessionConfig: SessionConfig;
   players: Player[];
-  activePlayerIds?: string[];
   isOrganizerMode?: boolean;
   organizerPin?: string;
   onUnlockOrganizer?: () => void;
@@ -45,7 +42,6 @@ interface BillingViewProps {
 export const BillingView: React.FC<BillingViewProps> = ({
   sessionConfig,
   players,
-  activePlayerIds = [],
   isOrganizerMode = true,
   organizerPin = '1234',
   onUnlockOrganizer,
@@ -64,11 +60,6 @@ export const BillingView: React.FC<BillingViewProps> = ({
   const [selectedPlayerForQr, setSelectedPlayerForQr] = useState<Player | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
-  // ACTIVE_MATCH_BILLING_LOCK_V43
-  const activePlayerIdSet = new Set(activePlayerIds);
-
-  const isPlayerInActiveMatch = (playerId: string): boolean =>
-    activePlayerIdSet.has(playerId);
 
   // Payment confirmation safety modal
   const [confirmPaymentData, setConfirmPaymentData] = useState<{
@@ -256,15 +247,6 @@ export const BillingView: React.FC<BillingViewProps> = ({
   };
 
   const handleOpenPlayerQr = async (player: Player) => {
-    // ACTIVE_MATCH_QR_LOCK_V43
-    if (isPlayerInActiveMatch(player.id)) {
-      window.alert(
-        `"${player.nickname}" กำลังอยู่ใน Match ที่กำลังเล่น\n\n` +
-        'ยังเปิด QR ชำระเงินไม่ได้ เพราะยอด Match ยังไม่ Final\n\n' +
-        'รอผู้จัด Finish Match ก่อน'
-      );
-      return;
-    }
     if (player.isCheckedIn) {
       window.alert(`กรุณา Check-out "${player.nickname}" ก่อนเปิด QR ชำระเงิน`);
       return;
@@ -302,21 +284,6 @@ export const BillingView: React.FC<BillingViewProps> = ({
   };
 
   const handleRequestTogglePayment = (player: Player, isMarkingPaid: boolean) => {
-    // ACTIVE_MATCH_MANUAL_PAY_LOCK_V43
-    if (isMarkingPaid && isPlayerInActiveMatch(player.id)) {
-      window.alert(
-        `"${player.nickname}" กำลังอยู่ใน Match ที่กำลังเล่น\n\n` +
-        'ยังไม่สามารถชำระเงินได้ เพราะยอด Match ยังไม่ Final'
-      );
-      return;
-    }
-    // MEMBER_PAYMENT_REPORT_V40
-    // Member can only open PromptPay and report that they transferred.
-    // Only the organizer can confirm the payment as paid.
-    if (!isOrganizerMode && isMarkingPaid) {
-      void handleOpenPlayerQr(player);
-      return;
-    }
     if (isMarkingPaid && player.isCheckedIn) {
       window.alert(
         `กรุณา Check-out "${player.nickname}" ก่อนชำระเงิน\n\nระบบจะล็อกยอดหลัง Check-out เพื่อป้องกันจำนวน Match เปลี่ยนระหว่างเล่น`
@@ -1302,17 +1269,6 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
           )}
         </div>
       </div>
-      {/* ORGANIZER_PAYMENT_VERIFY_PANEL_V40 */}
-      {isOrganizerMode && (
-        <OrganizerPaymentVerificationPanel
-          sessionDate={sessionConfig.date}
-          players={players}
-          onMarkPlayerPaid={(playerId, amount) =>
-            onTogglePlayerPayment(playerId, true, amount)
-          }
-        />
-      )}
-
       {isOrganizerMode && onApplyBillingAdjustment && onUndoBillingAdjustment && (
         <OrganizerBillingAdjustments
           players={eligiblePlayers}
@@ -1638,12 +1594,19 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                   <Check className="w-4 h-4" />
                   <span>บันทึกว่าได้รับเงินแล้ว ✅</span>
                 </button>
-              ) : selectedPlayerForQr && !selectedPlayerForQr.isCheckedIn ? (
-                <MemberPaymentAction
-                  sessionDate={sessionConfig.date}
-                  player={selectedPlayerForQr}
-                  amount={calculatePlayerCost(selectedPlayerForQr)}
-                />
+              ) : selectedPlayerForQr && !selectedPlayerForQr.paid && !selectedPlayerForQr.isCheckedIn ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const player = selectedPlayerForQr;
+                    setShowQrModal(false);
+                    handleRequestTogglePayment(player, true);
+                  }}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition flex items-center justify-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>โอนเงินแล้ว ยืนยันชำระ (รหัส 4 หลัก)</span>
+                </button>
               ) : null}
               <button
                 type="button"
@@ -1685,6 +1648,4 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
     </div>
   );
 };
-
-
 
