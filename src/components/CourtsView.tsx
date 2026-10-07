@@ -26,6 +26,8 @@ interface CourtsViewProps {
       game2ScoreB?: number;
     }
   ) => void;
+  // CANCEL_ACTIVE_MATCH_NO_CHARGE_V30
+  onCancelMatch: (matchId: string) => void;
   onUpdateMatchShuttlecocks: (matchId: string, delta: number) => void;
   onUpdateMatchScore: (
     matchId: string,
@@ -51,6 +53,7 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
   confirmedPreMatch2,
   onStartMatch,
   onFinishMatch,
+  onCancelMatch,
   onUpdateMatchShuttlecocks,
   onUpdateMatchScore,
 }) => {
@@ -523,6 +526,29 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
                         </div>
                       </div>
                     </div>
+                    {/* CANCEL_MATCH_BUTTON_V30 */}
+                    {isOrganizerMode && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const confirmed = window.confirm(
+                            'ยกเลิกแมตช์นี้เพื่อเปลี่ยนผู้เล่นใช่หรือไม่?\n\n' +
+                            '• แมตช์นี้จะไม่ถูกบันทึก\n' +
+                            '• ไม่เพิ่มจำนวน Match / Game\n' +
+                            '• ไม่คิดค่าลูกของแมตช์นี้\n' +
+                            '• ผู้เล่นที่ยังเล่นต่อจะกลับ Waiting'
+                          );
+                          if (confirmed) {
+                            onCancelMatch(activeMatch.id);
+                          }
+                        }}
+                        className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-rose-950/70 hover:bg-rose-900 text-rose-300 hover:text-white border border-rose-800 font-bold text-xs transition"
+                        title="ยกเลิกแมตช์นี้โดยไม่คิดค่ารอบนี้ แล้วเปลี่ยนผู้เล่นใหม่"
+                      >
+                        ❌ ยกเลิก / เปลี่ยนผู้เล่น
+                      </button>
+                    )}
+
 
                     {/* Finish Game Button (Organizer Only) */}
                     <button

@@ -15,7 +15,11 @@ import {
   UserRound,
 } from 'lucide-react';
 import { Player, SkillLevel } from '../types';
-import { verifyPlayerCode } from '../utils/security';
+import {
+  getPlayerVerificationCode,
+  getMaskedCodeHint,
+  verifyMemberPinOrPhoneLast4,
+} from '../utils/security';
 import {
   isNicknameDuplicate,
   generateNicknameSuggestions,
@@ -46,6 +50,8 @@ export const MemberGateModal: React.FC<MemberGateModalProps> = ({
   onQuickAddWalkIn,
   onOpenOrganizerLogin,
 }) => {
+  // ORGANIZER_PIN_NOT_MEMBER_AUTH_V33
+  void organizerPin;
   const [mode, setMode] = useState<'select_member' | 'walk_in'>('select_member');
 
   const [selectedPlayerId, setSelectedPlayerId] = useState('');
@@ -163,11 +169,11 @@ export const MemberGateModal: React.FC<MemberGateModalProps> = ({
       let isValid = false;
 
       try {
-        const verifyRes = verifyPlayerCode(
-          selectedPlayer,
-          enteredCode,
-          organizerPin
-        );
+        // MEMBER_AUTH_PIN_OR_PHONE_V33
+      const verifyRes = verifyMemberPinOrPhoneLast4(
+        selectedPlayer,
+        verificationCode.trim()
+      );
         isValid = Boolean(verifyRes?.isValid);
       } catch (error) {
         console.warn(
@@ -176,8 +182,7 @@ export const MemberGateModal: React.FC<MemberGateModalProps> = ({
           error
         );
         isValid =
-          enteredCode === expectedCode ||
-          enteredCode === String(organizerPin || '').trim();
+          enteredCode === expectedCode;
       }
 
       if (!isValid) {

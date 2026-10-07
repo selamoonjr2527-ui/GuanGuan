@@ -19,6 +19,7 @@ import { OrganizerPinModal } from './components/OrganizerPinModal';
 import { DailyArchiveModal } from './components/DailyArchiveModal';
 import { FinancialStatsView } from './components/FinancialStatsView';
 import { MemberAccessBar } from './components/MemberAccessBar';
+import { MemberPlayNotification } from './components/MemberPlayNotification';
 import { MemberGateModal } from './components/MemberGateModal';
 import { MemberCenterModal } from './components/MemberCenterModal';
 import { MemberPinModal } from './components/MemberPinModal';
@@ -279,7 +280,7 @@ export default function App() {
 
   const handleShareMemberLink = () => {
     if (typeof window !== 'undefined') {
-      const url = `${window.location.origin}${window.location.pathname}?mode=member`;
+      const url = `${window.location.origin}${window.location.pathname}?mode=member&openExternalBrowser=1`;
       navigator.clipboard.writeText(url);
       setCopiedShareLink(true);
       setTimeout(() => setCopiedShareLink(false), 2500);
@@ -778,11 +779,26 @@ export default function App() {
       let changed = false;
 
       const nextPlayers = prev.players.map((player) => {
-        const completedMatches = getCurrentSessionCompletedMatchCount(
+        const completedHistoryMatches = getCurrentSessionCompletedMatchCount(
           player,
           statsMap,
           prev.matchHistory
         );
+
+        // PENDING_ACTIVE_MATCH_BILLING_V29
+        // A member may have pressed Stop before the organizer finishes the court.
+        // Count that active match as billable exactly once.
+        const hasPendingActiveMatchCharge =
+          Boolean((player as any).stopAfterCurrentMatch) &&
+          Boolean((player as any).stopAfterCurrentMatchId) &&
+          prev.activeMatches.some(
+            (m) =>
+              m.id === (player as any).stopAfterCurrentMatchId &&
+              [...m.teamA, ...m.teamB].includes(player.id)
+          );
+
+        const completedMatches =
+          completedHistoryMatches + (hasPendingActiveMatchCharge ? 1 : 0);
         const completedGames = completedMatches * 2;
 
         if (
@@ -802,7 +818,7 @@ export default function App() {
 
       return changed ? { ...prev, players: nextPlayers } : prev;
     });
-  }, [matchHistory]);
+  }, [matchHistory, activeMatches]);
 
   // Active playing player IDs & waiting count
   const playingPlayerIds = new Set(activeMatches.flatMap((m) => [...m.teamA, ...m.teamB]));
@@ -842,6 +858,10 @@ export default function App() {
             checkInTime: timeStr,
             checkInTimestamp: Date.now(),
             status: ('waiting' as PlayerStatus),
+            // CLEAR_STOP_AFTER_MATCH_ON_CHECKIN_V29
+            stopAfterCurrentMatch: false,
+            stopAfterCurrentMatchId: undefined,
+            stopRequestedAt: undefined,
             // Fresh session check-in starts with court fee only.
             // Re-check-in on the same day keeps already completed matches.
             gamesPlayed: isFirstCheckInThisSession ? 0 : (p.gamesPlayed || 0),
@@ -866,6 +886,74 @@ export default function App() {
       setIsMemberGateOpen(false);
       setCurrentTab('prematch');
     }
+  };
+  // HANDLE_STOP_AFTER_MATCH_V29
+  // If a member presses "Stop" while already on court:
+  // - keep the member in the active match / court display
+  // - pre-count this active match for billing immediately
+  // - remove them from any future Pre-Match
+  // - when the organizer eventually finishes the match, do not double-count it
+  const handleStopAfterCurrentMatch = (playerId: string) => {
+    setAppState((prev) => {
+      const activeMatch = prev.activeMatches.find((m) =>
+        [...m.teamA, ...m.teamB].includes(playerId)
+      );
+
+      // Safety fallback: if the player is no longer in an active match,
+      // behave like a normal checkout.
+      if (!activeMatch) {
+        return {
+          ...prev,
+          players: prev.players.map((p) =>
+            p.id === playerId
+              ? {
+                  ...p,
+                  isCheckedIn: false,
+                  checkInTime: undefined,
+                  checkInTimestamp: undefined,
+                  status: 'left' as PlayerStatus,
+                  stopAfterCurrentMatch: false,
+                  stopAfterCurrentMatchId: undefined,
+                  stopRequestedAt: undefined,
+                }
+              : p
+          ),
+        } as any;
+      }
+
+      const nextPlayers = prev.players.map((p) => {
+        if (p.id !== playerId) return p;
+
+        const alreadyPrecounted =
+          Boolean((p as any).stopAfterCurrentMatch) &&
+          (p as any).stopAfterCurrentMatchId === activeMatch.id;
+
+        if (alreadyPrecounted) return p;
+
+        return {
+          ...p,
+          // IMPORTANT: remain checked-in + playing so the name stays on Court.
+          stopAfterCurrentMatch: true,
+          stopAfterCurrentMatchId: activeMatch.id,
+          stopRequestedAt: Date.now(),
+
+          // Pre-count the current active match NOW.
+          // This protects billing even if the organizer forgets to press Finish Match.
+          matchesPlayed: (p.matchesPlayed || 0) + 1,
+          gamesPlayed: (p.gamesPlayed || 0) + 2,
+        } as any;
+      });
+
+      const clearFuturePreMatch = (pm: ConfirmedPreMatch | null | undefined) =>
+        pm && [...pm.teamA, ...pm.teamB].includes(playerId) ? null : pm;
+
+      return {
+        ...prev,
+        players: nextPlayers,
+        confirmedPreMatch: clearFuturePreMatch(prev.confirmedPreMatch),
+        confirmedPreMatch2: clearFuturePreMatch(prev.confirmedPreMatch2),
+      } as any;
+    });
   };
 
   const handleCheckOutPlayer = (playerId: string) => {
@@ -1103,6 +1191,11 @@ export default function App() {
             gamesPlayed: 0,
             matchesPlayed: 0,
             extraShuttlecocks: 0,
+              // RESET_BILLING_ADJUSTMENTS_V31
+              billingMatchAdjustment: 0,
+              billingAmountAdjustment: 0,
+              billingAdjustmentReason: undefined,
+              billingAdjustmentLog: [],
             paid: false,
             paidAmount: undefined,
             paymentMethod: undefined,
@@ -1642,6 +1735,77 @@ export default function App() {
 
     confetti({ particleCount: 30, spread: 45, origin: { y: 0.5 } });
   };
+  // HANDLE_CANCEL_ACTIVE_MATCH_NO_CHARGE_V30
+  // Cancel an active court because the organizer needs to change players.
+  // This is NOT a completed match:
+  // - no MatchHistory
+  // - no shuttle usage posting
+  // - no session shuttle total increment
+  // - no new match/game charge
+  const handleCancelActiveMatch = (matchId: string) => {
+    setAppState((prev) => {
+      const targetMatch = prev.activeMatches.find((m) => m.id === matchId);
+      if (!targetMatch) return prev;
+
+      const matchPlayerIds = new Set([
+        ...targetMatch.teamA,
+        ...targetMatch.teamB,
+      ]);
+
+      const nextPlayers = prev.players.map((p) => {
+        if (!matchPlayerIds.has(p.id)) return p;
+
+        const stopWasPrecounted =
+          Boolean((p as any).stopAfterCurrentMatch) &&
+          (p as any).stopAfterCurrentMatchId === matchId;
+
+        // V29/V29A may have pre-counted this active match when the member
+        // pressed "Stop" while still playing. Since this match is CANCELLED,
+        // roll that pending charge back exactly once.
+        const nextMatches = stopWasPrecounted
+          ? Math.max(0, (p.matchesPlayed || 0) - 1)
+          : (p.matchesPlayed || 0);
+
+        const nextGames = stopWasPrecounted
+          ? Math.max(0, (p.gamesPlayed || 0) - 2)
+          : (p.gamesPlayed || 0);
+
+        if (stopWasPrecounted) {
+          // The member already asked to stop playing, so keep that intent.
+          return {
+            ...p,
+            matchesPlayed: nextMatches,
+            gamesPlayed: nextGames,
+            isCheckedIn: false,
+            checkInTime: undefined,
+            checkInTimestamp: undefined,
+            status: 'left' as PlayerStatus,
+            stopAfterCurrentMatch: false,
+            stopAfterCurrentMatchId: undefined,
+            stopRequestedAt: undefined,
+          } as any;
+        }
+
+        // Normal cancellation: player was not charged for this active match.
+        // Return them to Waiting with the original queue/check-in data intact.
+        return {
+          ...p,
+          status: p.isCheckedIn
+            ? ('waiting' as PlayerStatus)
+            : ('left' as PlayerStatus),
+          stopAfterCurrentMatch: false,
+          stopAfterCurrentMatchId: undefined,
+          stopRequestedAt: undefined,
+        } as any;
+      });
+
+      return {
+        ...prev,
+        activeMatches: prev.activeMatches.filter((m) => m.id !== matchId),
+        players: nextPlayers,
+      } as any;
+    });
+  };
 
   const handleFinishMatch = (
     matchId: string,
@@ -1798,23 +1962,46 @@ export default function App() {
         matchHistory: [historyItem, ...prev.matchHistory],
         memberLifetimeStats: stats,
         shuttleUsageLedger: nextUsages,
-        players: prev.players.map((p) =>
-          allPlayerIds.has(p.id)
-            ? {
-                ...p,
-                gamesPlayed: p.gamesPlayed + 2,
-                matchesPlayed: (p.matchesPlayed || 0) + 1,
-                // COURT_EXTRA_SHUTTLE_AUTO_BILL_V18
-                // ลูกแรกคิดรวมอยู่ในค่าลูกต่อ Match แล้ว
-                // ลูกที่ 2 เป็นต้นไปคิดเป็น "ลูกเพิ่ม" ให้ผู้เล่นทั้ง 4 คน
-                extraShuttlecocks:
-                  (p.extraShuttlecocks || 0) +
-                  Math.max(0, Number(shuttlecocksCount || 0) - 1),
-                status: 'waiting' as PlayerStatus,
-                lastMatchFinishTime: Date.now(),
-              }
-            : p
-        ),
+        players: prev.players.map((p) => {
+          if (!allPlayerIds.has(p.id)) return p;
+
+          // FINALIZE_STOP_AFTER_MATCH_V29
+          const stopAfterThisMatch =
+            Boolean((p as any).stopAfterCurrentMatch) &&
+            (
+              !(p as any).stopAfterCurrentMatchId ||
+              (p as any).stopAfterCurrentMatchId === matchId
+            );
+
+          const alreadyPrecounted =
+            stopAfterThisMatch &&
+            (p as any).stopAfterCurrentMatchId === matchId;
+
+          return {
+            ...p,
+            // Avoid double charge: this member's match was counted when they pressed Stop.
+            gamesPlayed: alreadyPrecounted
+              ? (p.gamesPlayed || 0)
+              : (p.gamesPlayed || 0) + 2,
+            matchesPlayed: alreadyPrecounted
+              ? (p.matchesPlayed || 0)
+              : (p.matchesPlayed || 0) + 1,
+
+            // Other players go back to Waiting.
+            // The member who requested Stop checks out only NOW.
+            isCheckedIn: stopAfterThisMatch ? false : p.isCheckedIn,
+            checkInTime: stopAfterThisMatch ? undefined : p.checkInTime,
+            checkInTimestamp: stopAfterThisMatch ? undefined : p.checkInTimestamp,
+            status: stopAfterThisMatch
+              ? ('left' as PlayerStatus)
+              : ('waiting' as PlayerStatus),
+
+            stopAfterCurrentMatch: false,
+            stopAfterCurrentMatchId: undefined,
+            stopRequestedAt: undefined,
+            lastMatchFinishTime: Date.now(),
+          } as any;
+        }),
         sessionConfig: {
           ...prev.sessionConfig,
           shuttlecocksUsedTotal: nextSessionUsedTotal,
@@ -2138,6 +2325,99 @@ export default function App() {
 
     confetti({ particleCount: 70, spread: 80, origin: { y: 0.6 } });
   };
+  // HANDLE_BILLING_ADJUSTMENT_V31
+  const handleApplyBillingAdjustment = (
+    playerId: string,
+    kind: 'match' | 'extra' | 'amount',
+    delta: number,
+    reason: string
+  ) => {
+    setAppState((prev) => ({
+      ...prev,
+      players: prev.players.map((p) => {
+        if (p.id !== playerId) return p;
+        if (p.paid) return p;
+
+        const currentMatchAdj = Number((p as any).billingMatchAdjustment || 0);
+        const currentAmountAdj = Number((p as any).billingAmountAdjustment || 0);
+        const currentExtra = Number(p.extraShuttlecocks || 0);
+
+        let nextMatchAdj = currentMatchAdj;
+        let nextAmountAdj = currentAmountAdj;
+        let nextExtra = currentExtra;
+
+        if (kind === 'match') {
+          const minDelta = -(p.matchesPlayed || 0);
+          nextMatchAdj = Math.max(minDelta, currentMatchAdj + delta);
+        } else if (kind === 'extra') {
+          nextExtra = Math.max(0, currentExtra + delta);
+        } else {
+          nextAmountAdj = currentAmountAdj + delta;
+        }
+
+        const log = Array.isArray((p as any).billingAdjustmentLog)
+          ? (p as any).billingAdjustmentLog
+          : [];
+
+        const entry = {
+          id: `billing-adjust-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          kind,
+          delta,
+          reason: reason.trim(),
+          createdAt: Date.now(),
+        };
+
+        return {
+          ...p,
+          billingMatchAdjustment: nextMatchAdj,
+          billingAmountAdjustment: nextAmountAdj,
+          extraShuttlecocks: nextExtra,
+          billingAdjustmentReason: reason.trim(),
+          billingAdjustmentLog: [...log, entry].slice(-100),
+        } as any;
+      }),
+    }));
+  };
+
+  const handleUndoBillingAdjustment = (playerId: string) => {
+    setAppState((prev) => ({
+      ...prev,
+      players: prev.players.map((p) => {
+        if (p.id !== playerId || p.paid) return p;
+
+        const log = Array.isArray((p as any).billingAdjustmentLog)
+          ? [...(p as any).billingAdjustmentLog]
+          : [];
+
+        const last = log.pop();
+        if (!last) return p;
+
+        let matchAdj = Number((p as any).billingMatchAdjustment || 0);
+        let amountAdj = Number((p as any).billingAmountAdjustment || 0);
+        let extra = Number(p.extraShuttlecocks || 0);
+
+        if (last.kind === 'match') {
+          matchAdj -= Number(last.delta || 0);
+        } else if (last.kind === 'extra') {
+          extra = Math.max(0, extra - Number(last.delta || 0));
+        } else if (last.kind === 'amount') {
+          amountAdj -= Number(last.delta || 0);
+        }
+
+        const previousReason =
+          log.length > 0 ? String(log[log.length - 1].reason || '') : '';
+
+        return {
+          ...p,
+          billingMatchAdjustment: matchAdj,
+          billingAmountAdjustment: amountAdj,
+          extraShuttlecocks: extra,
+          billingAdjustmentReason: previousReason || undefined,
+          billingAdjustmentLog: log,
+        } as any;
+      }),
+    }));
+  };
 
   const handleUpdatePlayerExtraShuttlecocks = (playerId: string, delta: number) => {
     setAppState((prev) => ({
@@ -2209,7 +2489,61 @@ export default function App() {
   };
 
   const handleUpdateSessionConfig = (newConfig: SessionConfig) => {
-    setAppState((prev) => ({ ...prev, sessionConfig: newConfig }));
+    setAppState((prev) => {
+      // AUTO_SESSION_HOURS_FROM_TIME_V33
+      // เวลาเริ่ม/จบเป็น Source of Truth ของจำนวนชั่วโมงเช่าคอร์ท
+      // เช่น 19:00 -> 23:00 = 4 ชั่วโมง
+      const timeChanged =
+        newConfig.startTime !== prev.sessionConfig.startTime ||
+        newConfig.endTime !== prev.sessionConfig.endTime;
+
+      let totalHours = newConfig.totalHours;
+
+      if (timeChanged) {
+        const parseMinutes = (value?: string): number | null => {
+          const match = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
+          if (!match) return null;
+
+          const h = Number(match[1]);
+          const m = Number(match[2]);
+
+          if (
+            !Number.isFinite(h) ||
+            !Number.isFinite(m) ||
+            h < 0 ||
+            h > 23 ||
+            m < 0 ||
+            m > 59
+          ) {
+            return null;
+          }
+
+          return h * 60 + m;
+        };
+
+        const startMinutes = parseMinutes(newConfig.startTime);
+        const endMinutes = parseMinutes(newConfig.endTime);
+
+        if (startMinutes !== null && endMinutes !== null) {
+          let durationMinutes = endMinutes - startMinutes;
+
+          // รองรับกรณีเล่นข้ามเที่ยงคืน เช่น 22:00 -> 01:00
+          if (durationMinutes <= 0) {
+            durationMinutes += 24 * 60;
+          }
+
+          totalHours = Math.round((durationMinutes / 60) * 100) / 100;
+        }
+      }
+
+      return {
+        ...prev,
+        sessionConfig: {
+          ...newConfig,
+          totalHours,
+        },
+      };
+    });
   };
 
   const handleResetSession = () => {
@@ -2393,6 +2727,7 @@ export default function App() {
           onCheckOutMember={(playerId) => {
             handleCheckOutPlayer(playerId);
           }}
+          onStopAfterCurrentMatch={handleStopAfterCurrentMatch}
 onUpdateMemberStatus={(playerId, status) => {
             handleUpdatePlayerStatus(playerId, status);
           }}
@@ -2431,6 +2766,17 @@ onUpdateMemberStatus={(playerId, status) => {
             </button>
           </div>
         )}
+        {/* MEMBER_PLAY_NOTIFICATION_V33 */}
+        <MemberPlayNotification
+          currentMemberId={currentMemberId}
+          players={players}
+          activeMatches={activeMatches}
+          confirmedPreMatch={appState.confirmedPreMatch}
+          confirmedPreMatch2={appState.confirmedPreMatch2}
+          isOrganizerMode={isOrganizerMode}
+        />
+
+
 
         {currentTab === 'prematch' && (
           <PreMatchView
@@ -2519,6 +2865,7 @@ onUpdateMemberStatus={(playerId, status) => {
             confirmedPreMatch2={appState.confirmedPreMatch2}
             onStartMatch={handleStartMatch}
             onFinishMatch={handleFinishMatch}
+            onCancelMatch={handleCancelActiveMatch}
             onUpdateMatchShuttlecocks={handleUpdateMatchShuttlecocks}
             onUpdateMatchScore={handleUpdateMatchScore}
           />
@@ -2537,6 +2884,8 @@ onUpdateMemberStatus={(playerId, status) => {
             onMarkAllCheckedInPaid={handleMarkAllCheckedInPaid}
             onEditPlayer={handleEditPlayer}
             onUpdatePlayerExtraShuttlecocks={handleUpdatePlayerExtraShuttlecocks}
+            onApplyBillingAdjustment={handleApplyBillingAdjustment}
+            onUndoBillingAdjustment={handleUndoBillingAdjustment}
             promotionRedemptions={promotionRedemptions}
           />
         )}
@@ -2698,6 +3047,11 @@ onUpdateMemberStatus={(playerId, status) => {
               gamesPlayed: 0,
               matchesPlayed: 0,
               extraShuttlecocks: 0,
+              // RESET_BILLING_ADJUSTMENTS_V31
+              billingMatchAdjustment: 0,
+              billingAmountAdjustment: 0,
+              billingAdjustmentReason: undefined,
+              billingAdjustmentLog: [],
               paid: false,
               paidAmount: undefined,
               paymentTime: undefined,

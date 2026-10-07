@@ -15,7 +15,11 @@ import {
   Phone,
 } from 'lucide-react';
 import { Player, SkillLevel, SKILL_LEVELS } from '../types';
-import { getPlayerVerificationCode, getMaskedCodeHint, verifyPlayerCode } from '../utils/security';
+import {
+  getPlayerVerificationCode,
+  getMaskedCodeHint,
+  verifyMemberPinOrPhoneLast4,
+} from '../utils/security';
 import {
   isNicknameDuplicate,
   getDuplicatePlayer,
@@ -45,6 +49,8 @@ export const SelfCheckInModal: React.FC<SelfCheckInModalProps> = ({
   onCheckInPlayer,
   onQuickAddAndCheckIn,
 }) => {
+  // ORGANIZER_PIN_NOT_SELF_AUTH_V33
+  void organizerPin;
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [verificationCode, setVerificationCode] = useState('');
@@ -103,9 +109,13 @@ export const SelfCheckInModal: React.FC<SelfCheckInModalProps> = ({
         setErrorMessage('กรุณากรอกรหัส 4 หลักเพื่อยืนยันตัวตน');
         return;
       }
-      const result = verifyPlayerCode(selectedPlayer, verificationCode, organizerPin);
+      // SELF_CHECKIN_PIN_OR_PHONE_V33
+      const result = verifyMemberPinOrPhoneLast4(
+        selectedPlayer,
+        verificationCode.trim()
+      );
       if (!result.isValid) {
-        setErrorMessage('❌ รหัส 4 หลักไม่ถูกต้อง ตรวจสอบว่าเลือกถูกชื่อหรือไม่');
+        setErrorMessage('❌ รหัสไม่ถูกต้อง กรุณาใช้ PIN ส่วนตัว หรือ 4 ตัวท้ายเบอร์โทร');
         return;
       }
     } else {

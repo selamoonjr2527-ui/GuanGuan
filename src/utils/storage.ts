@@ -757,6 +757,11 @@ export function createNewDaySessionState(
         gamesPlayed: 0,
         matchesPlayed: 0,
         extraShuttlecocks: 0,
+        // RESET_BILLING_ADJUSTMENTS_V31
+        billingMatchAdjustment: 0,
+        billingAmountAdjustment: 0,
+        billingAdjustmentReason: undefined,
+        billingAdjustmentLog: [],
         paid: false,
         paidAmount: undefined,
         paymentMethod: undefined,

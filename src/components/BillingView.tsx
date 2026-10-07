@@ -9,6 +9,7 @@ import {
 import { Player, SessionConfig, SKILL_LEVELS } from '../types';
 import { generatePromptPayPayload, formatPromptPayDisplay } from '../utils/promptpay';
 import { PaymentConfirmModal } from './PaymentConfirmModal';
+import { OrganizerBillingAdjustments } from './OrganizerBillingAdjustments';
 import {
   PromotionRedemption,
   calculatePlayerFinalCharge,
@@ -26,6 +27,14 @@ interface BillingViewProps {
   onMarkAllCheckedInPaid: () => void;
   onEditPlayer?: (player: Player) => void;
   onUpdatePlayerExtraShuttlecocks?: (playerId: string, delta: number) => void;
+  // ORGANIZER_BILLING_ADJUSTMENTS_V31
+  onApplyBillingAdjustment?: (
+    playerId: string,
+    kind: 'match' | 'extra' | 'amount',
+    delta: number,
+    reason: string
+  ) => void;
+  onUndoBillingAdjustment?: (playerId: string) => void;
   promotionRedemptions?: PromotionRedemption[];
 }
 
@@ -41,6 +50,8 @@ export const BillingView: React.FC<BillingViewProps> = ({
   onMarkAllCheckedInPaid,
   onEditPlayer,
   onUpdatePlayerExtraShuttlecocks,
+  onApplyBillingAdjustment,
+  onUndoBillingAdjustment,
   promotionRedemptions = [],
 }) => {
   const [copiedLine, setCopiedLine] = useState(false);
@@ -127,30 +138,52 @@ export const BillingView: React.FC<BillingViewProps> = ({
   const grandTotal = isClubRate ? clubGrandTotal : venueGrandTotal;
 
   // Function to calculate exact cost for each player
+  // BILLING_EFFECTIVE_MATCH_ADJUSTMENT_V31
+  const getBillingAdjustedPlayer = (player: Player): Player => {
+    const matchAdjustment = Number((player as any).billingMatchAdjustment || 0);
+    if (!matchAdjustment) return player;
+
+    return {
+      ...player,
+      matchesPlayed: Math.max(0, (player.matchesPlayed || 0) + matchAdjustment),
+      gamesPlayed: Math.max(0, (player.gamesPlayed || 0) + matchAdjustment * 2),
+    };
+  };
+
+  const getBillingAmountAdjustment = (player: Player): number =>
+    Number((player as any).billingAmountAdjustment || 0);
+
+  const totalAdjustedGamesPlayed = eligiblePlayers.reduce((sum, p) => {
+    const adjusted = getBillingAdjustedPlayer(p);
+    return sum + (adjusted.gamesPlayed || 0);
+  }, 0);
+
   const calculatePlayerCost = (player: Player): number => {
+    const adjustedPlayer = getBillingAdjustedPlayer(player);
+    const manualAmount = getBillingAmountAdjustment(player);
+    let baseCost = 0;
+
     if (sessionConfig.splitMethod === 'club_rate') {
-      return calculatePlayerFinalCharge(
-        player,
+      baseCost = calculatePlayerFinalCharge(
+        adjustedPlayer,
         sessionConfig,
         promotionRedemptions,
         sessionConfig.date
       ).finalTotal;
-    }
-
-    if (sessionConfig.splitMethod === 'fixed') {
-      return sessionConfig.fixedFeePerPerson;
-    }
-
-    if (sessionConfig.splitMethod === 'per_game') {
-      if (totalGamesPlayed === 0) {
-        return Math.round(grandTotal / (eligiblePlayers.length || 1));
+    } else if (sessionConfig.splitMethod === 'fixed') {
+      baseCost = sessionConfig.fixedFeePerPerson;
+    } else if (sessionConfig.splitMethod === 'per_game') {
+      if (totalAdjustedGamesPlayed === 0) {
+        baseCost = Math.round(grandTotal / (eligiblePlayers.length || 1));
+      } else {
+        const ratio = (adjustedPlayer.gamesPlayed || 0) / totalAdjustedGamesPlayed;
+        baseCost = Math.round(grandTotal * ratio);
       }
-      const ratio = player.gamesPlayed / totalGamesPlayed;
-      return Math.round(grandTotal * ratio);
+    } else {
+      baseCost = Math.ceil(grandTotal / (eligiblePlayers.length || 1));
     }
 
-    // Default 'equal' split
-    return Math.ceil(grandTotal / (eligiblePlayers.length || 1));
+    return Math.max(0, Math.round(baseCost + manualAmount));
   };
 
   const getPlayerBreakdownText = (player: Player): string => {
@@ -343,7 +376,7 @@ ${paidText}
 
 ------------------------------------
 🔗 ลิงก์เช็คคิวและชำระเงิน (มุมมองสมาชิก):
-${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}?mode=member` : ''}
+${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}?mode=member&openExternalBrowser=1` : ''}
 
 ขอบคุณทุกคนที่มาร่วมสนุกกันครับ! เจอกันใหม่ครั้งหน้าครับ 🙏🏸`;
   };
@@ -1208,6 +1241,18 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
           )}
         </div>
       </div>
+      {isOrganizerMode && onApplyBillingAdjustment && onUndoBillingAdjustment && (
+        <OrganizerBillingAdjustments
+          players={eligiblePlayers}
+          sessionConfig={sessionConfig}
+          calculatePlayerCost={calculatePlayerCost}
+          onApplyAdjustment={onApplyBillingAdjustment}
+          onUndoAdjustment={onUndoBillingAdjustment}
+          onTogglePlayerPayment={onTogglePlayerPayment}
+        />
+      )}
+
+
 
       {/* Players Billing Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">

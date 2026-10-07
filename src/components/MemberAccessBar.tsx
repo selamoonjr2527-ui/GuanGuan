@@ -14,6 +14,8 @@ interface MemberAccessBarProps {
   onOpenMemberGate?: () => void;
   onCheckInMember: (player: Player) => void;
   onCheckOutMember: (playerId: string) => void;
+  // MEMBER_STOP_AFTER_MATCH_V29
+  onStopAfterCurrentMatch?: (playerId: string) => void;
   onUpdateMemberStatus: (playerId: string, status: PlayerStatus) => void;
   onNavigateToTab: (tab: TabType, targetMemberId?: string) => void;
   isOrganizerMode: boolean;
@@ -33,6 +35,7 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
   onOpenMemberGate,
   onCheckInMember,
   onCheckOutMember,
+  onStopAfterCurrentMatch,
   onUpdateMemberStatus,
   onNavigateToTab,
   isOrganizerMode,
@@ -255,6 +258,14 @@ export const MemberAccessBar: React.FC<MemberAccessBarProps> = ({
                     onClick={() => {
                       if (window.confirm('ยืนยันเลิกเล่นและเปลี่ยนสถานะเป็นรอจ่ายเงินหรือไม่?')) {
                         // STOP_TO_PENDING_PAYMENT_V19
+                        // MEMBER_STOP_AFTER_MATCH_V29
+                        if (isPlaying) {
+                          // Still on court: keep the player visible in the active match.
+                          // App will pre-count this match for billing and stop them after finish.
+                          onStopAfterCurrentMatch?.(currentMember.id);
+                          return;
+                        }
+
                         setPendingPaymentMemberId(currentMember.id);
                         onCheckOutMember(currentMember.id);
                       }

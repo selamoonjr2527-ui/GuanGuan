@@ -68,3 +68,39 @@ export function getMaskedCodeHint(player: Player): string {
   }
   return 'ยังไม่ได้ตั้งรหัส (สามารถยืนยันตัวตนได้ทันที)';
 }
+
+
+// VERIFY_PIN_OR_PHONE_LAST4_V33
+// Member authentication rule:
+//   - personal PIN 4 digits OR
+//   - last 4 digits of member phone
+// Organizer PIN is intentionally NOT a member-login fallback.
+export function verifyMemberPinOrPhoneLast4(
+  player: any,
+  enteredCode: string
+): {
+  isValid: boolean;
+  method: 'pin' | 'phone_last4' | null;
+} {
+  const entered = String(enteredCode || '').replace(/\D/g, '');
+
+  if (entered.length !== 4) {
+    return { isValid: false, method: null };
+  }
+
+  const pinDigits = String(player?.pin || '').replace(/\D/g, '');
+  const phoneDigits = String(player?.phone || '').replace(/\D/g, '');
+
+  if (pinDigits.length === 4 && entered === pinDigits) {
+    return { isValid: true, method: 'pin' };
+  }
+
+  if (
+    phoneDigits.length >= 4 &&
+    entered === phoneDigits.slice(-4)
+  ) {
+    return { isValid: true, method: 'phone_last4' };
+  }
+
+  return { isValid: false, method: null };
+}
