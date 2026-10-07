@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { 
   X, Calendar, Archive, RefreshCw, CheckCircle2, 
   AlertTriangle, Download, Trash2, ChevronRight, FileText,
@@ -36,115 +36,37 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   if (!isOpen) return null;
 
   const { sessionConfig, players, activeMatches, matchHistory } = currentState;
-  const billingPlayers = players.filter(
-    (p) =>
-      p.isCheckedIn ||
-      p.status === 'left' ||
-      Boolean(p.checkInTime) ||
-      Boolean(p.checkInTimestamp) ||
-      (p.matchesPlayed || 0) > 0 ||
-      (p.extraShuttlecocks || 0) > 0 ||
-      p.paid
-  );
-
+  const checkedInPlayers = players.filter((p) => p.isCheckedIn);
   const totalMatches = matchHistory.length;
   const totalShuttles = sessionConfig.shuttlecocksUsedTotal;
-
-  const unpaidPlayers = billingPlayers.filter(
-    (p) => !p.paid
-  );
+  const unpaidPlayers = checkedInPlayers.filter((p) => !p.paid);
 
   // Financial calculations
-  const memberCourtFee =
-    sessionConfig.memberCourtFee ?? 110;
-
-  const shuttleFee =
-    sessionConfig.shuttlecockFeePerMatchPerPerson ?? 25;
-
-  const extraPrice =
-    sessionConfig.extraShuttlecockPrice ?? 25;
-
-  const calculateArchivePlayerAmount = (p: Player) => {
-    const adjustedMatches = Math.max(
-      0,
-      Number(p.matchesPlayed || 0) +
-        Number((p as any).billingMatchAdjustment || 0)
-    );
-
+  const memberCourtFee = sessionConfig.memberCourtFee ?? 110;
+  const shuttleFee = sessionConfig.shuttlecockFeePerMatchPerPerson ?? 25;
+  const extraPrice = sessionConfig.extraShuttlecockPrice ?? 25;
+  
+  const totalRevenue = checkedInPlayers.reduce((acc, p) => {
     const court = memberCourtFee;
+    const match = p.gamesPlayed * shuttleFee;
+    const extra = (p.extraShuttlecocks || 0) * extraPrice;
+    return acc + court + match + extra;
+  }, 0);
 
-    const match =
-      adjustedMatches * shuttleFee;
+  const totalCollected = checkedInPlayers.reduce((acc, p) => {
+    if (!p.paid) return acc;
+    const court = memberCourtFee;
+    const match = p.gamesPlayed * shuttleFee;
+    const extra = (p.extraShuttlecocks || 0) * extraPrice;
+    return acc + court + match + extra;
+  }, 0);
 
-    const extra =
-      Number(p.extraShuttlecocks || 0) *
-      extraPrice;
-
-    const manualAdjustment =
-      Number((p as any).billingAmountAdjustment || 0);
-
-    return Math.max(
-      0,
-      Math.round(
-        court +
-        match +
-        extra +
-        manualAdjustment
-      )
-    );
-  };
-
-  const totalRevenue = billingPlayers.reduce(
-    (acc, p) =>
-      acc + calculateArchivePlayerAmount(p),
-    0
-  );
-
-  const totalCollected = billingPlayers.reduce(
-    (acc, p) => {
-      if (!p.paid) return acc;
-
-      // Paid amount is already locked when payment is confirmed.
-      if (
-        typeof p.paidAmount === 'number' &&
-        Number.isFinite(p.paidAmount)
-      ) {
-        return acc + p.paidAmount;
-      }
-
-      return acc + calculateArchivePlayerAmount(p);
-    },
-    0
-  );
-
-  const venueCost =
-    sessionConfig.courtCount *
-    sessionConfig.totalHours *
-    sessionConfig.courtHourlyRate;
-
-  const shuttleCost =
-    totalShuttles *
-    sessionConfig.shuttlecockPrice;
-
-  const extraExpensesTotal =
-    (sessionConfig.extraExpenses || []).reduce(
-      (acc, curr) => acc + curr.amount,
-      0
-    );
-
-  const totalExpense =
-    venueCost +
-    shuttleCost +
-    extraExpensesTotal;
-
-  const netProfit =
-    totalRevenue - totalExpense;
-
-  const pendingAmount =
-    Math.max(
-      0,
-      totalRevenue - totalCollected
-    );
+  const venueCost = sessionConfig.courtCount * sessionConfig.totalHours * sessionConfig.courtHourlyRate;
+  const shuttleCost = totalShuttles * sessionConfig.shuttlecockPrice;
+  const extraExpensesTotal = (sessionConfig.extraExpenses || []).reduce((acc, curr) => acc + curr.amount, 0);
+  const totalExpense = venueCost + shuttleCost + extraExpensesTotal;
+  const netProfit = totalRevenue - totalExpense;
+  const pendingAmount = Math.max(0, totalRevenue - totalCollected);
 
   const handleArchiveAndReset = () => {
     if (activeMatches.length > 0) {
@@ -159,7 +81,7 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
       sessionTitle: sessionConfig.sessionTitle,
       venueName: sessionConfig.venueName,
       savedAt: Date.now(),
-      totalPlayers: billingPlayers.length,
+      totalPlayers: checkedInPlayers.length,
       totalMatches,
       totalShuttlecocks: totalShuttles,
       totalCourtFee: venueCost,
@@ -526,4 +448,3 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
     </div>
   );
 };
-
