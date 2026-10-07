@@ -1,0 +1,121 @@
+﻿import {
+  collection,
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+  type FirestoreError,
+  type Unsubscribe,
+} from 'firebase/firestore';
+
+import { db } from '../firebase';
+import type {
+  CreatePendingPaymentInput,
+  PaymentTransaction,
+} from './paymentTypes';
+
+const PAYMENT_COLLECTION = collection(
+  db,
+  'clubs',
+  'guanguan',
+  'paymentTransaction'
+);
+
+function buildInvoiceId(sessionDate: string, playerId: string): string {
+  const safeDate = sessionDate.replace(/-/g, '');
+  const safePlayer = playerId.replace(/[^a-zA-Z0-9_-]/g, '').slice(-12) || 'PLAYER';
+  const suffix = Date.now().toString().slice(-6);
+
+  return `GG-${safeDate}-${safePlayer}-${suffix}`;
+}
+
+/**
+ * Client is allowed to create only a PENDING payment request.
+ * A payment gateway webhook/backend must be the component that changes
+ * status to "paid" later.
+ */
+export async function createPendingPaymentTransaction(
+  input: CreatePendingPaymentInput
+): Promise<string> {
+  const amount = Math.max(0, Math.round(Number(input.amount || 0)));
+
+  if (!input.playerId) {
+    throw new Error('playerId is required');
+  }
+
+  if (!input.sessionDate) {
+    throw new Error('sessionDate is required');
+  }
+
+  if (amount <= 0) {
+    throw new Error('amount must be greater than 0');
+  }
+
+  const invoiceId = buildInvoiceId(input.sessionDate, input.playerId);
+
+  await setDoc(
+    doc(db, 'clubs', 'guanguan', 'paymentTransaction', invoiceId),
+    {
+      playerId: input.playerId,
+      nickname: input.nickname || '',
+      sessionDate: input.sessionDate,
+      amount,
+      currency: 'THB',
+
+      status: 'pending',
+      paymentMethod: input.paymentMethod || 'promptpay',
+      provider: '2c2p',
+
+      transactionRef: '',
+      createdAt: serverTimestamp(),
+    }
+  );
+
+  return invoiceId;
+}
+
+/**
+ * Realtime listener for Organizer/Member screens.
+ * Firestore Timestamp fields are normalized to milliseconds when possible.
+ */
+export function subscribeToPaymentTransactions(
+  onData: (transactions: PaymentTransaction[]) => void,
+  onError?: (error: FirestoreError) => void
+): Unsubscribe {
+  return onSnapshot(
+    PAYMENT_COLLECTION,
+    (snapshot) => {
+      const transactions = snapshot.docs
+        .map((item) => {
+          const data = item.data() as any;
+
+          return {
+            id: item.id,
+            playerId: String(data.playerId || ''),
+            nickname: data.nickname ? String(data.nickname) : undefined,
+            sessionDate: String(data.sessionDate || ''),
+            amount: Number(data.amount || 0),
+            currency: 'THB' as const,
+            status: data.status || 'pending',
+            paymentMethod: data.paymentMethod || 'promptpay',
+            provider: data.provider || '2c2p',
+            transactionRef: data.transactionRef
+              ? String(data.transactionRef)
+              : undefined,
+            createdAt:
+              typeof data.createdAt?.toMillis === 'function'
+                ? data.createdAt.toMillis()
+                : undefined,
+            paidAt:
+              typeof data.paidAt?.toMillis === 'function'
+                ? data.paidAt.toMillis()
+                : undefined,
+          } satisfies PaymentTransaction;
+        })
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+      onData(transactions);
+    },
+    onError
+  );
+}

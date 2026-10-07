@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import QRCode from 'qrcode';
 import confetti from 'canvas-confetti';
 import { 
@@ -9,6 +9,7 @@ import {
 import { Player, SessionConfig, SKILL_LEVELS } from '../types';
 import { generatePromptPayPayload, formatPromptPayDisplay } from '../utils/promptpay';
 import { PaymentConfirmModal } from './PaymentConfirmModal';
+import { createPendingPaymentTransaction } from '../payment/paymentTransactions';
 import { OrganizerBillingAdjustments } from './OrganizerBillingAdjustments';
 import {
   PromotionRedemption,
@@ -245,14 +246,41 @@ export const BillingView: React.FC<BillingViewProps> = ({
     generateQrForAmount(defaultCostPerPerson);
   };
 
-  const handleOpenPlayerQr = (player: Player) => {
+  const handleOpenPlayerQr = async (player: Player) => {
     if (player.isCheckedIn) {
       window.alert(`กรุณา Check-out "${player.nickname}" ก่อนเปิด QR ชำระเงิน`);
       return;
     }
-    setSelectedPlayerForQr(player);
+
     const amount = calculatePlayerCost(player);
-    generateQrForAmount(amount);
+
+    try {
+      const invoiceId = await createPendingPaymentTransaction({
+        playerId: player.id,
+        nickname: player.nickname,
+        sessionDate: sessionConfig.date,
+        amount,
+        paymentMethod: 'promptpay',
+      });
+
+      console.log(
+        '[GuanGuan Payment] Pending transaction ready:',
+        invoiceId,
+        amount
+      );
+
+      setSelectedPlayerForQr(player);
+      generateQrForAmount(amount);
+    } catch (error) {
+      console.error(
+        '[GuanGuan Payment] Failed to create pending transaction',
+        error
+      );
+
+      window.alert(
+        'ไม่สามารถสร้างรายการชำระเงินใน Firestore ได้ กรุณาลองใหม่อีกครั้ง'
+      );
+    }
   };
 
   const handleRequestTogglePayment = (player: Player, isMarkingPaid: boolean) => {
@@ -1620,3 +1648,4 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
     </div>
   );
 };
+
