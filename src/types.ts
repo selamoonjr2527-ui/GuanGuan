@@ -1,4 +1,4 @@
-﻿export type SkillLevel = 'Newbie' | 'C' | 'B' | 'A' | 'PRO';
+export type SkillLevel = 'Newbie' | 'C' | 'B' | 'A' | 'PRO';
 
 export interface SkillLevelInfo {
   code: SkillLevel;
@@ -66,7 +66,7 @@ export const SKILL_LEVELS: Record<SkillLevel, SkillLevelInfo> = {
 
 export type PlayerStatus = 'waiting' | 'playing' | 'resting' | 'left';
 
-export type TabType = 'prematch' | 'checkin' | 'courts' | 'assessment' | 'billing' | 'finance';
+export type TabType = 'prematch' | 'checkin' | 'courts' | 'assessment' | 'billing' | 'finance' | 'tools';
 
 export interface Player {
   id: string;
@@ -130,6 +130,8 @@ export interface MatchHistoryItem {
   teamBSkillAvg: number;
   startTime: string;
   durationMinutes: number;
+  startedAt?: number; // MATCH_TIMING_V83 epoch ms
+  finishedAt?: number; // MATCH_TIMING_V83 epoch ms
   shuttlecocksCount: number;
   scoreA?: number;
   scoreB?: number;
@@ -142,7 +144,7 @@ export interface MatchHistoryItem {
 
 export interface ConfirmedPreMatch {
   id: string;
-  slotNumber?: 1 | 2;
+  slotNumber?: 1 | 2 | 3; // PREMATCH_3_FIFO_V64
   targetCourtName?: string;
   teamA: [string, string]; // Player IDs
   teamB: [string, string]; // Player IDs
@@ -154,6 +156,16 @@ export interface ConfirmedPreMatch {
 
 export type SplitMethod = 'club_rate' | 'equal' | 'per_game' | 'fixed';
 
+export interface SessionCourt {
+  id: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  hourlyRate: number;
+  active?: boolean;
+}
+
+// DYNAMIC_SESSION_COURTS_V63A
 export interface SessionConfig {
   sessionTitle: string;
   date: string;
@@ -162,6 +174,7 @@ export interface SessionConfig {
   endTime: string;
   courtCount: number;
   courtNames: string[];
+  sessionCourts?: SessionCourt[];
   courtHourlyRate: number; // e.g. 180 THB
   totalHours: number; // e.g. 3 hours
   shuttlecockBrand: string; // e.g. "RSL Silver Speed 76"
@@ -207,6 +220,13 @@ export interface DailySessionArchive {
   totalCollected?: number; // ยอดที่เก็บเงินจริงได้แล้ว
   pendingAmount?: number; // ยอดค้างชำระ
   venueCost?: number; // ค่าเช่าคอร์ทจ่ายสนามจริง
+  // COURT_HOURS_V82B
+  courtCount?: number;
+  totalHours?: number;
+  courtHourlyRate?: number;
+  totalCourtHours?: number; // ผลรวม Court x ชั่วโมง เช่น 2x4 + 1x1 = 9
+  courtPlanLabel?: string; // เช่น "2 Court × 4 ชม. + 1 Court × 1 ชม."
+  sessionCourtsSnapshot?: SessionCourt[];
   shuttleCost?: number; // ค่าลูกขนไก่จ่ายสนามจริง
   extraExpensesTotal?: number; // ค่าใช้จ่ายอื่นๆ เช่น น้ำดื่ม
   playersSnapshot: Player[];
@@ -223,4 +243,5 @@ export interface FundTransaction {
   category?: 'shuttlecocks_bulk' | 'equipment' | 'drink_snack' | 'initial_fund' | 'session_surplus' | 'other';
   createdAt: number;
 }
+
 

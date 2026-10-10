@@ -1,9 +1,8 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import {
   onAuthStateChanged,
   signInAnonymously,
-  signOut,
 } from 'firebase/auth';
 import { auth, isOrganizerUid } from './firebase';
 import { Header } from './components/Header';
@@ -11,19 +10,32 @@ import { PreMatchView } from './components/PreMatchView';
 import { CheckInView } from './components/CheckInView';
 import { SkillAssessmentView } from './components/SkillAssessmentView';
 import { CourtsView } from './components/CourtsView';
+import { SessionCourtsPanel } from './components/SessionCourtsPanel'; // DYNAMIC_SESSION_COURTS_V63A
+import { PreMatchManagerV64, OrganizerWaitingQueueV64 } from './components/PreMatchManagerV64'; // PREMATCH_3_FIFO_V64
 import { BillingView } from './components/BillingView';
 import { PlayerModal } from './components/PlayerModal';
 import { SessionSettingsModal } from './components/SessionSettingsModal';
 import { SelfCheckInModal } from './components/SelfCheckInModal';
 import { OrganizerPinModal } from './components/OrganizerPinModal';
 import { DailyArchiveModal } from './components/DailyArchiveModal';
+import { deleteSessionPaymentTransactions } from './payment/paymentTransactions'; // DISCARD_SESSION_NO_ARCHIVE_V72B
 import { FinancialStatsView } from './components/FinancialStatsView';
+import { ShuttleStockWorkspaceV78 } from './components/ShuttleStockWorkspaceV78'; // SHUTTLE_STOCK_REPORT_SEPARATION_V78
+import { ShuttleLedgerHistoryV76 } from './components/ShuttleLedgerHistoryV76'; // DAILY_SHUTTLE_USAGE_SUMMARY_V76
+import { MonthlyShuttleReportV76 } from './components/MonthlyShuttleReportV76'; // MONTHLY_SHUTTLE_REPORT_FIXED_V76
 import { MemberAccessBar } from './components/MemberAccessBar';
-import { MemberPlayNotification } from './components/MemberPlayNotification';
-import { OrganizerMemberStopNotification } from './components/OrganizerMemberStopNotification';
+import { MemberPlayNotification } from './components/MemberPlayNotification';
+
 import { MemberGateModal } from './components/MemberGateModal';
 import { MemberCenterModal } from './components/MemberCenterModal';
-import { MemberPinModal } from './components/MemberPinModal';
+import { MemberHistoryModal } from './components/MemberHistoryModal'; // MEMBER_HISTORY_V65
+import { MemberPinModal } from './components/MemberPinModal';
+import { MemberCostExportToolV68D } from './components/MemberCostExportToolV68D'; // MEMBER_COST_EXPORT_TOOL_V68D
+import { DataStatsManagerV66 } from './components/DataStatsManagerV66'; // DATA_STATS_REPAIR_V66
+
+
+import { OrganizerGlobalAlertCenter } from './components/OrganizerGlobalAlertCenter'; // GLOBAL_ORGANIZER_ALERT_V52C
+import { MatchHistoryExportView } from './components/MatchHistoryExportView'; // MATCH_HISTORY_EXPORT_V51
 import {
   DeletedMemberRecord,
   MemberLifetimeStatsMap,
@@ -75,6 +87,7 @@ import {
   hasStoredFundTransactions,
   normalizeSkillLevel,
 } from './utils/storage';
+import { createNewDaySessionState } from './utils/storage'; // DISCARD_SESSION_NO_ARCHIVE_V72B
 import {
   saveCurrentSessionToFirestore,
   saveCurrentSessionMergedToFirestore,
@@ -255,6 +268,11 @@ export default function App() {
   };
 
   const [currentTab, setCurrentTab] = useState<TabType>('prematch');
+  const [financeWorkspaceV77, setFinanceWorkspaceV77] = useState<'financial' | 'shuttle'>('financial'); // SHUTTLE_STOCK_SEPARATION_V77B
+  const [cancelFinishedMatchId, setCancelFinishedMatchId] = useState('');
+
+  const [showMatchHistoryExport, setShowMatchHistoryExport] = useState(false);
+  const [showMemberCostExportV68D, setShowMemberCostExportV68D] = useState(false);
   
   // Never trust ?mode=organizer by itself.
   // Organizer mode is enabled only after Firebase Auth confirms an allowed Organizer UID.
@@ -294,6 +312,8 @@ export default function App() {
   });
   const [isArchiveModalOpen, setIsArchiveModalOpen] = useState<boolean>(false);
   const [isMemberCenterOpen, setIsMemberCenterOpen] = useState<boolean>(false);
+  const [isDataStatsManagerOpen, setIsDataStatsManagerOpen] = useState<boolean>(false); // DATA_STATS_REPAIR_V66
+  const [isMemberHistoryOpen, setIsMemberHistoryOpen] = useState<boolean>(false); // MEMBER_HISTORY_V65
 
   // Modals
   const [isAddPlayerOpen, setIsAddPlayerOpen] = useState(false);
@@ -302,6 +322,8 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMemberPinModalOpen, setIsMemberPinModalOpen] = useState(false);
   const [isSelfCheckInOpen, setIsSelfCheckInOpen] = useState(false);
+  // MEMBER_AUTO_CHECKIN_PROMPT_V58
+  const [isMemberCheckInPromptOpen, setIsMemberCheckInPromptOpen] = useState(false);
   const [isMemberGateOpen, setIsMemberGateOpen] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -397,30 +419,42 @@ export default function App() {
           : null;
       const forceMemberMode = params?.get('mode') === 'member';
 
-      setIsOrganizerMode(isOrganizerUid(user.uid) && !forceMemberMode);
+      const organizerUiLocked =
+        typeof window !== 'undefined' &&
+        localStorage.getItem(
+          'guanguan_organizer_ui_locked_v61'
+        ) === '1';
+
+      setIsOrganizerMode(
+        isOrganizerUid(user.uid) &&
+          !forceMemberMode &&
+          !organizerUiLocked
+      );
     });
 
     return () => unsubscribeAuth();
   }, []);
 
+  // ORGANIZER_QUICK_PIN_APP_V61
   const handleExitOrganizerMode = async () => {
     setIsOrganizerMode(false);
 
-    if (currentTab === 'courts' || currentTab === 'finance') {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(
+        'guanguan_organizer_ui_locked_v61',
+        '1'
+      );
+    }
+
+    if (currentTab === 'courts' || currentTab === 'finance' || currentTab === 'tools') {
       setCurrentTab('prematch');
     }
 
-    if (isOrganizerUid(auth.currentUser?.uid)) {
-      try {
-        setAuthReady(false);
-        await signOut(auth);
-        // onAuthStateChanged() restores Anonymous auth automatically.
-      } catch (error) {
-        console.error('Organizer logout failed', error);
-      }
-    }
+    // IMPORTANT:
+    // Do not sign out Firebase here.
+    // Keeping the authorized Firebase session lets this trusted browser
+    // re-enter Organizer mode with Quick PIN instead of Email every time.
   };
-
   const handleToggleOrganizerMode = () => {
     if (isOrganizerMode) {
       void handleExitOrganizerMode();
@@ -570,21 +604,11 @@ export default function App() {
       (remoteArchives) => {
         if (archiveFirstSnapshot) {
           archiveFirstSnapshot = false;
-
-          // One-time migration: if Firestore is empty but this browser already
-          // has real LocalStorage archive data, upload it first.
-          if (remoteArchives.length === 0 && hasStoredSessionArchives()) {
-            const localArchives = loadSessionArchives();
-
-            if (localArchives.length > 0) {
-              void seedSessionArchivesToFirestore(localArchives).catch((error) => {
-                console.error('Failed to migrate archives to Firestore', error);
-              });
-              return;
-            }
-          }
         }
 
+        // ARCHIVE_NO_RESEED_V66D
+        // Firestore is now the source of truth for Archive.
+        // Do NOT seed stale LocalStorage back when remote archive is intentionally empty.
         replaceSessionArchivesLocal(remoteArchives);
         setArchiveRevision((value) => value + 1);
       },
@@ -741,6 +765,8 @@ export default function App() {
   }, [appState, authReady, authUserUid, isOnline]);
 
   const { sessionConfig, players, activeMatches, matchHistory } = appState;
+
+  const confirmedPreMatch3 = ((appState as any).confirmedPreMatch3 || null) as ConfirmedPreMatch | null; // PREMATCH_3_FIFO_V64
   const deletedMembers: DeletedMemberRecord[] = getDeletedMembers(appState as any);
   const memberStats: MemberLifetimeStatsMap = getMemberStatsMap(appState as any);
   const promotionRules: PromotionRule[] = getPromotionRules(appState as any);
@@ -771,6 +797,599 @@ export default function App() {
     Number((appState as any).shuttleDefaultPiecesPerTube ?? 12)
   );
 
+  // HISTORICAL_SHUTTLE_BACKFILL_V73
+  // One-time historical inventory migration.
+  //
+  // 25/09/2026:
+  //   Purchase Ling Mei 80      60 pcs @ 83 = 4,980
+  //   Usage                    21 pcs @ 83 = 1,743
+  //   Remaining                39 pcs
+  //
+  // 08/10/2026:
+  //   Purchase Ling Mei Silver 60 pcs @ 70 = 4,200
+  //
+  // 09/10/2026:
+  //   Usage                    23 pcs @ 70 = 1,610
+  //   Remaining                37 pcs
+  //
+  // Total remaining = 76 pcs
+  useEffect(() => {
+    // Wait until Firestore/local state is fully synchronized first.
+    if (syncStatus !== 'synced') return;
+
+    setAppState((prev) => {
+      if ((prev as any).historicalShuttleBackfillV73) {
+        return prev;
+      }
+
+      const existingPurchases = getShuttlePurchases(prev as any);
+      const existingUsages = getShuttleUsageLedger(prev as any);
+
+      const purchase80Id =
+        'hist-purchase-20260925-ling-mei-80';
+      const purchaseSilverId =
+        'hist-purchase-20261008-ling-mei-silver';
+
+      const usage80Id =
+        'hist-usage-20260925-ling-mei-80';
+      const usageSilverId =
+        'hist-usage-20261009-ling-mei-silver';
+
+      const backfillPurchases: any[] = [
+        {
+          id: purchase80Id,
+
+          date: '2026-09-25',
+          purchaseDate: '2026-09-25',
+
+          brand: 'Ling Mei',
+          model: '80',
+          name: 'Ling Mei 80',
+
+          quantity: 60,
+          tubes: 5,
+          piecesPerTube: 12,
+
+          unitCost: 83,
+          costPerPiece: 83,
+          pricePerPiece: 83,
+
+          totalCost: 4980,
+          totalPrice: 4980,
+          amount: 4980,
+
+          pricePerTube: 996,
+
+          note:
+            'Historical backfill • ซื้อ 60 ลูก (5 หลอด × 12) • 83 บาท/ลูก',
+
+          createdAt: new Date(
+            '2026-09-25T12:00:00+07:00'
+          ).getTime(),
+        },
+        {
+          id: purchaseSilverId,
+
+          date: '2026-10-08',
+          purchaseDate: '2026-10-08',
+
+          brand: 'Ling Mei',
+          model: 'Silver',
+          name: 'Ling Mei Silver',
+
+          quantity: 60,
+          tubes: 5,
+          piecesPerTube: 12,
+
+          unitCost: 70,
+          costPerPiece: 70,
+          pricePerPiece: 70,
+
+          totalCost: 4200,
+          totalPrice: 4200,
+          amount: 4200,
+
+          pricePerTube: 840,
+
+          note:
+            'Historical backfill • ซื้อ 60 ลูก (5 หลอด × 12) • 70 บาท/ลูก',
+
+          createdAt: new Date(
+            '2026-10-08T12:00:00+07:00'
+          ).getTime(),
+        },
+      ];
+
+      const backfillUsages: any[] = [
+        {
+          id: usage80Id,
+          historyId:
+            'historical-session-20260925-ling-mei-80',
+
+          sessionDate: '2026-09-25',
+          date: '2026-09-25',
+
+          courtName:
+            'Historical Session — Ling Mei 80',
+
+          brand: 'Ling Mei',
+          model: '80',
+          shuttleName: 'Ling Mei 80',
+
+          quantity: 21,
+
+          unitCost: 83,
+          costPerPiece: 83,
+
+          totalCost: 1743,
+
+          // 21 Matches × 4 members × 25/member/Match
+          memberCount: 84,
+          memberRatePerMatch: 25,
+          baseMemberRevenue: 2100,
+
+          note:
+            'Historical backfill • 25/09/2026 • ใช้ Ling Mei 80 จำนวน 21 ลูก',
+
+          createdAt: new Date(
+            '2026-09-25T23:00:00+07:00'
+          ).getTime(),
+        },
+        {
+          id: usageSilverId,
+          historyId:
+            'historical-session-20261009-ling-mei-silver',
+
+          sessionDate: '2026-10-09',
+          date: '2026-10-09',
+
+          courtName:
+            'Historical Session — Ling Mei Silver',
+
+          brand: 'Ling Mei',
+          model: 'Silver',
+          shuttleName: 'Ling Mei Silver',
+
+          quantity: 23,
+
+          unitCost: 70,
+          costPerPiece: 70,
+
+          totalCost: 1610,
+
+          // 23 Matches × 4 members × 25/member/Match
+          memberCount: 92,
+          memberRatePerMatch: 25,
+          baseMemberRevenue: 2300,
+
+          note:
+            'Historical backfill • 09/10/2026 • ใช้ Ling Mei Silver จำนวน 23 ลูก',
+
+          createdAt: new Date(
+            '2026-10-09T23:00:00+07:00'
+          ).getTime(),
+        },
+      ];
+
+      const existingPurchaseIds = new Set(
+        existingPurchases.map((item) => item.id)
+      );
+
+      const existingUsageIds = new Set(
+        existingUsages.map((item) => item.id)
+      );
+
+      const nextPurchases = [
+        ...backfillPurchases.filter(
+          (item) => !existingPurchaseIds.has(item.id)
+        ),
+        ...existingPurchases,
+      ];
+
+      const nextUsages = [
+        ...backfillUsages.filter(
+          (item) => !existingUsageIds.has(item.id)
+        ),
+        ...existingUsages,
+      ];
+
+      const inventory = getShuttleInventorySummary(
+        nextPurchases,
+        nextUsages,
+        prev.sessionConfig.shuttlecockPrice,
+        getShuttleStockAdjustments(prev as any)
+      );
+
+      console.info(
+        '[GuanGuan v73] Historical shuttle backfill applied',
+        {
+          expectedPurchased: 120,
+          expectedUsed: 44,
+          expectedRemaining: 76,
+          expectedStockValue: 5827,
+          calculatedStock: inventory.stockQuantity,
+          calculatedAverageCost: inventory.averageUnitCost,
+        }
+      );
+
+      return {
+        ...prev,
+
+        shuttlePurchases: nextPurchases,
+        shuttleUsageLedger: nextUsages,
+
+        // Persistent migration marker prevents duplicate backfill.
+        historicalShuttleBackfillV73: true,
+
+        sessionConfig: {
+          ...prev.sessionConfig,
+
+          // Current reference cost should follow the remaining
+          // inventory value after historical usage.
+          shuttlecockPrice:
+            inventory.averageUnitCost > 0
+              ? inventory.averageUnitCost
+              : prev.sessionConfig.shuttlecockPrice,
+        },
+      } as any;
+    });
+  }, [syncStatus]);
+  // COURT_NAME_SOURCE_OF_TRUTH_V74
+  // sessionCourts[].name is the real visible court name.
+  // Keep legacy courtNames synchronized because older queue/match code
+  // still reads courtNames by index.
+  useEffect(() => {
+    setAppState((prev) => {
+      const courts = Array.isArray(prev.sessionConfig.sessionCourts)
+        ? prev.sessionConfig.sessionCourts
+        : [];
+
+      if (courts.length === 0) return prev;
+
+      const nextNames = courts.map((court, index) => {
+        const value = String(court?.name || '').trim();
+        return value || `คอร์ท ${index + 1}`;
+      });
+
+      const oldNames = Array.isArray(prev.sessionConfig.courtNames)
+        ? prev.sessionConfig.courtNames
+        : [];
+
+      const sameNames =
+        oldNames.length === nextNames.length &&
+        oldNames.every(
+          (name, index) => name === nextNames[index]
+        );
+
+      const activeAlreadyCorrect = prev.activeMatches.every((match) => {
+        const index = courts.findIndex(
+          (court) => court.id === match.courtId
+        );
+
+        return (
+          index < 0 ||
+          match.courtName === nextNames[index]
+        );
+      });
+
+      if (sameNames && activeAlreadyCorrect) {
+        return prev;
+      }
+
+      const legacyRename = new Map<string, string>();
+
+      oldNames.forEach((oldName, index) => {
+        const nextName = nextNames[index];
+
+        if (
+          oldName &&
+          nextName &&
+          oldName !== nextName
+        ) {
+          legacyRename.set(oldName, nextName);
+        }
+      });
+
+      const nextActiveMatches = prev.activeMatches.map(
+        (match) => {
+          const index = courts.findIndex(
+            (court) => court.id === match.courtId
+          );
+
+          const nextName =
+            index >= 0 ? nextNames[index] : undefined;
+
+          return nextName
+            ? { ...match, courtName: nextName }
+            : match;
+        }
+      );
+
+      const nextMatchHistory = prev.matchHistory.map(
+        (history) => {
+          const nextName =
+            legacyRename.get(history.courtName);
+
+          return nextName
+            ? { ...history, courtName: nextName }
+            : history;
+        }
+      );
+
+      const remapPreMatch = (pm: any) => {
+        if (!pm?.targetCourtName) return pm;
+
+        const nextName = legacyRename.get(
+          pm.targetCourtName
+        );
+
+        return nextName
+          ? { ...pm, targetCourtName: nextName }
+          : pm;
+      };
+
+      return {
+        ...prev,
+
+        sessionConfig: {
+          ...prev.sessionConfig,
+          courtCount: courts.length,
+          courtNames: nextNames,
+        },
+
+        activeMatches: nextActiveMatches,
+        matchHistory: nextMatchHistory,
+
+        confirmedPreMatch: remapPreMatch(
+          (prev as any).confirmedPreMatch
+        ),
+
+        confirmedPreMatch2: remapPreMatch(
+          (prev as any).confirmedPreMatch2
+        ),
+
+        ...(
+          Object.prototype.hasOwnProperty.call(
+            prev,
+            'confirmedPreMatch3'
+          )
+            ? {
+                confirmedPreMatch3: remapPreMatch(
+                  (prev as any).confirmedPreMatch3
+                ),
+              }
+            : {}
+        ),
+      } as any;
+    });
+  }, [sessionConfig.sessionCourts]);
+  // MONTHLY_SHUTTLE_BACKFILL_REPAIR_V75
+  // Normalize historical shuttle Purchase / Usage records so monthly reports
+  // calculate purchase value, tubes, pieces, per-tube prices and Match count
+  // exactly like normal live-session records.
+  useEffect(() => {
+    if (syncStatus !== 'synced') return;
+
+    setAppState((prev) => {
+      if ((prev as any).monthlyShuttleRepairV75) {
+        return prev;
+      }
+
+      const currentPurchases = getShuttlePurchases(prev as any) as any[];
+      const currentUsages = getShuttleUsageLedger(prev as any) as any[];
+
+      const purchaseSpecs = [
+        {
+          id: 'hist-purchase-20260925-ling-mei-80',
+          date: '2026-09-25',
+          brand: 'Ling Mei',
+          model: '80',
+          name: 'Ling Mei 80',
+          quantity: 60,
+          tubes: 5,
+          piecesPerTube: 12,
+          unitCost: 83,
+          pricePerTube: 996,
+          total: 4980,
+          createdAt: new Date('2026-09-25T12:00:00+07:00').getTime(),
+        },
+        {
+          id: 'hist-purchase-20261008-ling-mei-silver',
+          date: '2026-10-08',
+          brand: 'Ling Mei',
+          model: 'Silver',
+          name: 'Ling Mei Silver',
+          quantity: 60,
+          tubes: 5,
+          piecesPerTube: 12,
+          unitCost: 70,
+          pricePerTube: 840,
+          total: 4200,
+          createdAt: new Date('2026-10-08T12:00:00+07:00').getTime(),
+        },
+      ];
+
+      const purchaseSpecById = new Map(
+        purchaseSpecs.map((spec) => [spec.id, spec])
+      );
+
+      const upgradedPurchases = currentPurchases
+        .filter((item) => !purchaseSpecById.has(item.id))
+        .concat(
+          purchaseSpecs.map((spec) => {
+            const existing = currentPurchases.find(
+              (item) => item.id === spec.id
+            ) || {};
+
+            return {
+              ...existing,
+
+              id: spec.id,
+
+              // Date aliases
+              date: spec.date,
+              purchaseDate: spec.date,
+              purchasedDate: spec.date,
+
+              // Shuttle identity
+              brand: spec.brand,
+              model: spec.model,
+              name: spec.name,
+              shuttleName: spec.name,
+
+              // Quantity aliases
+              quantity: spec.quantity,
+              pieces: spec.quantity,
+              pieceCount: spec.quantity,
+              totalPieces: spec.quantity,
+
+              // Tube aliases
+              tubes: spec.tubes,
+              tubeCount: spec.tubes,
+              quantityTubes: spec.tubes,
+              totalTubes: spec.tubes,
+              piecesPerTube: spec.piecesPerTube,
+
+              // Per-piece cost aliases
+              unitCost: spec.unitCost,
+              costPerPiece: spec.unitCost,
+              pricePerPiece: spec.unitCost,
+              unitPrice: spec.unitCost,
+
+              // Per-tube cost aliases
+              pricePerTube: spec.pricePerTube,
+              costPerTube: spec.pricePerTube,
+              tubePrice: spec.pricePerTube,
+              unitPricePerTube: spec.pricePerTube,
+
+              // Purchase total aliases
+              totalCost: spec.total,
+              totalPrice: spec.total,
+              totalAmount: spec.total,
+              purchaseAmount: spec.total,
+              amount: spec.total,
+
+              note:
+                existing.note ||
+                `Historical backfill • ${spec.quantity} ลูก • ${spec.tubes} หลอด • ${spec.unitCost} บาท/ลูก`,
+
+              createdAt:
+                Number(existing.createdAt || 0) > 0
+                  ? existing.createdAt
+                  : spec.createdAt,
+            };
+          })
+        );
+
+      // Remove the two old aggregate v73 Usage records.
+      const aggregateUsageIds = new Set([
+        'hist-usage-20260925-ling-mei-80',
+        'hist-usage-20261009-ling-mei-silver',
+      ]);
+
+      // Also remove prior v75 expanded rows if a partially applied local build exists.
+      const baseUsages = currentUsages.filter(
+        (item) =>
+          !aggregateUsageIds.has(item.id) &&
+          !String(item.id || '').startsWith(
+            'hist-usage-20260925-ling-mei-80-match-'
+          ) &&
+          !String(item.id || '').startsWith(
+            'hist-usage-20261009-ling-mei-silver-match-'
+          )
+      );
+
+      const buildHistoricalMatchUsages = (
+        prefix: string,
+        sessionDate: string,
+        matchCount: number,
+        brand: string,
+        model: string,
+        unitCost: number,
+        startHour: number
+      ) => {
+        const rows: any[] = [];
+
+        for (let index = 1; index <= matchCount; index += 1) {
+          const hh = Math.min(23, startHour + Math.floor((index - 1) / 3));
+          const mm = ((index - 1) % 3) * 20;
+
+          const createdAt = new Date(
+            `${sessionDate}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00+07:00`
+          ).getTime();
+
+          rows.push({
+            id: `${prefix}-match-${String(index).padStart(2, '0')}`,
+            historyId: `${prefix}-history-${String(index).padStart(2, '0')}`,
+
+            sessionDate,
+            date: sessionDate,
+
+            brand,
+            model,
+            shuttleName: `${brand} ${model}`,
+
+            // One historical row = one real Match = one physical shuttle.
+            quantity: 1,
+            matchCount: 1,
+            matches: 1,
+
+            unitCost,
+            costPerPiece: unitCost,
+            totalCost: unitCost,
+
+            memberCount: 4,
+            memberRatePerMatch: 25,
+            baseMemberRevenue: 100,
+
+            courtName: 'ย้อนหลัง (รวมทั้งรอบ)',
+
+            note:
+              `Historical backfill • Match ${index}/${matchCount} • ${brand} ${model}`,
+
+            createdAt,
+          });
+        }
+
+        return rows;
+      };
+
+      const historicalUsages = [
+        ...buildHistoricalMatchUsages(
+          'hist-usage-20260925-ling-mei-80',
+          '2026-09-25',
+          21,
+          'Ling Mei',
+          '80',
+          83,
+          19
+        ),
+        ...buildHistoricalMatchUsages(
+          'hist-usage-20261009-ling-mei-silver',
+          '2026-10-09',
+          23,
+          'Ling Mei',
+          'Silver',
+          70,
+          19
+        ),
+      ];
+
+      const nextUsages = [
+        ...historicalUsages,
+        ...baseUsages,
+      ];
+
+      return {
+        ...prev,
+
+        shuttlePurchases: upgradedPurchases,
+        shuttleUsageLedger: nextUsages,
+
+        monthlyShuttleRepairV75: true,
+      } as any;
+    });
+  }, [syncStatus]);
   // Daily billing source of truth:
   // gamesPlayed / matchesPlayed must reflect FINISHED matches in current matchHistory only.
   // This prevents a fresh Check-in from inheriting old Match counts from a previous day.
@@ -954,6 +1573,7 @@ export default function App() {
         players: nextPlayers,
         confirmedPreMatch: clearFuturePreMatch(prev.confirmedPreMatch),
         confirmedPreMatch2: clearFuturePreMatch(prev.confirmedPreMatch2),
+        confirmedPreMatch3: clearFuturePreMatch((prev as any).confirmedPreMatch3),
       } as any;
     });
   };
@@ -1210,6 +1830,7 @@ export default function App() {
         players: prev.players.filter((p) => p.id !== playerId),
         confirmedPreMatch: clearPre(prev.confirmedPreMatch),
         confirmedPreMatch2: clearPre(prev.confirmedPreMatch2),
+        confirmedPreMatch3: clearPre((prev as any).confirmedPreMatch3),
         deletedMembers: [record, ...trash.filter((x) => x.playerId !== playerId)],
       } as any;
     });
@@ -1648,54 +2269,6 @@ export default function App() {
     return true;
   };
 
-  const handleResetAllShuttleData = (): boolean => {
-    if (activeMatches.length > 0) {
-      window.alert(
-        'ยังรีเซ็ตลูกไม่ได้ เพราะมี Match กำลังเล่นอยู่\n\nกรุณาจบ Match ในสนามก่อน'
-      );
-      return false;
-    }
-
-    const confirmed = window.confirm(
-      '⚠️ รีเซ็ตข้อมูลลูกขนไก่ทั้งหมด?\n\n' +
-      'ระบบจะล้าง:\n' +
-      '• Stock / รายการซื้อลูกทั้งหมด\n' +
-      '• ประวัติการใช้ลูก (Usage Ledger)\n' +
-      '• รายการปรับ Stock\n' +
-      '• จำนวนลูกที่ใช้วันนี้\n' +
-      '• ยี่ห้อ / รุ่นลูกในตั้งค่าก๊วน\n' +
-      '• ราคาต้นทุนลูกในตั้งค่าก๊วน\n\n' +
-      'จะไม่ลบสมาชิก, Match History, การชำระเงิน, Archive หรือ Fund\n\n' +
-      'กด OK เพื่อรีเซ็ต'
-    );
-
-    if (!confirmed) return false;
-
-    setAppState((prev) => ({
-      ...prev,
-      shuttlePurchases: [],
-      shuttleUsageLedger: [],
-      shuttleStockAdjustments: [],
-      shuttleLowStockThreshold: 12,
-      shuttleTargetStock: 36,
-      shuttleDefaultPiecesPerTube: 12,
-      sessionConfig: {
-        ...prev.sessionConfig,
-        shuttlecockBrand: '',
-        shuttlecockPrice: 0,
-        shuttlecocksUsedTotal: 0,
-      },
-    } as any));
-
-    window.alert(
-      '✅ รีเซ็ตข้อมูลลูกเรียบร้อยแล้ว\n\n' +
-      'Stock = 0 ลูก\n' +
-      'ต้นทุน = 0.00 บาท/ลูก\n\n' +
-      'จากนี้ให้เพิ่ม Stock ใหม่จากหน้าลูกขนไก่'
-    );
-
-    return true;
-  };
 
   const handleStartMatch = (
     courtId: string,
@@ -1780,6 +2353,14 @@ export default function App() {
         )
           ? null
           : prev.confirmedPreMatch2,
+      // PREMATCH_3_FIFO_V64
+      confirmedPreMatch3:
+        (prev as any).confirmedPreMatch3 &&
+        [...(prev as any).confirmedPreMatch3.teamA, ...(prev as any).confirmedPreMatch3.teamB].some((id: string) =>
+          allPlayerIds.has(id)
+        )
+          ? null
+          : (prev as any).confirmedPreMatch3,
       players: prev.players.map((p) =>
         allPlayerIds.has(p.id) ? { ...p, status: 'playing' as PlayerStatus } : p
       ),
@@ -1872,6 +2453,13 @@ export default function App() {
   ) => {
     const targetMatch = activeMatches.find((m) => m.id === matchId);
     if (!targetMatch) return;
+    // FINISH_MATCH_CONFIRM_V53
+    const confirmFinish = window.confirm(
+      `ยืนยันจบ Match "${targetMatch.courtName}" ?\n\n` +
+      `เมื่อกดยืนยัน ระบบจะนับ +1 Match และนำไปคิดค่าใช้จ่าย`
+    );
+    if (!confirmFinish) return;
+
 
     const allPlayerIds = new Set([...targetMatch.teamA, ...targetMatch.teamB]);
 
@@ -1932,6 +2520,9 @@ export default function App() {
       teamBSkillAvg: Math.round(teamBSkillAvg * 10) / 10,
       startTime: timeStr,
       durationMinutes,
+      // MATCH_TIMING_V83
+      startedAt: Number(targetMatch.startTime || Date.now()),
+      finishedAt: Date.now(),
       shuttlecocksCount,
       scoreA: g1A,
       scoreB: g1B,
@@ -1939,6 +2530,42 @@ export default function App() {
       game1ScoreB: g1B,
       game2ScoreA: g2A,
       game2ScoreB: g2B,
+
+      ...({
+        __undo: {
+          activeMatch: {
+            ...targetMatch,
+            teamA: [...targetMatch.teamA],
+            teamB: [...targetMatch.teamB],
+          },
+          playerStates: [...targetMatch.teamA, ...targetMatch.teamB]
+            .map((playerId) => {
+              const player = players.find((p) => p.id === playerId) as any;
+              if (!player) return null;
+              return {
+                id: player.id,
+                isCheckedIn: player.isCheckedIn,
+                checkInTime: player.checkInTime,
+                checkInTimestamp: player.checkInTimestamp,
+                status: player.status,
+                gamesPlayed: player.gamesPlayed,
+                matchesPlayed: player.matchesPlayed,
+                lastMatchFinishTime: player.lastMatchFinishTime,
+                stopAfterCurrentMatch: player.stopAfterCurrentMatch,
+                stopAfterCurrentMatchId: player.stopAfterCurrentMatchId,
+                stopRequestedAt: player.stopRequestedAt,
+              };
+            })
+            .filter(Boolean),
+          finishedAt: Date.now(),
+        },
+      } as any),
+
+      ...({
+        participantIds: [...allPlayerIds],
+        teamAPlayerIds: [...targetMatch.teamA],
+        teamBPlayerIds: [...targetMatch.teamB],
+      } as any),
       isRoundTrip: true,
     };
 
@@ -2070,6 +2697,459 @@ export default function App() {
     confetti({ particleCount: 50, spread: 70, origin: { y: 0.6 } });
   };
 
+
+  // UNDO_FINISHED_MATCH_V53
+  const handleUndoLastFinishedMatch = () => {
+    if (!isOrganizerMode) return;
+
+    const latest = appState.matchHistory?.[0] as any;
+    if (!latest) {
+      window.alert('ยังไม่มี Match ที่จบแล้วให้ยกเลิก');
+      return;
+    }
+
+    const undoSnapshot = latest.__undo as
+      | {
+          activeMatch?: ActiveMatch;
+          playerStates?: Array<any>;
+          finishedAt?: number;
+        }
+      | undefined;
+
+    const resolvePlayerIdsByNames = (names: string[] | undefined): string[] => {
+      const result: string[] = [];
+
+      for (const name of names || []) {
+        const matches = appState.players.filter((p) => p.nickname === name);
+
+        if (matches.length !== 1) {
+          return [];
+        }
+
+        result.push(matches[0].id);
+      }
+
+      return result;
+    };
+
+    const snapshotTeamA = undoSnapshot?.activeMatch?.teamA || [];
+    const snapshotTeamB = undoSnapshot?.activeMatch?.teamB || [];
+
+    const teamAIds =
+      snapshotTeamA.length > 0
+        ? [...snapshotTeamA]
+        : resolvePlayerIdsByNames(latest.teamANames);
+
+    const teamBIds =
+      snapshotTeamB.length > 0
+        ? [...snapshotTeamB]
+        : resolvePlayerIdsByNames(latest.teamBNames);
+
+    const playerIds = [...teamAIds, ...teamBIds];
+    const uniquePlayerIds = [...new Set(playerIds)];
+
+    if (teamAIds.length === 0 || teamBIds.length === 0 || uniquePlayerIds.length !== 4) {
+      window.alert(
+        'ไม่สามารถ Undo Match นี้อัตโนมัติได้ เพราะหารายชื่อผู้เล่นเดิมไม่ครบ 4 คน\n\n' +
+        'กรุณาอย่าแก้ Billing เอง และตรวจรายชื่อ Match ล่าสุดก่อน'
+      );
+      return;
+    }
+
+    const involvedPlayers = appState.players.filter((p) =>
+      uniquePlayerIds.includes(p.id)
+    );
+
+    if (involvedPlayers.some((p) => p.paid)) {
+      window.alert(
+        'Undo ไม่ได้ เพราะมีผู้เล่นใน Match นี้ถูกยืนยัน Paid แล้ว\n\n' +
+        'ให้ Undo Payment ก่อน แล้วจึงกลับมากด Undo Finish Match'
+      );
+      return;
+    }
+
+    const fallbackCourtIndex = appState.sessionConfig.courtNames.findIndex(
+      (name) => name === latest.courtName
+    );
+
+    const restoredMatch: ActiveMatch = undoSnapshot?.activeMatch
+      ? {
+          ...undoSnapshot.activeMatch,
+          teamA: [...teamAIds],
+          teamB: [...teamBIds],
+          status: 'playing',
+        }
+      : {
+          id: `undo-${latest.id}`,
+          courtId:
+            fallbackCourtIndex >= 0
+              ? `court-${fallbackCourtIndex + 1}`
+              : `court-undo-${Date.now()}`,
+          courtName: latest.courtName || 'Court',
+          teamA: [...teamAIds],
+          teamB: [...teamBIds],
+          startTime:
+            Date.now() -
+            Math.max(1, Number(latest.durationMinutes || 1)) * 60 * 1000,
+          shuttlecocksCount: Math.max(
+            0,
+            Number(latest.shuttlecocksCount || 0)
+          ),
+          status: 'playing',
+          game1ScoreA: latest.game1ScoreA,
+          game1ScoreB: latest.game1ScoreB,
+          game2ScoreA: latest.game2ScoreA,
+          game2ScoreB: latest.game2ScoreB,
+          scoreA: latest.scoreA,
+          scoreB: latest.scoreB,
+          isRoundTrip: true,
+        };
+
+    const courtBusy = appState.activeMatches.some(
+      (match) => match.courtId === restoredMatch.courtId
+    );
+
+    const activeIds = new Set(
+      appState.activeMatches.flatMap((match) => [
+        ...match.teamA,
+        ...match.teamB,
+      ])
+    );
+
+    const playerBusy = uniquePlayerIds.some((id) => activeIds.has(id));
+
+    if (courtBusy || playerBusy) {
+      window.alert(
+        'Undo ยังไม่ได้ เพราะ Court หรือผู้เล่นจาก Match เดิมถูกใช้ใน Match ใหม่แล้ว\n\n' +
+        'ให้จบ/ยกเลิก Match ใหม่ก่อน แล้วค่อย Undo Finish'
+      );
+      return;
+    }
+
+    const label =
+      `${latest.courtName || 'Court'}\n` +
+      `${(latest.teamANames || []).join(' / ')} vs ${(latest.teamBNames || []).join(' / ')}`;
+
+    const confirmed = window.confirm(
+      `Undo Finish Match นี้หรือไม่?\n\n${label}\n\n` +
+      `ผลที่จะเกิดขึ้น:\n` +
+      `- ไม่นับ Match นี้ใน Billing\n` +
+      `- ลบ Match ออกจากประวัติที่จบแล้ว\n` +
+      `- คืนจำนวนลูกแบดของ Match นี้\n` +
+      `- นำผู้เล่น 4 คนกลับเข้า Court เดิม`
+    );
+
+    if (!confirmed) return;
+
+    setAppState((prev) => {
+      const history = prev.matchHistory?.[0] as any;
+
+      if (!history || history.id !== latest.id) {
+        window.alert(
+          'ข้อมูล Match มีการเปลี่ยนแปลงจากอุปกรณ์อื่นแล้ว กรุณาลองใหม่'
+        );
+        return prev;
+      }
+
+      const stats = { ...getMemberStatsMap(prev as any) } as any;
+      const existingUsages = getShuttleUsageLedger(prev as any);
+
+      const nextUsages = existingUsages.filter(
+        (item) => item.historyId !== history.id
+      );
+
+      const removedShuttles = Math.max(
+        0,
+        Number(history.shuttlecocksCount || 0)
+      );
+
+      const nextSessionUsedTotal = Math.max(
+        0,
+        Number(prev.sessionConfig.shuttlecocksUsedTotal || 0) -
+          removedShuttles
+      );
+
+      uniquePlayerIds.forEach((playerId) => {
+        const stat = stats[playerId];
+        if (!stat) return;
+
+        const processedHistoryIds = Array.isArray(stat.processedHistoryIds)
+          ? stat.processedHistoryIds
+          : [];
+
+        if (!processedHistoryIds.includes(history.id)) return;
+
+        stats[playerId] = {
+          ...stat,
+          totalGames: Math.max(0, Number(stat.totalGames || 0) - 2),
+          totalMatches: Math.max(0, Number(stat.totalMatches || 0) - 1),
+          processedHistoryIds: processedHistoryIds.filter(
+            (id: string) => id !== history.id
+          ),
+          updatedAt: Date.now(),
+        };
+      });
+
+      const snapshotById = new Map<string, any>(
+        (undoSnapshot?.playerStates || []).map((state: any) => [
+          state.id,
+          state,
+        ])
+      );
+
+      const nextPlayers = prev.players.map((player) => {
+        if (!uniquePlayerIds.includes(player.id)) return player;
+
+        const snapshot = snapshotById.get(player.id);
+
+        if (snapshot) {
+          return {
+            ...player,
+            ...snapshot,
+            id: player.id,
+            isCheckedIn: true,
+            status: 'playing' as PlayerStatus,
+            paid: false,
+            paidAmount: undefined,
+            paymentTime: undefined,
+          };
+        }
+
+        // Compatibility for a Match that was finished before v53 existed.
+        return {
+          ...player,
+          isCheckedIn: true,
+          status: 'playing' as PlayerStatus,
+          gamesPlayed: Math.max(0, Number(player.gamesPlayed || 0) - 2),
+          matchesPlayed: Math.max(0, Number(player.matchesPlayed || 0) - 1),
+          lastMatchFinishTime: undefined,
+          paid: false,
+          paidAmount: undefined,
+          paymentTime: undefined,
+        };
+      });
+
+      const usageSummary = getSessionShuttleUsageSummary(
+        nextUsages,
+        prev.sessionConfig.date,
+        nextSessionUsedTotal,
+        prev.sessionConfig.shuttlecockPrice
+      );
+
+      return {
+        ...prev,
+        activeMatches: [...prev.activeMatches, restoredMatch],
+        matchHistory: prev.matchHistory.filter(
+          (item) => item.id !== history.id
+        ),
+        players: nextPlayers,
+        memberLifetimeStats: stats,
+        shuttleUsageLedger: nextUsages,
+        sessionConfig: {
+          ...prev.sessionConfig,
+          shuttlecocksUsedTotal: nextSessionUsedTotal,
+          shuttlecockPrice:
+            usageSummary.quantity > 0
+              ? usageSummary.averageUnitCost
+              : prev.sessionConfig.shuttlecockPrice,
+        },
+      } as any;
+    });
+  };
+
+
+  // CANCEL_SELECTED_FINISHED_MATCH_V54
+  const handleCancelSelectedFinishedMatch = (historyId: string) => {
+    if (!isOrganizerMode) return;
+    if (!historyId) {
+      window.alert('กรุณาเลือก Match ที่ต้องการยกเลิก');
+      return;
+    }
+
+    const selected = appState.matchHistory.find(
+      (item) => item.id === historyId
+    ) as any;
+
+    if (!selected) {
+      window.alert('ไม่พบ Match ที่เลือก อาจมีการเปลี่ยนแปลงจากอุปกรณ์อื่นแล้ว');
+      return;
+    }
+
+    const resolvePlayerIdsByNames = (names: string[] | undefined): string[] => {
+      const result: string[] = [];
+
+      for (const name of names || []) {
+        const matches = appState.players.filter(
+          (player) => player.nickname === name
+        );
+
+        // Old history before v54 has names only.
+        // Refuse when the nickname is ambiguous instead of changing the wrong member.
+        if (matches.length !== 1) return [];
+        result.push(matches[0].id);
+      }
+
+      return result;
+    };
+
+    const storedIds = Array.isArray(selected.participantIds)
+      ? selected.participantIds.filter(Boolean)
+      : [];
+
+    const fallbackIds = [
+      ...resolvePlayerIdsByNames(selected.teamANames),
+      ...resolvePlayerIdsByNames(selected.teamBNames),
+    ];
+
+    const playerIds = [
+      ...new Set(
+        (storedIds.length === 4 ? storedIds : fallbackIds).map(String)
+      ),
+    ];
+
+    if (playerIds.length !== 4) {
+      window.alert(
+        'ยกเลิก Match นี้อัตโนมัติไม่ได้ เพราะหารายชื่อผู้เล่นเดิมไม่ครบ 4 คน\n\n' +
+        'Match ที่จบหลังติดตั้ง v54 จะเก็บ Player ID ไว้และยกเลิกได้แม่นยำ'
+      );
+      return;
+    }
+
+    const involvedPlayers = appState.players.filter((player) =>
+      playerIds.includes(player.id)
+    );
+
+    if (involvedPlayers.some((player) => player.paid)) {
+      window.alert(
+        'ยกเลิก Match นี้ไม่ได้ เพราะมีผู้เล่นใน Match ถูกยืนยัน Paid แล้ว\n\n' +
+        'กรุณา Undo Payment ของผู้เล่นที่เกี่ยวข้องก่อน'
+      );
+      return;
+    }
+
+    const playerText = [
+      ...(selected.teamANames || []),
+      ...(selected.teamBNames || []),
+    ].join(', ');
+
+    const confirmed = window.confirm(
+      `ยืนยันยกเลิก Match ที่เลือกหรือไม่?\n\n` +
+      `Court: ${selected.courtName || '-'}\n` +
+      `เวลา: ${selected.startTime || '-'}\n` +
+      `ผู้เล่น: ${playerText || '-'}\n\n` +
+      `ผลที่จะเกิดขึ้น:\n` +
+      `- Match นี้จะไม่ถูกนำไปคิดเงิน\n` +
+      `- ลบออกจากประวัติ Match ที่จบแล้ว\n` +
+      `- ลด Match ของผู้เล่น 4 คน คนละ 1 Match\n` +
+      `- คืนจำนวนลูกแบดของ Match นี้\n\n` +
+      `หมายเหตุ: ผู้เล่นจะไม่ถูกนำกลับขึ้น Court อัตโนมัติ`
+    );
+
+    if (!confirmed) return;
+
+    setAppState((prev) => {
+      const current = prev.matchHistory.find(
+        (item) => item.id === historyId
+      ) as any;
+
+      if (!current) return prev;
+
+      const currentStoredIds = Array.isArray(current.participantIds)
+        ? current.participantIds.filter(Boolean).map(String)
+        : playerIds;
+
+      const affectedIds = [...new Set(currentStoredIds)];
+      const affectedSet = new Set(affectedIds);
+
+      const stats = { ...getMemberStatsMap(prev as any) } as any;
+
+      affectedIds.forEach((playerId) => {
+        const stat = stats[playerId];
+        if (!stat) return;
+
+        const processedHistoryIds = Array.isArray(stat.processedHistoryIds)
+          ? stat.processedHistoryIds
+          : [];
+
+        const wasProcessed = processedHistoryIds.includes(current.id);
+
+        stats[playerId] = {
+          ...stat,
+          totalGames: wasProcessed
+            ? Math.max(0, Number(stat.totalGames || 0) - 2)
+            : Number(stat.totalGames || 0),
+          totalMatches: wasProcessed
+            ? Math.max(0, Number(stat.totalMatches || 0) - 1)
+            : Number(stat.totalMatches || 0),
+          processedHistoryIds: processedHistoryIds.filter(
+            (id: string) => id !== current.id
+          ),
+          updatedAt: Date.now(),
+        };
+      });
+
+      const existingUsages = getShuttleUsageLedger(prev as any);
+      const nextUsages = existingUsages.filter(
+        (item) => item.historyId !== current.id
+      );
+
+      const removedShuttles = Math.max(
+        0,
+        Number(current.shuttlecocksCount || 0)
+      );
+
+      const nextSessionUsedTotal = Math.max(
+        0,
+        Number(prev.sessionConfig.shuttlecocksUsedTotal || 0) -
+          removedShuttles
+      );
+
+      const nextHistory = prev.matchHistory.filter(
+        (item) => item.id !== current.id
+      );
+
+      const nextPlayers = prev.players.map((player) => {
+        if (!affectedSet.has(player.id)) return player;
+
+        // This is also recalculated by the existing matchHistory billing effect.
+        // Explicit rollback makes the UI correct immediately.
+        return {
+          ...player,
+          gamesPlayed: Math.max(0, Number(player.gamesPlayed || 0) - 2),
+          matchesPlayed: Math.max(
+            0,
+            Number(player.matchesPlayed || 0) - 1
+          ),
+        };
+      });
+
+      const usageSummary = getSessionShuttleUsageSummary(
+        nextUsages,
+        prev.sessionConfig.date,
+        nextSessionUsedTotal,
+        prev.sessionConfig.shuttlecockPrice
+      );
+
+      return {
+        ...prev,
+        matchHistory: nextHistory,
+        players: nextPlayers,
+        memberLifetimeStats: stats,
+        shuttleUsageLedger: nextUsages,
+        sessionConfig: {
+          ...prev.sessionConfig,
+          shuttlecocksUsedTotal: nextSessionUsedTotal,
+          shuttlecockPrice:
+            usageSummary.quantity > 0
+              ? usageSummary.averageUnitCost
+              : prev.sessionConfig.shuttlecockPrice,
+        },
+      } as any;
+    });
+
+    setCancelFinishedMatchId('');
+  };
+
   const handleUpdateMatchShuttlecocks = (matchId: string, delta: number) => {
     setAppState((prev) => ({
       ...prev,
@@ -2120,11 +3200,13 @@ export default function App() {
     }));
   };
 
-  // --- Handlers: Pre-Match Queue & Organizer Confirmation (Slot 1 & Slot 2) ---
-  const handleConfirmPreMatch = (preMatch: ConfirmedPreMatch, slotNumber: 1 | 2 = 1) => {
+  // --- PREMATCH_3_FIFO_V64: Pre-Match Queue & Organizer Confirmation (3 slots) ---
+  const handleConfirmPreMatch = (
+    preMatch: ConfirmedPreMatch,
+    slotNumber: 1 | 2 | 3 = 1
+  ) => {
     const preMatchPlayerIds = new Set([...preMatch.teamA, ...preMatch.teamB]);
 
-    // A member who is resting / checked-out / not checked-in must never enter Pre-Match.
     const unavailablePlayers = appState.players.filter(
       (p) =>
         preMatchPlayerIds.has(p.id) &&
@@ -2140,46 +3222,85 @@ export default function App() {
       return;
     }
 
-    setAppState((prev) => {
-      let nextPre1 = slotNumber === 1 ? preMatch : prev.confirmedPreMatch;
-      let nextPre2 = slotNumber === 2 ? preMatch : prev.confirmedPreMatch2;
+    const otherConfirmed = [
+      appState.confirmedPreMatch,
+      appState.confirmedPreMatch2,
+      confirmedPreMatch3,
+    ].filter(
+      (pm, index): pm is ConfirmedPreMatch =>
+        Boolean(pm) && index !== slotNumber - 1
+    );
 
-      // Ensure no overlap between preMatch 1 and preMatch 2
-      if (slotNumber === 1 && nextPre2) {
-        const hasOverlap = [...nextPre2.teamA, ...nextPre2.teamB].some((id) => preMatchPlayerIds.has(id));
-        if (hasOverlap) nextPre2 = null;
-      } else if (slotNumber === 2 && nextPre1) {
-        const hasOverlap = [...nextPre1.teamA, ...nextPre1.teamB].some((id) => preMatchPlayerIds.has(id));
-        if (hasOverlap) nextPre1 = null;
-      }
+    const duplicatePm = otherConfirmed.find((pm) =>
+      [...pm.teamA, ...pm.teamB].some((id) => preMatchPlayerIds.has(id))
+    );
+
+    if (duplicatePm) {
+      window.alert(
+        `Confirm ไม่ได้ เพราะมีผู้เล่นซ้ำกับ Pre-Match #${duplicatePm.slotNumber || '?'}\n\nกรุณาเปลี่ยนผู้เล่นก่อน`
+      );
+      return;
+    }
+
+    setAppState((prev) => {
+      const current1 = prev.confirmedPreMatch || null;
+      const current2 = prev.confirmedPreMatch2 || null;
+      const current3 = ((prev as any).confirmedPreMatch3 || null) as ConfirmedPreMatch | null;
+
+      // Editing an already-confirmed PM must keep its original FIFO timestamp.
+      const currentTarget =
+        slotNumber === 1 ? current1 : slotNumber === 2 ? current2 : current3;
+
+      const normalized: ConfirmedPreMatch = {
+        ...preMatch,
+        slotNumber,
+        confirmedAt:
+          currentTarget && currentTarget.id === preMatch.id
+            ? currentTarget.confirmedAt
+            : Number(preMatch.confirmedAt || Date.now()),
+      };
+
+      const next = [current1, current2, current3] as Array<ConfirmedPreMatch | null>;
+      next[slotNumber - 1] = normalized;
 
       return {
         ...prev,
-        confirmedPreMatch: nextPre1,
-        confirmedPreMatch2: nextPre2,
-      };
+        confirmedPreMatch: next[0],
+        confirmedPreMatch2: next[1],
+        confirmedPreMatch3: next[2],
+      } as any;
     });
+
     confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
   };
 
-  const handleCancelPreMatch = (slotNumber: 1 | 2 = 1) => {
+  const handleCancelPreMatch = (slotNumber: 1 | 2 | 3 = 1) => {
     setAppState((prev) => ({
       ...prev,
       confirmedPreMatch: slotNumber === 1 ? null : prev.confirmedPreMatch,
       confirmedPreMatch2: slotNumber === 2 ? null : prev.confirmedPreMatch2,
-    }));
+      confirmedPreMatch3:
+        slotNumber === 3 ? null : (prev as any).confirmedPreMatch3,
+    } as any));
   };
 
-  const handleRemovePlayerFromPreMatch = (playerId: string, slotNumber: 1 | 2) => {
+  const handleRemovePlayerFromPreMatch = (
+    playerId: string,
+    slotNumber: 1 | 2 | 3
+  ) => {
     setAppState((prev) => {
-      const source = slotNumber === 1 ? prev.confirmedPreMatch : prev.confirmedPreMatch2;
+      const source =
+        slotNumber === 1
+          ? prev.confirmedPreMatch
+          : slotNumber === 2
+          ? prev.confirmedPreMatch2
+          : ((prev as any).confirmedPreMatch3 as ConfirmedPreMatch | null | undefined);
+
       if (!source) return prev;
 
       const allIds = [...source.teamA, ...source.teamB];
       if (!allIds.includes(playerId)) return prev;
 
-      // Unique placeholder keeps the remaining 3 names in the same PM
-      // and makes the removed position visibly available for replacement.
       const vacantId = `__PM_VACANT__${playerId}__${Date.now()}`;
 
       const replacePlayer = (team: [string, string]): [string, string] =>
@@ -2190,23 +3311,34 @@ export default function App() {
         teamA: replacePlayer(source.teamA),
         teamB: replacePlayer(source.teamB),
         pairingLabelThai: '⚠️ รอผู้เล่นแทน',
-        explanationThai: 'มีสมาชิกขอพัก/กลับหลังจาก Confirm แล้ว ผู้จัดต้องเลือกผู้เล่นแทนก่อนลงคอร์ท',
-        confirmedAt: Date.now(),
+        explanationThai:
+          'มีสมาชิกขอพัก/กลับหลังจาก Confirm แล้ว ผู้จัดต้องเลือกผู้เล่นแทนก่อนลงคอร์ท',
+        // Keep FIFO position while editing/replacing a player.
+        confirmedAt: source.confirmedAt || Date.now(),
       };
 
       return {
         ...prev,
-        confirmedPreMatch: slotNumber === 1 ? updatedPreMatch : prev.confirmedPreMatch,
-        confirmedPreMatch2: slotNumber === 2 ? updatedPreMatch : prev.confirmedPreMatch2,
-      };
+        confirmedPreMatch:
+          slotNumber === 1 ? updatedPreMatch : prev.confirmedPreMatch,
+        confirmedPreMatch2:
+          slotNumber === 2 ? updatedPreMatch : prev.confirmedPreMatch2,
+        confirmedPreMatch3:
+          slotNumber === 3 ? updatedPreMatch : (prev as any).confirmedPreMatch3,
+      } as any;
     });
   };
 
-  const handleStartConfirmedPreMatch = (courtId: string, preMatch: ConfirmedPreMatch, slotNumber: 1 | 2 = 1) => {
-
-    // GUANGUAN_PM_START_GUARD_V26
-    // Protect PM order across organizer screens using the first confirmedAt time.
-    const confirmedQueue = [appState.confirmedPreMatch, appState.confirmedPreMatch2]
+  const handleStartConfirmedPreMatch = (
+    courtId: string,
+    preMatch: ConfirmedPreMatch,
+    slotNumber: 1 | 2 | 3 = 1
+  ) => {
+    const confirmedQueue = [
+      appState.confirmedPreMatch,
+      appState.confirmedPreMatch2,
+      confirmedPreMatch3,
+    ]
       .filter((pm): pm is ConfirmedPreMatch => Boolean(pm))
       .sort((a, b) => {
         const timeA = Number(a.confirmedAt || 0);
@@ -2224,7 +3356,6 @@ export default function App() {
       return;
     }
 
-    // PM_START_READY_GUARD
     const readyIds = [...preMatch.teamA, ...preMatch.teamB];
     const invalidForStart = readyIds.some((id) => {
       if (!id || id.startsWith('__PM_VACANT__')) return true;
@@ -2233,26 +3364,22 @@ export default function App() {
     });
 
     if (invalidForStart) {
-      window.alert('ยังเปิดสนามไม่ได้ เพราะ Pre-Match มีช่องว่าง หรือมีสมาชิกที่พัก/กลับแล้ว กรุณาเลือกผู้เล่นแทนก่อน');
+      window.alert(
+        'ยังเปิดสนามไม่ได้ เพราะ Pre-Match มีช่องว่าง หรือมีสมาชิกที่พัก/กลับแล้ว กรุณาเลือกผู้เล่นแทนก่อน'
+      );
       return;
     }
 
-    // A currently-playing member may be RESERVED in Pre-Match,
-    // but the Pre-Match cannot start until every selected player is off court.
     const selectedIds = new Set([...preMatch.teamA, ...preMatch.teamB]);
     const stillPlaying = activeMatches
       .flatMap((m) => [...m.teamA, ...m.teamB])
       .filter((id) => selectedIds.has(id));
 
     if (stillPlaying.length > 0) {
-      console.warn(
-        'Cannot start confirmed pre-match yet: selected player(s) are still playing.',
-        stillPlaying
-      );
+      window.alert('ยังส่ง PM ลงสนามไม่ได้ เพราะมีผู้เล่นบางคนกำลังเล่นอยู่');
       return;
     }
 
-    // Check if target court is busy, redirect to free court if available
     const isTargetBusy = activeMatches.some((m) => m.courtId === courtId);
     let targetCourtId = courtId;
     let targetCourtName = '';
@@ -2262,23 +3389,37 @@ export default function App() {
         const id = `court-${idx + 1}`;
         return !activeMatches.some((m) => m.courtId === id);
       });
+
       if (freeIdx === -1) {
-        console.warn('Cannot start pre-match: all courts are currently busy.');
+        window.alert('ยังไม่มีคอร์ทว่างสำหรับ Pre-Match นี้');
         return;
       }
+
       targetCourtId = `court-${freeIdx + 1}`;
-      targetCourtName = sessionConfig.courtNames[freeIdx] || `คอร์ท ${freeIdx + 1}`;
+      targetCourtName =
+        sessionConfig.courtNames[freeIdx] || `คอร์ท ${freeIdx + 1}`;
     } else {
       const courtIndex = parseInt(courtId.replace('court-', '')) - 1;
-      targetCourtName = sessionConfig.courtNames[courtIndex] || `คอร์ท ${courtIndex + 1}`;
+      targetCourtName =
+        sessionConfig.courtNames[courtIndex] || `คอร์ท ${courtIndex + 1}`;
     }
 
-    handleStartMatch(targetCourtId, targetCourtName, preMatch.teamA, preMatch.teamB);
+    handleStartMatch(
+      targetCourtId,
+      targetCourtName,
+      preMatch.teamA,
+      preMatch.teamB
+    );
+
     setAppState((prev) => ({
       ...prev,
-      confirmedPreMatch: slotNumber === 1 ? null : prev.confirmedPreMatch,
-      confirmedPreMatch2: slotNumber === 2 ? null : prev.confirmedPreMatch2,
-    }));
+      confirmedPreMatch:
+        slotNumber === 1 ? null : prev.confirmedPreMatch,
+      confirmedPreMatch2:
+        slotNumber === 2 ? null : prev.confirmedPreMatch2,
+      confirmedPreMatch3:
+        slotNumber === 3 ? null : (prev as any).confirmedPreMatch3,
+    } as any));
   };
 
   // --- Handlers: Billing & Payments ---
@@ -2456,6 +3597,55 @@ export default function App() {
       origin: { y: 0.6 },
     });
   };
+  // BILLING_PREVIEW_CALC_V57B
+  // Preview must use the SAME effective Match / Extra / manual amount
+  // that BillingView uses after organizer adjustments.
+  const calculateBillingPreviewChargeV57B = (player: Player) => {
+    const baseMatches = Math.max(
+      0,
+      Number(player.matchesPlayed || 0)
+    );
+
+    const matchAdjustment = Number(
+      (player as any).billingMatchAdjustment || 0
+    );
+
+    const amountAdjustment = Number(
+      (player as any).billingAmountAdjustment || 0
+    );
+
+    const effectiveMatches = Math.max(
+      0,
+      baseMatches + matchAdjustment
+    );
+
+    const gameDifference = effectiveMatches - baseMatches;
+
+    const adjustedPlayer: Player = {
+      ...player,
+      matchesPlayed: effectiveMatches,
+      gamesPlayed: Math.max(
+        0,
+        Number(player.gamesPlayed || 0) + gameDifference * 2
+      ),
+    };
+
+    const charge = calculatePlayerFinalCharge(
+      adjustedPlayer,
+      appState.sessionConfig,
+      getPromotionRedemptions(appState as any),
+      appState.sessionConfig.date
+    );
+
+    return {
+      ...charge,
+      finalTotal: Math.max(
+        0,
+        Math.round(Number(charge.finalTotal || 0) + amountAdjustment)
+      ),
+    };
+  };
+
   // HANDLE_BILLING_ADJUSTMENT_V31
   const handleApplyBillingAdjustment = (
     playerId: string,
@@ -2463,6 +3653,97 @@ export default function App() {
     delta: number,
     reason: string
   ) => {
+    // BILLING_ADJUSTMENT_CONFIRM_V57
+    const target = appState.players.find((p) => p.id === playerId);
+    if (!target) return;
+
+    if (target.paid) {
+      window.alert(
+        `แก้ยอด "${target.nickname}" ไม่ได้ เพราะยืนยัน Paid แล้ว\n\n` +
+        `กรุณา Undo Payment ก่อน หากต้องการแก้ไขยอด`
+      );
+      return;
+    }
+
+    const currentCharge = calculateBillingPreviewChargeV57B(target);
+
+    const currentMatchAdj = Number(
+      (target as any).billingMatchAdjustment || 0
+    );
+    const currentAmountAdj = Number(
+      (target as any).billingAmountAdjustment || 0
+    );
+    const currentExtra = Number(target.extraShuttlecocks || 0);
+
+    let projected: Player = { ...target };
+    let actionText = '';
+
+    if (kind === 'match') {
+      const minDelta = -(target.matchesPlayed || 0);
+      const nextMatchAdj = Math.max(
+        minDelta,
+        currentMatchAdj + delta
+      );
+
+      projected = {
+        ...projected,
+        ...({ billingMatchAdjustment: nextMatchAdj } as any),
+      };
+
+      const beforeMatches = Math.max(
+        0,
+        Number(target.matchesPlayed || 0) + currentMatchAdj
+      );
+      const afterMatches = Math.max(
+        0,
+        Number(target.matchesPlayed || 0) + nextMatchAdj
+      );
+
+      actionText =
+        `ปรับจำนวน Match: ${beforeMatches} → ${afterMatches} Match`;
+    } else if (kind === 'extra') {
+      const nextExtra = Math.max(0, currentExtra + delta);
+
+      projected = {
+        ...projected,
+        extraShuttlecocks: nextExtra,
+      };
+
+      actionText =
+        `ปรับ Extra Shuttle: ${currentExtra} → ${nextExtra} ลูก`;
+    } else {
+      const nextAmountAdj = currentAmountAdj + delta;
+
+      projected = {
+        ...projected,
+        ...({ billingAmountAdjustment: nextAmountAdj } as any),
+      };
+
+      actionText =
+        `ปรับยอดเงิน: ${currentAmountAdj >= 0 ? '+' : ''}${currentAmountAdj}฿ ` +
+        `→ ${nextAmountAdj >= 0 ? '+' : ''}${nextAmountAdj}฿`;
+    }
+
+    const projectedCharge = calculateBillingPreviewChargeV57B(projected);
+
+    const beforeTotal = Number(currentCharge.finalTotal || 0);
+    const afterTotal = Number(projectedCharge.finalTotal || 0);
+    const totalDiff = afterTotal - beforeTotal;
+
+    const confirmed = window.confirm(
+      `ยืนยันการปรับยอดหรือไม่?\n\n` +
+      `สมาชิก: ${target.nickname}\n` +
+      `${actionText}\n` +
+      `เหตุผล: ${reason.trim() || '-'}\n\n` +
+      `ยอดก่อนแก้: ${beforeTotal.toLocaleString()} บาท\n` +
+      `ยอดหลังแก้: ${afterTotal.toLocaleString()} บาท\n` +
+      `ผลต่าง: ${totalDiff >= 0 ? '+' : ''}${totalDiff.toLocaleString()} บาท\n\n` +
+      `กด OK เพื่อยืนยันการแก้ไข`
+    );
+
+    if (!confirmed) return;
+
+
     setAppState((prev) => ({
       ...prev,
       players: prev.players.map((p) => {
@@ -2511,6 +3792,99 @@ export default function App() {
   };
 
   const handleUndoBillingAdjustment = (playerId: string) => {
+    // BILLING_UNDO_CONFIRM_V57
+    const target = appState.players.find((p) => p.id === playerId);
+    if (!target) return;
+
+    if (target.paid) {
+      window.alert(
+        `Undo การปรับยอด "${target.nickname}" ไม่ได้ เพราะยืนยัน Paid แล้ว`
+      );
+      return;
+    }
+
+    const adjustmentLog = Array.isArray(
+      (target as any).billingAdjustmentLog
+    )
+      ? [...(target as any).billingAdjustmentLog]
+      : [];
+
+    const lastAdjustment = adjustmentLog[adjustmentLog.length - 1];
+    if (!lastAdjustment) {
+      window.alert('ไม่มีรายการปรับยอดล่าสุดให้ Undo');
+      return;
+    }
+
+    const currentCharge = calculateBillingPreviewChargeV57B(target);
+
+    let projected: Player = { ...target };
+    let undoText = '';
+
+    if (lastAdjustment.kind === 'match') {
+      const currentAdj = Number(
+        (target as any).billingMatchAdjustment || 0
+      );
+      const nextAdj =
+        currentAdj - Number(lastAdjustment.delta || 0);
+
+      projected = {
+        ...projected,
+        ...({ billingMatchAdjustment: nextAdj } as any),
+      };
+
+      undoText =
+        `คืนการปรับ Match ${Number(lastAdjustment.delta || 0) >= 0 ? '+' : ''}` +
+        `${Number(lastAdjustment.delta || 0)}`;
+    } else if (lastAdjustment.kind === 'extra') {
+      const currentExtra = Number(target.extraShuttlecocks || 0);
+      const nextExtra = Math.max(
+        0,
+        currentExtra - Number(lastAdjustment.delta || 0)
+      );
+
+      projected = {
+        ...projected,
+        extraShuttlecocks: nextExtra,
+      };
+
+      undoText =
+        `คืนการปรับ Extra ${Number(lastAdjustment.delta || 0) >= 0 ? '+' : ''}` +
+        `${Number(lastAdjustment.delta || 0)} ลูก`;
+    } else {
+      const currentAdj = Number(
+        (target as any).billingAmountAdjustment || 0
+      );
+      const nextAdj =
+        currentAdj - Number(lastAdjustment.delta || 0);
+
+      projected = {
+        ...projected,
+        ...({ billingAmountAdjustment: nextAdj } as any),
+      };
+
+      undoText =
+        `คืนการปรับเงิน ${Number(lastAdjustment.delta || 0) >= 0 ? '+' : ''}` +
+        `${Number(lastAdjustment.delta || 0)} บาท`;
+    }
+
+    const projectedCharge = calculateBillingPreviewChargeV57B(projected);
+
+    const beforeTotal = Number(currentCharge.finalTotal || 0);
+    const afterTotal = Number(projectedCharge.finalTotal || 0);
+
+    const confirmed = window.confirm(
+      `ยืนยัน Undo การปรับยอดล่าสุดหรือไม่?\n\n` +
+      `สมาชิก: ${target.nickname}\n` +
+      `${undoText}\n` +
+      `เหตุผลเดิม: ${String(lastAdjustment.reason || '-')}\n\n` +
+      `ยอดปัจจุบัน: ${beforeTotal.toLocaleString()} บาท\n` +
+      `หลัง Undo: ${afterTotal.toLocaleString()} บาท\n\n` +
+      `กด OK เพื่อยืนยัน`
+    );
+
+    if (!confirmed) return;
+
+
     setAppState((prev) => ({
       ...prev,
       players: prev.players.map((p) => {
@@ -2550,7 +3924,55 @@ export default function App() {
     }));
   };
 
-  const handleUpdatePlayerExtraShuttlecocks = (playerId: string, delta: number) => {
+  // BILLING_EXTRA_CONFIRM_V57
+  const handleUpdatePlayerExtraShuttlecocks = (
+    playerId: string,
+    delta: number
+  ) => {
+    const target = appState.players.find((p) => p.id === playerId);
+    if (!target) return;
+
+    if (target.paid) {
+      window.alert(
+        `แก้ Extra Shuttle "${target.nickname}" ไม่ได้ เพราะยืนยัน Paid แล้ว`
+      );
+      return;
+    }
+
+    const currentExtra = Number(target.extraShuttlecocks || 0);
+    const nextExtra = Math.max(0, currentExtra + delta);
+
+    if (nextExtra === currentExtra) return;
+
+    const currentCharge = calculateBillingPreviewChargeV57B(target);
+
+    const projected: Player = {
+      ...target,
+      extraShuttlecocks: nextExtra,
+    };
+
+    const projectedCharge = calculateBillingPreviewChargeV57B(projected);
+
+    const beforeTotal = Number(currentCharge.finalTotal || 0);
+    const afterTotal = Number(projectedCharge.finalTotal || 0);
+    const extraPrice = Number(
+      appState.sessionConfig.extraShuttlecockPrice || 0
+    );
+
+    const confirmed = window.confirm(
+      `ยืนยันการปรับ Extra Shuttle หรือไม่?\n\n` +
+      `สมาชิก: ${target.nickname}\n` +
+      `จำนวน: ${currentExtra} → ${nextExtra} ลูก\n` +
+      `ราคา Extra: ${extraPrice.toLocaleString()} บาท/ลูก\n\n` +
+      `ยอดก่อนแก้: ${beforeTotal.toLocaleString()} บาท\n` +
+      `ยอดหลังแก้: ${afterTotal.toLocaleString()} บาท\n` +
+      `ผลต่าง: ${(afterTotal - beforeTotal) >= 0 ? '+' : ''}` +
+      `${(afterTotal - beforeTotal).toLocaleString()} บาท\n\n` +
+      `กด OK เพื่อยืนยัน`
+    );
+
+    if (!confirmed) return;
+
     setAppState((prev) => ({
       ...prev,
       players: prev.players.map((p) => {
@@ -2652,6 +4074,7 @@ export default function App() {
           return h * 60 + m;
         };
 
+
         const startMinutes = parseMinutes(newConfig.startTime);
         const endMinutes = parseMinutes(newConfig.endTime);
 
@@ -2677,15 +4100,840 @@ export default function App() {
     });
   };
 
+  // COURT_NAME_SYNC_TOPLEVEL_V70B
+  // IMPORTANT: this handler must stay at App component scope.
+  // sessionCourts[].name = source of truth; courtNames = compatibility mirror
+  // for Pre-Match / Courts / Header / exports.
+  const handleUpdateSessionCourtsV70B = (newConfig: SessionConfig) => {
+    setAppState((prev) => {
+      const oldNames = Array.isArray(prev.sessionConfig.courtNames)
+        ? prev.sessionConfig.courtNames
+        : [];
+
+      const allSessionCourts = Array.isArray(newConfig.sessionCourts)
+        ? newConfig.sessionCourts
+        : [];
+
+      const nextNames =
+        allSessionCourts.length > 0
+          ? allSessionCourts.map((court, index) => {
+              const name = String(court?.name || '').trim();
+              return (
+                name ||
+                oldNames[index] ||
+                `คอร์ท ${index + 1}`
+              );
+            })
+          : Array.isArray(newConfig.courtNames)
+          ? newConfig.courtNames
+          : oldNames;
+
+      const nextConfig: SessionConfig = {
+        ...newConfig,
+        courtNames: nextNames,
+        courtCount: nextNames.length || newConfig.courtCount,
+      };
+
+      const renameByOldName = new Map<string, string>();
+      oldNames.forEach((oldName, index) => {
+        const nextName = nextNames[index];
+        if (oldName && nextName && oldName !== nextName) {
+          renameByOldName.set(oldName, nextName);
+        }
+      });
+
+      const nextActiveMatches = prev.activeMatches.map((match) => {
+        const courtIndex =
+          Number(String(match.courtId || '').replace('court-', '')) - 1;
+
+        const nextName =
+          Number.isInteger(courtIndex) && courtIndex >= 0
+            ? nextNames[courtIndex]
+            : renameByOldName.get(match.courtName);
+
+        return nextName && nextName !== match.courtName
+          ? { ...match, courtName: nextName }
+          : match;
+      });
+
+      const nextMatchHistory = prev.matchHistory.map((item) => {
+        const nextName = renameByOldName.get(item.courtName);
+        return nextName
+          ? { ...item, courtName: nextName }
+          : item;
+      });
+
+      const syncPreMatchCourt = (preMatch: any) => {
+        if (!preMatch?.targetCourtName) return preMatch;
+        const nextName = renameByOldName.get(preMatch.targetCourtName);
+        return nextName
+          ? { ...preMatch, targetCourtName: nextName }
+          : preMatch;
+      };
+
+      return {
+        ...prev,
+        sessionConfig: nextConfig,
+        activeMatches: nextActiveMatches,
+        matchHistory: nextMatchHistory,
+        confirmedPreMatch: syncPreMatchCourt(prev.confirmedPreMatch),
+        confirmedPreMatch2: syncPreMatchCourt(prev.confirmedPreMatch2),
+        ...(Object.prototype.hasOwnProperty.call(prev, 'confirmedPreMatch3')
+          ? {
+              confirmedPreMatch3: syncPreMatchCourt(
+                (prev as any).confirmedPreMatch3
+              ),
+            }
+          : {}),
+      } as any;
+    });
+  };
+  // MEMBER_LOGOUT_CLEAR_SESSION_V59
+  const handleMemberLogout = () => {
+    if (isOrganizerMode || !currentMemberId) return;
+
+    const member = appState.players.find((p) => p.id === currentMemberId);
+
+    const warning = member?.isCheckedIn
+      ? `\n\n⚠️ ตอนนี้คุณยัง Check-in และอยู่ในคิวเล่น\n` +
+        `Logout จะล้างเฉพาะการ Login บนอุปกรณ์นี้ แต่จะไม่ Check-out และไม่เอาชื่อออกจากคิว`
+      : '';
+
+    const confirmed = window.confirm(
+      `Logout สมาชิก${member?.nickname ? ` "${member.nickname}"` : ''} หรือไม่?\n\n` +
+      `ระบบจะล้าง Member Session บนอุปกรณ์นี้\n` +
+      `- ล้างชื่อสมาชิกที่จำไว้\n` +
+      `- ล้างสถานะ Popup Check-in ของ browser session\n` +
+      `- กลับไปหน้าเลือกชื่อ / ใส่ PIN\n` +
+      `- ไม่ลบ Match, Billing หรือประวัติการเล่น` +
+      warning
+    );
+
+    if (!confirmed) return;
+
+    if (typeof window !== 'undefined') {
+      // Support both old and new GuanGuan builds.
+      localStorage.removeItem('badminton_active_member_id');
+      sessionStorage.removeItem('badminton_active_member_id');
+
+      // Clear only member/session UX keys. Do NOT clear the whole storage,
+      // because app data, organizer preferences and alert settings must remain.
+      const sessionKeysToRemove: string[] = [];
+
+      for (let index = 0; index < sessionStorage.length; index += 1) {
+        const key = sessionStorage.key(index);
+        if (!key) continue;
+
+        if (
+          key.startsWith('guanguan_checkin_prompt_') ||
+          key.startsWith('guanguan_member_session_')
+        ) {
+          sessionKeysToRemove.push(key);
+        }
+      }
+
+      sessionKeysToRemove.forEach((key) =>
+        sessionStorage.removeItem(key)
+      );
+    }
+
+    setCurrentMemberId('');
+    setIsMemberGateOpen(true);
+    setIsSelfCheckInOpen(false);
+    setIsMemberPinModalOpen(false);
+    setCurrentTab('prematch');
+  };
+
+  // DISCARD_SESSION_SAFE_ROLLBACK_V72D
+  // Reset only CURRENT SESSION activity.
+  // IMPORTANT:
+  // - Preserve the complete Member Master (prev.players)
+  // - Preserve pre-existing Lifetime Stats
+  // - Roll back only Match/Game/Session increments created by this current session
+  const handleDiscardSessionWithoutArchive = async (): Promise<boolean> => {
+    if (!isOrganizerMode) {
+      window.alert('เฉพาะผู้จัดก๊วนเท่านั้นที่ Reset ทิ้งได้');
+      return false;
+    }
+
+    const sourceState = appStateRef.current;
+    const currentDate = sourceState.sessionConfig.date;
+    const playerIds = sourceState.players.map((player) => player.id);
+
+    // v72c helper cancels test invoices instead of deleting them.
+    try {
+      await deleteSessionPaymentTransactions(
+        currentDate,
+        playerIds
+      );
+    } catch (error) {
+      console.error(
+        '[GuanGuan] discard payment cancel failed',
+        error
+      );
+
+      window.alert(
+        'ยังไม่ได้ Reset\n\n' +
+        'ยกเลิก Payment Transaction ของรอบทดลองไม่สำเร็จ ' +
+        'ระบบจึงหยุดไว้ก่อนเพื่อป้องกันข้อมูลทดลองปนกับเงินจริง'
+      );
+
+      return false;
+    }
+
+    // Existing saved archives are used only to determine whether a member
+    // already has a REAL saved attendance on the same date and to restore
+    // lastAttendanceDate if today's trial attendance is rolled back.
+    const rawArchives = loadSessionArchives() as any[];
+
+    const newestByDate = new Map<string, any>();
+
+    for (const archive of rawArchives) {
+      const date = String(archive?.archiveDate || '').trim();
+      if (!date) continue;
+
+      const existing = newestByDate.get(date);
+
+      if (
+        !existing ||
+        Number(archive?.savedAt || 0) >=
+          Number(existing?.savedAt || 0)
+      ) {
+        newestByDate.set(date, archive);
+      }
+    }
+
+    const savedArchives = Array.from(
+      newestByDate.values()
+    ) as any[];
+
+    setAppState((prev) => {
+      const stats = {
+        ...getMemberStatsMap(prev as any),
+      } as any;
+
+      const playerById = new Map(
+        prev.players.map((player) => [
+          player.id,
+          player,
+        ])
+      );
+
+      const nicknameToIds = new Map<string, string[]>();
+
+      for (const player of prev.players) {
+        const key = String(player.nickname || '')
+          .trim()
+          .toLowerCase();
+
+        if (!key) continue;
+
+        const ids = nicknameToIds.get(key) || [];
+        ids.push(player.id);
+        nicknameToIds.set(key, ids);
+      }
+
+      const resolveNickname = (
+        nickname: unknown
+      ): string | null => {
+        const key = String(nickname || '')
+          .trim()
+          .toLowerCase();
+
+        if (!key) return null;
+
+        const ids = nicknameToIds.get(key) || [];
+
+        return ids.length === 1 ? ids[0] : null;
+      };
+
+      const getHistoryPlayerIds = (
+        history: any
+      ): string[] => {
+        const ids = new Set<string>();
+
+        const directLists = [
+          history?.participantIds,
+          history?.teamAPlayerIds,
+          history?.teamBPlayerIds,
+        ];
+
+        for (const list of directLists) {
+          if (!Array.isArray(list)) continue;
+
+          for (const id of list) {
+            const value = String(id || '').trim();
+
+            if (value && playerById.has(value)) {
+              ids.add(value);
+            }
+          }
+        }
+
+        // Compatibility with old Match History that stored only nicknames.
+        if (ids.size === 0) {
+          const nameLists = [
+            history?.teamA,
+            history?.teamB,
+          ];
+
+          for (const list of nameLists) {
+            if (!Array.isArray(list)) continue;
+
+            for (const nickname of list) {
+              const id = resolveNickname(nickname);
+              if (id) ids.add(id);
+            }
+          }
+        }
+
+        return Array.from(ids);
+      };
+
+      const historyIdsByPlayer =
+        new Map<string, Set<string>>();
+
+      for (const history of prev.matchHistory as any[]) {
+        const historyId = String(history?.id || '').trim();
+        if (!historyId) continue;
+
+        for (const playerId of getHistoryPlayerIds(history)) {
+          const ids =
+            historyIdsByPlayer.get(playerId) ||
+            new Set<string>();
+
+          ids.add(historyId);
+          historyIdsByPlayer.set(playerId, ids);
+        }
+      }
+
+      const snapshotParticipated = (
+        snapshot: any
+      ): boolean => {
+        return (
+          Boolean(snapshot?.isCheckedIn) ||
+          snapshot?.status === 'left' ||
+          Boolean(snapshot?.checkInTime) ||
+          Boolean(snapshot?.checkInTimestamp) ||
+          Number(snapshot?.matchesPlayed || 0) > 0 ||
+          Number(snapshot?.gamesPlayed || 0) > 0 ||
+          Number(snapshot?.extraShuttlecocks || 0) > 0 ||
+          Boolean(snapshot?.paid) ||
+          Number(snapshot?.paidAmount || 0) > 0
+        );
+      };
+
+      const archiveContainsPlayer = (
+        archive: any,
+        player: Player
+      ): boolean => {
+        const snapshots = Array.isArray(
+          archive?.playersSnapshot
+        )
+          ? archive.playersSnapshot
+          : [];
+
+        const nicknameKey = String(player.nickname || '')
+          .trim()
+          .toLowerCase();
+
+        return snapshots.some((snapshot: any) => {
+          const sameId =
+            String(snapshot?.id || '') === player.id;
+
+          const sameNickname =
+            nicknameKey &&
+            String(snapshot?.nickname || '')
+              .trim()
+              .toLowerCase() === nicknameKey;
+
+          return (
+            (sameId || sameNickname) &&
+            snapshotParticipated(snapshot)
+          );
+        });
+      };
+
+      const findPreviousAttendanceDate = (
+        player: Player
+      ): string | undefined => {
+        let latest: string | undefined;
+
+        for (const archive of savedArchives) {
+          const date = String(
+            archive?.archiveDate || ''
+          ).trim();
+
+          if (!date || date >= currentDate) continue;
+          if (!archiveContainsPlayer(archive, player)) {
+            continue;
+          }
+
+          if (!latest || date > latest) {
+            latest = date;
+          }
+        }
+
+        return latest;
+      };
+
+      const hasSavedAttendanceToday = (
+        player: Player
+      ): boolean => {
+        return savedArchives.some(
+          (archive) =>
+            String(archive?.archiveDate || '') ===
+              currentDate &&
+            archiveContainsPlayer(archive, player)
+        );
+      };
+
+      for (const player of prev.players) {
+        const stat = stats[player.id];
+        if (!stat) continue;
+
+        const processedHistoryIds = Array.isArray(
+          stat.processedHistoryIds
+        )
+          ? stat.processedHistoryIds.map(
+              (id: unknown) => String(id)
+            )
+          : [];
+
+        const sessionHistoryIds =
+          historyIdsByPlayer.get(player.id) ||
+          new Set<string>();
+
+        const processedCurrentMatchIds =
+          processedHistoryIds.filter((id: string) =>
+            sessionHistoryIds.has(id)
+          );
+
+        const rollbackMatchCount =
+          processedCurrentMatchIds.length;
+
+        const participatedThisSession =
+          Boolean(player.isCheckedIn) ||
+          player.status === 'left' ||
+          Boolean(player.checkInTime) ||
+          Boolean(player.checkInTimestamp) ||
+          Number(player.matchesPlayed || 0) > 0 ||
+          Number(player.gamesPlayed || 0) > 0 ||
+          Number(player.extraShuttlecocks || 0) > 0 ||
+          Boolean(player.paid) ||
+          rollbackMatchCount > 0;
+
+        let nextTotalSessions = Math.max(
+          0,
+          Number(stat.totalSessions || 0)
+        );
+
+        let nextLastAttendanceDate =
+          stat.lastAttendanceDate;
+
+        // Check-in increments totalSessions once for this current date.
+        // Roll it back only when there is no already-saved REAL archive
+        // for this same date.
+        if (
+          participatedThisSession &&
+          String(stat.lastAttendanceDate || '') ===
+            currentDate &&
+          !hasSavedAttendanceToday(player)
+        ) {
+          nextTotalSessions = Math.max(
+            0,
+            nextTotalSessions - 1
+          );
+
+          nextLastAttendanceDate =
+            findPreviousAttendanceDate(player);
+        }
+
+        stats[player.id] = {
+          ...stat,
+
+          totalSessions: nextTotalSessions,
+
+          totalMatches: Math.max(
+            0,
+            Number(stat.totalMatches || 0) -
+              rollbackMatchCount
+          ),
+
+          totalGames: Math.max(
+            0,
+            Number(stat.totalGames || 0) -
+              rollbackMatchCount * 2
+          ),
+
+          processedHistoryIds:
+            processedHistoryIds.filter(
+              (id: string) =>
+                !sessionHistoryIds.has(id)
+            ),
+
+          lastAttendanceDate:
+            nextLastAttendanceDate,
+
+          updatedAt: Date.now(),
+        };
+      }
+
+      // IMPORTANT: preserve ALL members from prev.players.
+      // We only clean today's session fields.
+      const nextPlayers = prev.players.map(
+        (player) =>
+          ({
+            ...player,
+
+            todayRoster: false,
+            isCheckedIn: false,
+            checkInTime: undefined,
+            checkInTimestamp: undefined,
+            lastMatchFinishTime: undefined,
+            status: 'waiting' as PlayerStatus,
+
+            gamesPlayed: 0,
+            matchesPlayed: 0,
+            extraShuttlecocks: 0,
+
+            billingMatchAdjustment: 0,
+            billingAmountAdjustment: 0,
+            billingAdjustmentReason: undefined,
+            billingAdjustmentLog: [],
+
+            paid: false,
+            paidAmount: undefined,
+            paymentMethod: undefined,
+            paymentTime: undefined,
+
+            stopAfterCurrentMatch: false,
+            stopAfterCurrentMatchId: undefined,
+            stopRequestedAt: undefined,
+          } as any)
+      );
+
+      return {
+        ...prev,
+
+        // Keep complete Member Master.
+        players: nextPlayers,
+
+        // Remove current-session activity only.
+        activeMatches: [],
+        matchHistory: [],
+        confirmedPreMatch: null,
+        confirmedPreMatch2: null,
+
+        ...(Object.prototype.hasOwnProperty.call(
+          prev,
+          'confirmedPreMatch3'
+        )
+          ? { confirmedPreMatch3: null }
+          : {}),
+
+        // Preserve all old stats; rollback current session only.
+        memberLifetimeStats: stats,
+
+        // Current-date operational records are discarded.
+        promotionRedemptions:
+          getPromotionRedemptions(prev as any).filter(
+            (item) =>
+              item.sessionDate !== currentDate
+          ),
+
+        shuttleUsageLedger:
+          getShuttleUsageLedger(prev as any).filter(
+            (item) =>
+              item.sessionDate !== currentDate
+          ),
+
+        // Preserve settings, court names, venue, prices and the same date.
+        sessionConfig: {
+          ...prev.sessionConfig,
+          shuttlecocksUsedTotal: 0,
+        },
+      } as any;
+    });
+
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(
+        'badminton_active_member_id'
+      );
+
+      sessionStorage.removeItem(
+        'badminton_active_member_id'
+      );
+
+      const removeKeys: string[] = [];
+
+      for (
+        let index = 0;
+        index < sessionStorage.length;
+        index += 1
+      ) {
+        const key = sessionStorage.key(index);
+
+        if (
+          key &&
+          (
+            key.startsWith(
+              'guanguan_checkin_prompt_'
+            ) ||
+            key.startsWith(
+              'guanguan_member_session_'
+            )
+          )
+        ) {
+          removeKeys.push(key);
+        }
+      }
+
+      removeKeys.forEach((key) =>
+        sessionStorage.removeItem(key)
+      );
+    }
+
+    setCurrentMemberId('');
+    setIsSelfCheckInOpen(false);
+    setIsMemberPinModalOpen(false);
+    setCurrentTab('prematch');
+
+    window.alert(
+      '✅ Reset ทิ้งเรียบร้อย\n\n' +
+      '• Member Master ยังอยู่ครบ\n' +
+      '• สถิติเดิมยังอยู่\n' +
+      '• ลบเฉพาะ Session / Match / Game / Billing / Payment ที่เกิดจากรอบปัจจุบัน\n' +
+      '• ไม่สร้าง Archive'
+    );
+
+    return true;
+  };
+
   const handleResetSession = () => {
     setIsArchiveModalOpen(true);
   };
 
-  const checkedInCount = players.filter((p) => p.isCheckedIn).length;
+  // MEMBER_AUTO_CHECKIN_PROMPT_EFFECT_V58
+  useEffect(() => {
+    if (isOrganizerMode || !currentMemberId || isMemberGateOpen) {
+      setIsMemberCheckInPromptOpen(false);
+      return;
+    }
+
+    const member = players.find((p) => p.id === currentMemberId);
+    if (!member || member.isCheckedIn) {
+      setIsMemberCheckInPromptOpen(false);
+      return;
+    }
+
+    // Only prompt a member who belongs to today's session/roster
+    // or already has today's activity.
+    const isTodayMember =
+      Boolean((member as any).todayRoster) ||
+      (member.matchesPlayed || 0) > 0 ||
+      (member.extraShuttlecocks || 0) > 0 ||
+      Boolean(member.paid);
+
+    if (!isTodayMember) {
+      setIsMemberCheckInPromptOpen(false);
+      return;
+    }
+
+    if (typeof window === 'undefined') return;
+
+    const promptKey =
+      `guanguan_checkin_prompt_v58:${sessionConfig.date}:${currentMemberId}`;
+
+    if (sessionStorage.getItem(promptKey) === '1') return;
+
+    // Mark when shown so a member who intentionally closes it, or later
+    // checks out, is not nagged repeatedly in the same browser tab/session.
+    sessionStorage.setItem(promptKey, '1');
+
+    const timer = window.setTimeout(() => {
+      setIsMemberCheckInPromptOpen(true);
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    isOrganizerMode,
+    currentMemberId,
+    isMemberGateOpen,
+    players,
+    sessionConfig.date,
+  ]);
+  // TODAY_HEADER_MEMBER_COUNT_V59B
+  // Header must show today's session roster, not the whole Member Master.
+  const todaySessionPlayers = players.filter(
+    (p) =>
+      Boolean((p as any).todayRoster) ||
+      p.isCheckedIn ||
+      (p.matchesPlayed || 0) > 0 ||
+      (p.extraShuttlecocks || 0) > 0 ||
+      Boolean(p.paid)
+  );
+
+  const todayMemberCount = todaySessionPlayers.length;
+
+  // MEMBER_SESSION_UI_REPAIR_V60
+  const [showMemberCheckInPromptV60, setShowMemberCheckInPromptV60] =
+    useState(false);
+  const [
+    memberCheckInPromptShownForV60,
+    setMemberCheckInPromptShownForV60,
+  ] = useState('');
+
+  useEffect(() => {
+    if (isOrganizerMode || isMemberGateOpen || !currentMemberId) {
+      setShowMemberCheckInPromptV60(false);
+      return;
+    }
+
+    const member = players.find((p) => p.id === currentMemberId);
+
+    if (!member || member.isCheckedIn) {
+      setShowMemberCheckInPromptV60(false);
+      return;
+    }
+
+    if (memberCheckInPromptShownForV60 === currentMemberId) {
+      return;
+    }
+
+    // Suppress the older v58 prompt if that version is still present.
+    setIsMemberCheckInPromptOpen(false);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(
+        `guanguan_checkin_prompt_v58:${sessionConfig.date}:${currentMemberId}`,
+        '1'
+      );
+    }
+
+    setMemberCheckInPromptShownForV60(currentMemberId);
+
+    const timer = window.setTimeout(() => {
+      setShowMemberCheckInPromptV60(true);
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    isOrganizerMode,
+    isMemberGateOpen,
+    currentMemberId,
+    players,
+    sessionConfig.date,
+    memberCheckInPromptShownForV60,
+  ]);
+
+  const handleMemberLogoutV60 = () => {
+    if (isOrganizerMode || !currentMemberId) return;
+
+    const member = players.find((p) => p.id === currentMemberId);
+
+    const queueWarning = member?.isCheckedIn
+      ? `\n\n⚠️ ตอนนี้คุณยัง Check-in อยู่\nLogout จะออกจาก Member Session ของเครื่องนี้เท่านั้น และจะไม่ Check-out / ไม่เอาชื่อออกจากคิว`
+      : '';
+
+    const confirmed = window.confirm(
+      `Logout${member?.nickname ? ` "${member.nickname}"` : ''} หรือไม่?\n\n` +
+      `ระบบจะล้างชื่อสมาชิกที่จำไว้บนอุปกรณ์นี้ และกลับไปหน้าเลือกชื่อ / PIN` +
+      queueWarning
+    );
+
+    if (!confirmed) return;
+
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('badminton_active_member_id');
+      sessionStorage.removeItem('badminton_active_member_id');
+
+      const keysToRemove: string[] = [];
+
+      for (let index = 0; index < sessionStorage.length; index += 1) {
+        const key = sessionStorage.key(index);
+        if (!key) continue;
+
+        if (
+          key.startsWith('guanguan_checkin_prompt_') ||
+          key.startsWith('guanguan_member_session_')
+        ) {
+          keysToRemove.push(key);
+        }
+      }
+
+      keysToRemove.forEach((key) => sessionStorage.removeItem(key));
+    }
+
+    setShowMemberCheckInPromptV60(false);
+    setMemberCheckInPromptShownForV60('');
+    setIsMemberCheckInPromptOpen(false);
+    setIsSelfCheckInOpen(false);
+    setIsMemberPinModalOpen(false);
+    setCurrentMemberId('');
+    setCurrentTab('prematch');
+    setIsMemberGateOpen(true);
+  };
+
+  const checkedInCount = todaySessionPlayers.filter(
+    (p) => p.isCheckedIn
+  ).length;
 
   // GUANGUAN_SPLASH_V23B
   if (!authReady) {
-    return (
+    // DYNAMIC_COURT_RENAME_V63C
+  // Safe component-scope handler for Today's Courts.
+  const handleUpdateSessionCourtsV63C = (newConfig: SessionConfig) => {
+    setAppState((prev) => {
+      const oldNames = Array.isArray(prev.sessionConfig.courtNames)
+        ? prev.sessionConfig.courtNames
+        : [];
+
+      const newNames = Array.isArray(newConfig.courtNames)
+        ? newConfig.courtNames
+        : [];
+
+      // Used only to update today's finished Match History labels.
+      const renameByOldName = new Map<string, string>();
+      oldNames.forEach((oldName, index) => {
+        const nextName = newNames[index];
+        if (oldName && nextName && oldName !== nextName) {
+          renameByOldName.set(oldName, nextName);
+        }
+      });
+
+      // Active Match uses stable internal IDs: court-1, court-2, ...
+      // Only the visible real venue court name changes.
+      const nextActiveMatches = prev.activeMatches.map((match) => {
+        const matchIndex =
+          Number(String(match.courtId || '').replace('court-', '')) - 1;
+
+        const nextName =
+          Number.isInteger(matchIndex) && matchIndex >= 0
+            ? newNames[matchIndex]
+            : undefined;
+
+        return nextName
+          ? { ...match, courtName: nextName }
+          : match;
+      });
+
+      const nextMatchHistory = prev.matchHistory.map((history) => {
+        const nextName = renameByOldName.get(history.courtName);
+
+        return nextName
+          ? { ...history, courtName: nextName }
+          : history;
+      });
+
+      return {
+        ...prev,
+        sessionConfig: newConfig,
+        activeMatches: nextActiveMatches,
+        matchHistory: nextMatchHistory,
+      };
+    });
+  };
+  return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center px-6">
         <div className="text-center">
           <img
@@ -2756,11 +5004,17 @@ export default function App() {
       </div>
 
 {/* Top Header */}
+      {/* GLOBAL_ORGANIZER_ALERT_RENDER_V52C */}
+      <OrganizerGlobalAlertCenter
+        players={players}
+        sessionDate={sessionConfig.date}
+        isOrganizerMode={isOrganizerMode}
+      />
       <Header
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
         sessionConfig={sessionConfig}
-        totalPlayers={players.length}
+        totalPlayers={todayMemberCount}
         checkedInCount={checkedInCount}
         activeMatchesCount={activeMatches.length}
         waitingCount={isOrganizerMode ? waitingCount : 0}
@@ -2771,6 +5025,43 @@ export default function App() {
         onShareMemberLink={handleShareMemberLink}
         copiedShareLink={copiedShareLink}
       />
+      {/* TOOLS_TOP_MENU_V68B: menu moved into Header */}
+
+      {/* MEMBER_LOGOUT_ALWAYS_VISIBLE_V60 */}
+      {!isOrganizerMode && currentMemberId && (
+        <div className="border-b border-slate-800/80 bg-slate-950/90">
+          <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-2.5 sm:px-6 lg:px-8">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Member Session
+              </div>
+              <div className="truncate text-xs font-black text-white">
+                👤 {players.find((p) => p.id === currentMemberId)?.nickname || 'สมาชิก'}
+              </div>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsMemberHistoryOpen(true)}
+                className="rounded-xl border border-cyan-700/60 bg-cyan-950/55 px-3.5 py-2 text-xs font-black text-cyan-200 transition hover:bg-cyan-900/70"
+                title="ดูประวัติการเล่นของฉัน"
+              >
+                📚 ประวัติของฉัน
+              </button>
+
+              <button
+                type="button"
+                onClick={handleMemberLogoutV60}
+                className="rounded-xl border border-rose-600/60 bg-rose-950/60 px-3.5 py-2 text-xs font-black text-rose-200 transition hover:bg-rose-900/70"
+                title="Logout และล้าง Member Session บนอุปกรณ์นี้"
+              >
+                🚪 Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -2820,10 +5111,10 @@ export default function App() {
             </div>
             <button
               type="button"
-              onClick={() => setCurrentTab('finance')}
+              onClick={() => { setCurrentTab('finance'); setFinanceWorkspaceV77('shuttle'); }}
               className="px-3.5 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 text-white text-xs font-black shrink-0"
             >
-              ไป Finance / Shuttle Stock
+              ไปคลังลูกแบด
             </button>
           </div>
         )}
@@ -2895,14 +5186,29 @@ onUpdateMemberStatus={(playerId, status) => {
               <span>🔐</span>
               <span>เปลี่ยน PIN ของฉัน</span>
             </button>
+            {/* MEMBER_LOGOUT_VISIBLE_BUTTON_V59B */}
+            <button
+              type="button"
+              onClick={handleMemberLogout}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-rose-950/55 hover:bg-rose-900/70 border border-rose-600/60 text-rose-200 text-xs font-black transition"
+              title="Logout และล้าง Member Session บนอุปกรณ์นี้"
+            >
+              <span>🚪</span>
+              <span>Logout</span>
+            </button>
+            {/* MEMBER_LOGOUT_BUTTON_V59 */}
+            <button
+              type="button"
+              onClick={handleMemberLogout}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-rose-950/45 hover:bg-rose-900/60 border border-rose-700/50 text-rose-300 text-xs font-black transition"
+              title="Logout และล้าง Member Session บนอุปกรณ์นี้"
+            >
+              <span>🚪</span>
+              <span>Logout / Clear Session</span>
+            </button>
           </div>
         )}
-                {/* MEMBER_STOP_NOTIFICATION_RENDER_V49 */}
-        <OrganizerMemberStopNotification
-          players={players}
-          isOrganizerMode={isOrganizerMode}
-        />
-{/* MEMBER_PLAY_NOTIFICATION_V33 */}
+        {/* MEMBER_PLAY_NOTIFICATION_V33 */}
         <MemberPlayNotification
           currentMemberId={currentMemberId}
           players={players}
@@ -2919,17 +5225,19 @@ onUpdateMemberStatus={(playerId, status) => {
             sessionConfig={sessionConfig}
             players={players}
             activeMatches={activeMatches}
-            isOrganizerMode={isOrganizerMode}
+            isOrganizerMode={false} /* ORGANIZER_QUEUE_SAME_AS_MEMBER_V62H */
+            organizerDisplayOnly={false}
             currentMemberId={currentMemberId}
             confirmedPreMatch={appState.confirmedPreMatch}
             confirmedPreMatch2={appState.confirmedPreMatch2}
+            confirmedPreMatch3={confirmedPreMatch3}
             onConfirmPreMatch={handleConfirmPreMatch}
             onCancelPreMatch={handleCancelPreMatch}
             onRemovePlayerFromPreMatch={handleRemovePlayerFromPreMatch}
             onStartConfirmedPreMatch={handleStartConfirmedPreMatch}
             onSelectPlayerStatus={(id, status) => handleUpdatePlayerStatus(id, status)}
             onNavigateToCourts={() => setCurrentTab('courts')}
-            onUnlockOrganizer={isOrganizerMode ? () => setIsPinModalOpen(true) : undefined}
+            onUnlockOrganizer={isOrganizerMode ? undefined : () => setIsPinModalOpen(true)}
             onToggleWalkInPenalty={handleToggleWalkInPenalty}
             onToggleRegistrationType={handleToggleRegistrationType}
             onPromptIdentifyMember={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
@@ -2942,7 +5250,18 @@ onUpdateMemberStatus={(playerId, status) => {
             onBack={() => setCurrentTab('prematch')}
           >
             <CheckInView
-              players={players}
+              players={
+                isOrganizerMode
+                  ? players
+                  : players.filter(
+                      (p) =>
+                        Boolean((p as any).todayRoster) ||
+                        p.isCheckedIn ||
+                        (p.matchesPlayed || 0) > 0 ||
+                        (p.extraShuttlecocks || 0) > 0 ||
+                        Boolean(p.paid)
+                    )
+              } /* MEMBER_CHECKIN_TODAY_ONLY_V56 */
               isOrganizerMode={isOrganizerMode}
               currentMemberId={currentMemberId}
               hideSkillFromMembers={sessionConfig.hideSkillFromMembers ?? true}
@@ -2985,29 +5304,255 @@ onUpdateMemberStatus={(playerId, status) => {
           />
         )}
 
+
+        {/* MATCH_REPAIR_TOOLS_MOVED_V64B */}
+
         {currentTab === 'courts' && (
-          <CourtsView
-            sessionConfig={sessionConfig}
-            players={players.filter(
-              (p) =>
-                p.isCheckedIn &&
-                p.status !== 'resting' &&
-                p.status !== 'left'
+          <>
+            {isOrganizerMode && (
+              <SessionCourtsPanel
+                sessionConfig={sessionConfig}
+                activeMatches={activeMatches}
+                onChange={handleUpdateSessionCourtsV70B} /* COURT_NAME_SYNC_TOPLEVEL_V70B */
+              />
             )}
-            activeMatches={activeMatches}
-            matchHistory={matchHistory}
-            isOrganizerMode={isOrganizerMode}
-            hideSkillFromMembers={sessionConfig.hideSkillFromMembers ?? true}
-            confirmedPreMatch={appState.confirmedPreMatch}
-            confirmedPreMatch2={appState.confirmedPreMatch2}
-            onStartMatch={handleStartMatch}
-            onFinishMatch={handleFinishMatch}
-            onCancelMatch={handleCancelActiveMatch}
-            onUpdateMatchShuttlecocks={handleUpdateMatchShuttlecocks}
-            onUpdateMatchScore={handleUpdateMatchScore}
-          />
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+              <div className="min-w-0">
+                <CourtsView
+                  sessionConfig={sessionConfig}
+                  players={players.filter(
+                    (p) =>
+                      p.isCheckedIn &&
+                      p.status !== 'resting' &&
+                      p.status !== 'left'
+                  )}
+                  activeMatches={activeMatches}
+                  matchHistory={matchHistory}
+                  isOrganizerMode={isOrganizerMode}
+                  hideSkillFromMembers={sessionConfig.hideSkillFromMembers ?? true}
+                  confirmedPreMatch={appState.confirmedPreMatch}
+                  confirmedPreMatch2={appState.confirmedPreMatch2}
+                  singleColumnCourts={isOrganizerMode}
+                  hideWaitingQueue={isOrganizerMode}
+                  hidePreMatchQuickLoad={isOrganizerMode}
+                  onStartMatch={handleStartMatch}
+                  onFinishMatch={handleFinishMatch}
+                  onCancelMatch={handleCancelActiveMatch}
+                  onUpdateMatchShuttlecocks={handleUpdateMatchShuttlecocks}
+                  onUpdateMatchScore={handleUpdateMatchScore}
+                />
+              </div>
+
+              {isOrganizerMode && (
+                <div className="min-w-0">
+                  <PreMatchManagerV64
+                    sessionConfig={sessionConfig}
+                    players={players}
+                    activeMatches={activeMatches}
+                    confirmedPreMatches={[
+                      appState.confirmedPreMatch || null,
+                      appState.confirmedPreMatch2 || null,
+                      confirmedPreMatch3,
+                    ]}
+                    onConfirmPreMatch={handleConfirmPreMatch}
+                    onCancelPreMatch={handleCancelPreMatch}
+                    onStartConfirmedPreMatch={handleStartConfirmedPreMatch}
+                  />
+                </div>
+              )}
+            </div>
+
+            {isOrganizerMode && (
+              <div className="mt-6">
+                <OrganizerWaitingQueueV64
+                  players={players}
+                  activeMatches={activeMatches}
+                  confirmedPreMatches={[
+                    appState.confirmedPreMatch || null,
+                    appState.confirmedPreMatch2 || null,
+                    confirmedPreMatch3,
+                  ]}
+                />
+              </div>
+            )}
+
+            {/* TABLET_MATCH_REPAIR_TOOLBOX_V64B */}
+            {isOrganizerMode && matchHistory.length > 0 && (
+              <details className="group mt-6 overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-sm">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 select-none">
+                  <div className="min-w-0">
+                    <div className="text-sm font-black text-white">
+                      🧰 เครื่องมือแก้ไข Match
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-slate-400">
+                      Undo Match ล่าสุด / ยกเลิก Match ที่จบแล้ว • ปกติไม่ต้องเปิด
+                    </div>
+                  </div>
+                  <div className="shrink-0 rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-[10px] font-black text-slate-300 transition group-open:border-amber-600/60 group-open:text-amber-300">
+                    แตะเพื่อเปิด ▾
+                  </div>
+                </summary>
+
+                <div className="grid grid-cols-1 gap-3 border-t border-slate-800 p-3 lg:grid-cols-2">
+                  <div className="rounded-xl border border-amber-600/40 bg-amber-950/20 p-3">
+                    <div className="text-xs font-black text-amber-200">
+                      ↩️ เผลอกดจบ Match ล่าสุด?
+                    </div>
+                    <div className="mt-1 text-[10px] leading-5 text-slate-400">
+                      Undo ได้เฉพาะ Match ล่าสุด และต้องยังไม่มีผู้เล่นใน Match นั้นถูก Paid
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleUndoLastFinishedMatch}
+                      className="mt-3 w-full rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-black text-slate-950 transition hover:bg-amber-400"
+                    >
+                      ↩️ Undo Finish Match ล่าสุด
+                    </button>
+                  </div>
+
+                  <div className="rounded-xl border border-rose-700/40 bg-rose-950/15 p-3">
+                    <div className="text-xs font-black text-rose-200">
+                      🗑️ ยกเลิก Match ที่จบแล้ว
+                    </div>
+                    <div className="mt-1 text-[10px] leading-5 text-slate-400">
+                      ใช้กรณีเลือก Match ที่กด Finish ผิด • Match ที่ยกเลิกจะไม่ถูกคิดค่าเล่น
+                    </div>
+
+                    <select
+                      value={cancelFinishedMatchId}
+                      onChange={(event) =>
+                        setCancelFinishedMatchId(event.target.value)
+                      }
+                      className="mt-3 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-white outline-none focus:border-rose-500"
+                    >
+                      <option value="">-- เลือก Match ที่ต้องการยกเลิก --</option>
+                      {matchHistory.map((match, index) => (
+                        <option key={match.id} value={match.id}>
+                          {`#${matchHistory.length - index} • ${
+                            match.courtName || 'Court'
+                          } • ${match.startTime || '-'} • ${(
+                            match.teamANames || []
+                          ).join(' / ')} vs ${(
+                            match.teamBNames || []
+                          ).join(' / ')}`}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      type="button"
+                      disabled={!cancelFinishedMatchId}
+                      onClick={() =>
+                        handleCancelSelectedFinishedMatch(cancelFinishedMatchId)
+                      }
+                      className="mt-2.5 w-full rounded-xl bg-rose-500 px-4 py-2.5 text-xs font-black text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      ยกเลิก Match ที่เลือก
+                    </button>
+
+                    <div className="mt-2 text-[9px] leading-4 text-amber-200/90">
+                      ⚠️ หากมีผู้เล่นใน Match นี้ถูก Paid แล้ว ต้อง Undo Payment ก่อน
+                    </div>
+                  </div>
+                </div>
+              </details>
+            )}
+          </>
         )}
 
+        {/* ORGANIZER_TOOLS_PAGE_V68 */}
+        {currentTab === 'tools' && isOrganizerMode && (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-violet-800/50 bg-gradient-to-r from-violet-950/35 to-slate-900 p-4 sm:p-5">
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-violet-500/30 bg-violet-500/10 text-xl">
+                  🧰
+                </div>
+                <div>
+                  <div className="text-lg font-black text-white">
+                    7. Tools
+                  </div>
+                  <div className="mt-1 text-xs text-slate-400">
+                    Data • Backup • Export • Repair
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <section className="rounded-2xl border border-cyan-800/45 bg-cyan-950/15 p-4 sm:p-5">
+                <div className="text-sm font-black text-white">
+                  🏸 Export Match History
+                </div>
+                <div className="mt-1 text-xs leading-relaxed text-slate-400">
+                  Export Court, Team A/B, Score, เวลาแข่งขัน และจำนวนลูกแบด
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowMatchHistoryExport(true)}
+                  className="mt-4 w-full rounded-xl bg-cyan-500 px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-cyan-400"
+                >
+                  เปิด Export Match History
+                </button>
+              </section>
+
+              <section className="rounded-2xl border border-violet-800/45 bg-violet-950/15 p-4 sm:p-5">
+                <div className="text-sm font-black text-white">
+                  📦 Data / Backup / Stat Repair
+                </div>
+                <div className="mt-1 text-xs leading-relaxed text-slate-400">
+                  Full Day Backup • Import / Replace • Archive Export • Rebuild / Reset Lifetime Stats
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsDataStatsManagerOpen(true)}
+                  className="mt-4 w-full rounded-xl bg-violet-500 px-4 py-2.5 text-xs font-black text-white hover:bg-violet-400"
+                >
+                  เปิด Data / Backup / Stat Repair
+                </button>
+              </section>
+              {/* TOOLS_MEMBER_COST_CARD_V68B */}
+              <section className="rounded-2xl border border-emerald-800/45 bg-emerald-950/15 p-4 sm:p-5">
+                <div className="text-sm font-black text-white">
+                  📋 Export รายชื่อ / ค่าใช้จ่าย
+                </div>
+                <div className="mt-1 text-xs leading-relaxed text-slate-400">
+                  รายชื่อ • Match • ค่าคอร์ท • ค่าลูก • Extra • ส่วนลด • ยอดสุทธิ • สถานะชำระ
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowMemberCostExportV68D(true)}
+                  className="mt-4 w-full rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-emerald-400"
+                >
+                  เปิด Export รายชื่อ / ค่าใช้จ่าย
+                </button>
+              </section>
+            </div>
+
+            {showMatchHistoryExport && (
+              <MatchHistoryExportView
+                sessionDate={sessionConfig.date}
+                matchHistory={matchHistory}
+                onClose={() => setShowMatchHistoryExport(false)}
+              />
+            )}
+
+
+            {/* MEMBER_COST_EXPORT_RENDER_V68D */}
+            {showMemberCostExportV68D && (
+              <MemberCostExportToolV68D
+                sessionConfig={sessionConfig}
+                players={players}
+                promotionRedemptions={promotionRedemptions}
+                onClose={() => setShowMemberCostExportV68D(false)}
+              />
+            )}
+            <div className="rounded-xl border border-slate-800 bg-slate-900/65 px-4 py-3 text-[11px] leading-relaxed text-slate-500">
+              Tools เป็น Organizer-only • สมาชิกทั่วไปจะไม่เห็นเมนูนี้
+            </div>
+          </div>
+        )}
         {currentTab === 'billing' && (
           <BillingView
             sessionConfig={sessionConfig}
@@ -3031,9 +5576,43 @@ onUpdateMemberStatus={(playerId, status) => {
           />
         )}
 
-        {currentTab === 'finance' && (
-          <FinancialStatsView
-            key={`finance-${fundRevision}`}
+        {currentTab === 'finance' && isOrganizerMode && (
+          <div className="space-y-4">
+            {/* SHUTTLE_STOCK_SEPARATION_V77B */}
+            <div className="flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-900 p-2 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setFinanceWorkspaceV77('financial')}
+                className={`rounded-xl px-4 py-2.5 text-xs font-black whitespace-nowrap transition ${
+                  financeWorkspaceV77 === 'financial'
+                    ? 'bg-emerald-500 text-slate-950'
+                    : 'bg-slate-950 text-slate-400 border border-slate-800'
+                }`}
+              >
+                💰 การเงิน / Today's Financial
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFinanceWorkspaceV77('shuttle')}
+                className={`rounded-xl px-4 py-2.5 text-xs font-black whitespace-nowrap transition ${
+                  financeWorkspaceV77 === 'shuttle'
+                    ? 'bg-cyan-500 text-slate-950'
+                    : 'bg-slate-950 text-slate-400 border border-slate-800'
+                }`}
+              >
+                🪶 คลังลูกแบด
+              </button>
+            </div>
+
+            {financeWorkspaceV77 === 'financial' && (
+              <SectionErrorBoundary
+                title="สรุปเงิน"
+                onBack={() => setCurrentTab('prematch')}
+              >
+                {/* FINANCE_WHITE_SCREEN_GUARD_V77C */}
+                <FinancialStatsView
+            key={`finance-${fundRevision}-${archiveRevision}`} /* FINANCE_ARCHIVE_REFRESH_V66C */
             sessionConfig={sessionConfig}
             players={players}
             isOrganizerMode={isOrganizerMode}
@@ -3052,10 +5631,30 @@ onUpdateMemberStatus={(playerId, status) => {
             shuttleDefaultPiecesPerTube={shuttleDefaultPiecesPerTube}
             onSetShuttleReorderSettings={handleSetShuttleReorderSettings}
             onStocktakeShuttles={handleStocktakeShuttles}
-            onResetAllShuttleData={handleResetAllShuttleData}
-          />
+                matchHistory={matchHistory}
+              />
+              </SectionErrorBoundary>
+            )}
+
+            {financeWorkspaceV77 === 'shuttle' && (
+              <ShuttleStockWorkspaceV78
+                sessionDate={sessionConfig.date}
+                purchases={shuttlePurchases as any[]}
+                usages={shuttleUsageLedger as any[]}
+                adjustments={shuttleStockAdjustments as any[]}
+                lowStockThreshold={shuttleLowStockThreshold}
+                targetStock={shuttleTargetStock}
+                defaultPiecesPerTube={shuttleDefaultPiecesPerTube}
+                onAddPurchase={handleAddShuttlePurchase}
+                onDeletePurchase={handleDeleteShuttlePurchase}
+                onStocktake={handleStocktakeShuttles}
+                onSetLowStockThreshold={handleSetShuttleLowStockThreshold}
+                onSetReorderSettings={handleSetShuttleReorderSettings}
+              />
+            )}
+          </div>
         )}
-      </main>
+</main>
 
       {/* Footer */}
       <footer className="border-t border-slate-800/80 bg-slate-900/60 text-slate-400 text-xs py-4">
@@ -3105,6 +5704,33 @@ onUpdateMemberStatus={(playerId, status) => {
         onSavePin={handleChangeOwnMemberPin}
       />
 
+      {/* MEMBER_HISTORY_V65 */}
+      <MemberHistoryModal
+        key={`member-history-${archiveRevision}-${currentMemberId || 'none'}`}
+        isOpen={isMemberHistoryOpen && !isOrganizerMode}
+        onClose={() => setIsMemberHistoryOpen(false)}
+        member={
+          currentMemberId
+            ? players.find((p) => p.id === currentMemberId) || null
+            : null
+        }
+        currentSessionDate={sessionConfig.date}
+        currentVenueName={sessionConfig.venueName}
+        currentMatchHistory={matchHistory}
+        memberStats={memberStats as any}
+      />
+      {/* DATA_STATS_REPAIR_V66 */}
+      <DataStatsManagerV66
+        isOpen={isDataStatsManagerOpen && isOrganizerMode}
+        onClose={() => setIsDataStatsManagerOpen(false)}
+        currentState={appState}
+        onApplyState={(nextState) => {
+          setAppState(nextState);
+        }}
+        onArchivesChanged={() => {
+          setArchiveRevision((value) => value + 1);
+        }}
+      />
       <MemberCenterModal
         isOpen={isMemberCenterOpen}
         onClose={() => setIsMemberCenterOpen(false)}
@@ -3152,7 +5778,16 @@ onUpdateMemberStatus={(playerId, status) => {
       <SelfCheckInModal
         isOpen={isSelfCheckInOpen}
         onClose={() => setIsSelfCheckInOpen(false)}
-        players={players}
+        players={
+          players.filter(
+            (p) =>
+              Boolean((p as any).todayRoster) ||
+              p.isCheckedIn ||
+              (p.matchesPlayed || 0) > 0 ||
+              (p.extraShuttlecocks || 0) > 0 ||
+              Boolean(p.paid)
+          )
+        } /* QR_CHECKIN_TODAY_ONLY_V56B */
         organizerPin={sessionConfig.organizerPin || '1234'}
         onCheckInPlayer={handleCheckInPlayer}
         onQuickAddAndCheckIn={handleQuickAddAndCheckIn}
@@ -3162,9 +5797,38 @@ onUpdateMemberStatus={(playerId, status) => {
         isOpen={isPinModalOpen}
         onClose={() => setIsPinModalOpen(false)}
         onSuccess={() => {
+          if (!isOrganizerUid(auth.currentUser?.uid)) {
+            window.alert(
+              'Firebase Organizer Session ไม่ถูกต้อง กรุณา Login ใหม่'
+            );
+            setIsOrganizerMode(false);
+            return;
+          }
+
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem(
+              'guanguan_organizer_ui_locked_v61'
+            );
+
+            const url = new URL(window.location.href);
+            if (url.searchParams.get('mode') === 'member') {
+              url.searchParams.delete('mode');
+              window.history.replaceState(
+                {},
+                '',
+                `${url.pathname}${url.search}${url.hash}`
+              );
+            }
+          }
+
           setIsOrganizerMode(true);
           setIsPinModalOpen(false);
-          confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
+          setIsMemberGateOpen(false);
+          confetti({
+            particleCount: 40,
+            spread: 60,
+            origin: { y: 0.6 },
+          });
         }}
       />
 
@@ -3173,6 +5837,7 @@ onUpdateMemberStatus={(playerId, status) => {
         isOpen={isArchiveModalOpen}
         onClose={() => setIsArchiveModalOpen(false)}
         currentState={appState}
+        onDiscardSession={handleDiscardSessionWithoutArchive}
         onResetSession={(newState) => {
           setAppState((prev) => ({
             ...newState,
@@ -3202,6 +5867,7 @@ onUpdateMemberStatus={(playerId, status) => {
             matchHistory: [],
             confirmedPreMatch: null,
             confirmedPreMatch2: null,
+            confirmedPreMatch3: null, // PREMATCH_3_FIFO_V64
             memberLifetimeStats: getMemberStatsMap(prev as any),
             deletedMembers: getDeletedMembers(prev as any),
             promotionRules: getPromotionRules(prev as any),
@@ -3225,6 +5891,124 @@ onUpdateMemberStatus={(playerId, status) => {
           setIsArchiveModalOpen(false);
         }}
       />
+
+      {/* MEMBER_AUTO_CHECKIN_PROMPT_UI_V58 */}
+      {!isOrganizerMode &&
+        currentMemberId &&
+        isMemberCheckInPromptOpen &&
+        (() => {
+          const member = players.find((p) => p.id === currentMemberId);
+
+          if (!member || member.isCheckedIn) return null;
+
+          return (
+            <div className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
+              <div className="w-full max-w-md overflow-hidden rounded-3xl border border-emerald-500/40 bg-slate-900 shadow-2xl">
+                <div className="border-b border-slate-800 bg-emerald-500/10 px-5 py-4">
+                  <div className="text-xs font-black uppercase tracking-wider text-emerald-400">
+                    Check-in ก่อนเข้าคิว
+                  </div>
+                  <h2 className="mt-1 text-xl font-black text-white">
+                    👋 สวัสดี {member.nickname}
+                  </h2>
+                </div>
+
+                <div className="space-y-4 p-5">
+                  <div className="rounded-2xl border border-amber-500/30 bg-amber-950/20 p-4">
+                    <div className="text-base font-black text-amber-200">
+                      ⚠️ ตอนนี้คุณยังไม่ได้ Check-in
+                    </div>
+                    <div className="mt-2 text-sm leading-6 text-slate-300">
+                      หากต้องการเล่นวันนี้ กรุณากด Check-in เพื่อเข้าสู่
+                      <strong className="text-white"> คิวรอเล่น </strong>
+                      ก่อนครับ
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/50 px-4 py-3 text-xs text-slate-400">
+                    หลัง Check-in ระบบจะพาไปหน้า Pre-Match และชื่อของคุณจะเข้าสู่คิวรอจัด Match อัตโนมัติ
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMemberCheckInPromptOpen(false);
+                      handleCheckInPlayer(currentMemberId);
+                    }}
+                    className="w-full rounded-2xl bg-emerald-500 px-5 py-4 text-base font-black text-slate-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.99]"
+                  >
+                    ✅ Check-in และเข้าคิวรอเล่น
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsMemberCheckInPromptOpen(false)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-800/70 px-4 py-3 text-xs font-bold text-slate-300 transition hover:bg-slate-800"
+                  >
+                    ไว้ก่อน / ดูหน้าหลักก่อน
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+      {/* MEMBER_CHECKIN_PROMPT_REPAIR_V60 */}
+      {!isOrganizerMode &&
+        currentMemberId &&
+        showMemberCheckInPromptV60 &&
+        (() => {
+          const member = players.find((p) => p.id === currentMemberId);
+
+          if (!member || member.isCheckedIn) return null;
+
+          return (
+            <div className="fixed inset-0 z-[2147483000] flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm">
+              <div className="w-full max-w-md overflow-hidden rounded-3xl border border-emerald-500/50 bg-slate-900 shadow-2xl">
+                <div className="border-b border-slate-800 bg-gradient-to-r from-emerald-950/70 to-teal-950/40 px-5 py-5">
+                  <div className="text-xs font-black uppercase tracking-wider text-emerald-400">
+                    Check-in เพื่อเข้าคิว
+                  </div>
+                  <div className="mt-1 text-2xl font-black text-white">
+                    👋 สวัสดี {member.nickname}
+                  </div>
+                </div>
+
+                <div className="space-y-4 p-5">
+                  <div className="rounded-2xl border border-amber-500/40 bg-amber-950/25 p-4">
+                    <div className="text-base font-black text-amber-200">
+                      ⚠️ คุณยังไม่ได้ Check-in
+                    </div>
+                    <div className="mt-2 text-sm leading-6 text-slate-300">
+                      การเลือกชื่อและเข้าใช้งาน
+                      <strong className="text-white"> ยังไม่ถือว่าเข้าคิวเล่น </strong>
+                      กรุณากด Check-in เพื่อเข้าสู่ Waiting Queue
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMemberCheckInPromptV60(false);
+                      handleCheckInPlayer(currentMemberId);
+                    }}
+                    className="w-full rounded-2xl bg-emerald-500 px-5 py-4 text-base font-black text-slate-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.99]"
+                  >
+                    ✅ Check-in และเข้าคิวรอเล่น
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowMemberCheckInPromptV60(false)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-3 text-xs font-bold text-slate-300 transition hover:bg-slate-800"
+                  >
+                    ไว้ก่อน / ดูหน้าหลักก่อน
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
       {/* Member Gate & Direct URL Access Restriction Gate */}
       <SectionErrorBoundary
@@ -3286,6 +6070,28 @@ onUpdateMemberStatus={(playerId, status) => {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

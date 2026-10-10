@@ -1,4 +1,5 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
+import { getSessionCourtCost } from '../utils/sessionCourts'; // DYNAMIC_SESSION_COURTS_V63A
 import { 
   X, Calendar, Archive, RefreshCw, CheckCircle2, 
   AlertTriangle, Download, Trash2, ChevronRight, FileText,
@@ -12,6 +13,7 @@ import {
   deleteSessionArchive, 
   createNewDaySessionState 
 } from '../utils/storage';
+import { deleteSessionArchiveFromFirestore } from '../utils/firestoreCollectionsSync'; // ARCHIVE_DELETE_SYNC_V66A
 import confetti from 'canvas-confetti';
 
 interface DailyArchiveModalProps {
@@ -19,13 +21,15 @@ interface DailyArchiveModalProps {
   onClose: () => void;
   currentState: AppState;
   onResetSession: (newState: AppState) => void;
+  onDiscardSession?: () => Promise<boolean> | boolean;
 }
 
 export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   isOpen,
   onClose,
   currentState,
-  onResetSession,
+  onResetSession,
+  onDiscardSession,
 }) => {
   const [activeTab, setActiveTab] = useState<'reset' | 'history'>('reset');
   const [keepRoster, setKeepRoster] = useState(true);
@@ -33,6 +37,39 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   const [selectedArchive, setSelectedArchive] = useState<DailySessionArchive | null>(null);
   const [archives, setArchives] = useState<DailySessionArchive[]>(() => loadSessionArchives());
 
+  // DISCARD_SESSION_HANDLER_V72B
+  const handleDiscardWithoutArchive = async () => {
+    if (!onDiscardSession) return;
+
+    const firstConfirm = window.confirm(
+      '⚠️ Reset ทิ้ง / ไม่บันทึก?\n\n' +
+      'ระบบจะล้างข้อมูลรอบปัจจุบันทั้งหมด เช่น\n' +
+      '• Check-in / Today Roster\n' +
+      '• Active Match / Match History\n' +
+      '• Match / Game / Extra Shuttle\n' +
+      '• Billing / Paid / Payment\n' +
+      '• Pre-Match\n\n' +
+      'จะไม่สร้าง Archive และไม่เพิ่มข้อมูลรอบนี้ในประวัติ\n\n' +
+      'กด OK เพื่อไปขั้นตอนยืนยันสุดท้าย'
+    );
+
+    if (!firstConfirm) return;
+
+    const typed = window.prompt(
+      'เพื่อยืนยันการล้างรอบนี้ กรุณาพิมพ์ RESET แล้วกด OK'
+    );
+
+    if ((typed || '').trim().toUpperCase() !== 'RESET') {
+      window.alert('ยกเลิกการ Reset');
+      return;
+    }
+
+    const success = await onDiscardSession();
+
+    if (success) {
+      onClose();
+    }
+  };
   if (!isOpen) return null;
 
   const { sessionConfig, players, activeMatches, matchHistory } = currentState;
@@ -120,10 +157,119 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
     0
   );
 
+    // COURT_HOURS_V82B
+  // Calculate court expense from each actual court booking.
+  // Fallback to legacy courtCount x totalHours x hourlyRate when no
+  // sessionCourts data exists.
+  const archiveSessionCourts = (
+    ((sessionConfig as any).sessionCourts || []) as Array<{
+      id?: string;
+      name?: string;
+      startTime?: string;
+      endTime?: string;
+      hourlyRate?: number;
+      active?: boolean;
+    }>
+  ).filter((court) => court.active !== false);
+
+  const courtDurationHoursV82B = (
+    startTime?: string,
+    endTime?: string
+  ) => {
+    if (!startTime || !endTime) return 0;
+
+    const [sh, sm] = String(startTime)
+      .split(':')
+      .map(Number);
+    const [eh, em] = String(endTime)
+      .split(':')
+      .map(Number);
+
+    if (
+      !Number.isFinite(sh) ||
+      !Number.isFinite(sm) ||
+      !Number.isFinite(eh) ||
+      !Number.isFinite(em)
+    ) {
+      return 0;
+    }
+
+    let minutes =
+      eh * 60 + em - (sh * 60 + sm);
+
+    if (minutes < 0) minutes += 24 * 60;
+
+    return Math.max(0, minutes / 60);
+  };
+
+  const totalCourtHoursV82B =
+    archiveSessionCourts.length > 0
+      ? archiveSessionCourts.reduce(
+          (sum, court) =>
+            sum +
+            courtDurationHoursV82B(
+              court.startTime,
+              court.endTime
+            ),
+          0
+        )
+      : Number(sessionConfig.courtCount || 0) *
+        Number(sessionConfig.totalHours || 0);
+
   const venueCost =
-    sessionConfig.courtCount *
-    sessionConfig.totalHours *
-    sessionConfig.courtHourlyRate;
+    archiveSessionCourts.length > 0
+      ? archiveSessionCourts.reduce(
+          (sum, court) => {
+            const hours = courtDurationHoursV82B(
+              court.startTime,
+              court.endTime
+            );
+
+            const rate = Number(
+              court.hourlyRate ??
+                sessionConfig.courtHourlyRate ??
+                0
+            );
+
+            return sum + hours * rate;
+          },
+          0
+        )
+      : Number(sessionConfig.courtCount || 0) *
+        Number(sessionConfig.totalHours || 0) *
+        Number(sessionConfig.courtHourlyRate || 0);
+
+  const courtPlanLabelV82B = (() => {
+    if (archiveSessionCourts.length === 0) {
+      return `${sessionConfig.courtCount} Court × ${sessionConfig.totalHours} ชม.`;
+    }
+
+    const groups = new Map<number, number>();
+
+    archiveSessionCourts.forEach((court) => {
+      const hours = courtDurationHoursV82B(
+        court.startTime,
+        court.endTime
+      );
+
+      if (hours <= 0) return;
+
+      groups.set(
+        hours,
+        (groups.get(hours) || 0) + 1
+      );
+    });
+
+    return Array.from(groups.entries())
+      .sort((a, b) => b[0] - a[0])
+      .map(
+        ([hours, count]) =>
+          `${count} Court × ${Number(
+            hours.toFixed(2)
+          )} ชม.`
+      )
+      .join(' + ');
+  })();
 
   const shuttleCost =
     totalShuttles *
@@ -172,6 +318,30 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
       totalCollected,
       pendingAmount,
       venueCost,
+      // COURT_HOURS_ARCHIVE_SNAPSHOT_V82B
+      courtCount:
+        archiveSessionCourts.length > 0
+          ? archiveSessionCourts.length
+          : sessionConfig.courtCount,
+      totalHours: sessionConfig.totalHours,
+      courtHourlyRate: sessionConfig.courtHourlyRate,
+      totalCourtHours: totalCourtHoursV82B,
+      courtPlanLabel: courtPlanLabelV82B,
+      sessionCourtsSnapshot:
+        archiveSessionCourts.length > 0
+          ? archiveSessionCourts.map((court) => ({
+              id: String(court.id || ''),
+              name: String(court.name || ''),
+              startTime: String(court.startTime || ''),
+              endTime: String(court.endTime || ''),
+              hourlyRate: Number(
+                court.hourlyRate ??
+                  sessionConfig.courtHourlyRate ??
+                  0
+              ),
+              active: court.active !== false,
+            }))
+          : undefined,
       shuttleCost,
       extraExpensesTotal,
       playersSnapshot: [...players],
@@ -198,8 +368,18 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
     onClose();
   };
 
-  const handleDeleteArchive = (id: string) => {
+  const handleDeleteArchive = async (id: string) => {
     if (!window.confirm('คุณแน่ใจหรือไม่ว่าต้องการลบประวัติของวันนี้?')) return;
+    // ARCHIVE_DELETE_SYNC_V66A
+    // Delete Firestore first. Otherwise the realtime listener restores the LocalStorage record.
+    try {
+      await deleteSessionArchiveFromFirestore(id);
+    } catch (error) {
+      console.error('Failed to delete archive from Firestore', error);
+      window.alert('ลบ Archive จาก Firestore ไม่สำเร็จ กรุณาลองใหม่');
+      return;
+    }
+
     deleteSessionArchive(id);
     const updated = loadSessionArchives();
     setArchives(updated);
@@ -373,6 +553,21 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                   <Archive className="w-4 h-4" />
                   <span>ยืนยันปิดก๊วนวันนี้ & บันทึกประวัติและเปิดก๊วนใหม่</span>
                 </button>
+                {/* DISCARD_SESSION_BUTTON_V72B */}
+                {onDiscardSession && (
+                  <div className="mt-4 border-t border-rose-900/50 pt-4">
+                    <button
+                      type="button"
+                      onClick={handleDiscardWithoutArchive}
+                      className="w-full rounded-xl border border-rose-700 bg-rose-950/60 px-4 py-3 text-xs sm:text-sm font-black text-rose-200 transition hover:bg-rose-900/70"
+                    >
+                      🗑️ Reset ทิ้ง / ไม่บันทึก
+                    </button>
+                    <p className="mt-2 text-center text-[10px] leading-relaxed text-rose-300/80">
+                      สำหรับรอบทดลอง • ล้างรอบปัจจุบันโดยไม่สร้าง Archive
+                    </p>
+                  </div>
+                )}
                 <p className="text-[10px] text-slate-500 text-center mt-2">
                   ข้อมูลแมตช์และยอดเงินของวันนี้จะถูกเซฟเก็บไว้อย่างปลอดภัยใน "ประวัติก๊วนย้อนหลัง" สามารถเปิดดูย้อนหลังได้ตลอดเวลา
                 </p>
@@ -529,5 +724,6 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
     </div>
   );
 };
+
 
 

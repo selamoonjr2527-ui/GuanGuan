@@ -1,4 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { MonthlyShuttleReportV76 } from './MonthlyShuttleReportV76'; // SHUTTLE_REPORT_MENU4_V78
+import { ShuttleLedgerHistoryV76 } from './ShuttleLedgerHistoryV76';
+import { getSessionCourtCost } from '../utils/sessionCourts'; // DYNAMIC_SESSION_COURTS_V63A
 import { 
   TrendingUp, TrendingDown, DollarSign, Wallet, 
   Receipt, Users, Calendar, Award, ShieldAlert, Lock, 
@@ -15,6 +18,8 @@ import {
   deleteFundTransaction 
 } from '../utils/storage';
 import confetti from 'canvas-confetti';
+import { CourtProfitabilityV82 } from './CourtProfitabilityV82'; // COURT_PROFITABILITY_V82
+import { TreasuryViewV79 } from './TreasuryViewV79'; // TREASURY_ACCOUNTING_V79C
 import {
   PromotionRedemption,
   calculatePlayerFinalCharge,
@@ -55,6 +60,8 @@ interface FinancialStatsViewProps {
     note?: string
   ) => boolean;
   onResetAllShuttleData?: () => boolean;
+
+  matchHistory?: any[]; // MATCH_CAPACITY_ADVISOR_V83
 }
 
 export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
@@ -77,8 +84,37 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
   onSetShuttleReorderSettings,
   onStocktakeShuttles,
   onResetAllShuttleData,
+  matchHistory = [],
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'today' | 'history' | 'treasury' | 'shuttles'>('today');
+    // KEEP_FINANCE_SUBTAB_V80
+  // FinancialStatsView may be remounted by key={finance-\}.
+  // Remember the selected Finance menu so Save/Update stays on the same page.
+  const [activeSubTab, setActiveSubTab] = useState<'today' | 'history' | 'treasury' | 'shuttles' | 'shuttle_report' | 'court_report'>(() => {
+    if (typeof window === 'undefined') {
+      return 'today';
+    }
+
+    const saved = sessionStorage.getItem(
+      'guanguan_finance_active_subtab'
+    );
+
+    const allowed = ['today', 'history', 'treasury', 'shuttles', 'shuttle_report', 'court_report'];
+
+    if (saved && allowed.includes(saved)) {
+      return saved as 'today' | 'history' | 'treasury' | 'shuttles' | 'shuttle_report';
+    }
+
+    return 'today';
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    sessionStorage.setItem(
+      'guanguan_finance_active_subtab',
+      activeSubTab
+    );
+  }, [activeSubTab]);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
@@ -213,9 +249,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
 
   // 2. EXPENSES (รายจ่ายจริงของก๊วน)
   const venueCourtCost =
-    sessionConfig.courtCount *
-    sessionConfig.totalHours *
-    sessionConfig.courtHourlyRate;
+    getSessionCourtCost(sessionConfig);
 
   const inventorySummary = getShuttleInventorySummary(
     shuttlePurchases,
@@ -293,16 +327,58 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
   const lifetimeArchivedProfit = archives.reduce((acc, a) => acc + (a.netProfit ?? (a.totalRevenue - a.totalExpense)), 0);
   
   // Treasury balance
+  // TREASURY_ACCOUNTING_FORMULA_V79C
+  // Club Fund = CLOSED archive profit + real contributions
+  //             - real common expenses - organizer repayments.
+  // Current expectedNetProfit is NOT included until Archive.
+  const isLegacyOrganizerAdvanceDepositV79 = (tx: FundTransaction) => {
+    if (tx.type !== 'deposit') return false;
+
+    const text = String(tx.description || '').toLowerCase();
+
+    return (
+      text.includes('เงินซื้อลูก') ||
+      text.includes('ทดรอง') ||
+      (tx.category as string) === 'organizer_advance'
+    );
+  };
+
+  const isShuttleStockPurchaseV79 = (tx: FundTransaction) =>
+    tx.type === 'withdraw' &&
+    tx.category === 'shuttlecocks_bulk';
+
+  const isAdvanceRepaymentV79 = (tx: FundTransaction) =>
+    tx.type === 'withdraw' &&
+    (tx.category as string) === 'advance_repayment';
+
   const treasuryDeposits = transactions
-    .filter((t) => t.type === 'deposit')
-    .reduce((acc, t) => acc + t.amount, 0);
+    .filter(
+      (tx) =>
+        tx.type === 'deposit' &&
+        !isLegacyOrganizerAdvanceDepositV79(tx)
+    )
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
   const treasuryWithdrawals = transactions
-    .filter((t) => t.type === 'withdraw')
-    .reduce((acc, t) => acc + t.amount, 0);
-  const treasuryNet = treasuryDeposits - treasuryWithdrawals;
-  
-  // Total Central Fund in Hand (Total Lifetime Profit + Treasury Net)
-  const totalCentralFundReserve = lifetimeArchivedProfit + treasuryNet + expectedNetProfit;
+    .filter(
+      (tx) =>
+        tx.type === 'withdraw' &&
+        !isShuttleStockPurchaseV79(tx) &&
+        !isAdvanceRepaymentV79(tx)
+    )
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  const organizerAdvanceRepaymentsV79 = transactions
+    .filter(isAdvanceRepaymentV79)
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  const treasuryNet =
+    treasuryDeposits -
+    treasuryWithdrawals -
+    organizerAdvanceRepaymentsV79;
+
+  const totalCentralFundReserve =
+    lifetimeArchivedProfit + treasuryNet;
 
   // Averages
   const avgAttendance = totalArchivedSessions > 0
@@ -473,14 +549,14 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
       ...sessionConfig.extraExpenses.map((exp) => [`ค่าใช้จ่ายอื่นๆ: ${exp.name}`, '', exp.amount.toString()]),
       ['รวมรายจ่ายต้นทุนจริงทั้งหมด', '', totalRealExpense.toString()],
       [],
-      ['กำไร/ขาดทุนสุทธิคาดการณ์', expectedNetProfit >= 0 ? 'กำไรเข้ากองกลาง' : 'ขาดทุนเข้าเนื้อ', expectedNetProfit.toString()],
+      ['กำไร/ขาดทุนสุทธิคาดการณ์', expectedNetProfit >= 0 ? 'กำไรเข้ากองกลาง' : 'ขาดทุน', expectedNetProfit.toString()],
       ['กำไรเงินสดในมือปัจจุบัน', '', realizedCashProfit.toString()],
       [],
       ['=== 2. สถิติสะสมภาพรวม ==='],
       ['จำนวนรอบที่จัดก๊วนทั้งหมด', '', totalArchivedSessions.toString()],
-      ['รายรับสะสมรวมตลอดกาล', '', (lifetimeArchivedRevenue + totalExpectedRevenue).toString()],
-      ['รายจ่ายสะสมรวมตลอดกาล', '', (lifetimeArchivedExpense + totalRealExpense).toString()],
-      ['กำไรสะสมสุทธิเข้ากองกลาง', '', (lifetimeArchivedProfit + expectedNetProfit).toString()],
+      ['รายรับสะสมรวมตลอดกาล', '', lifetimeArchivedRevenue.toString()],
+      ['รายจ่ายสะสมรวมตลอดกาล', '', lifetimeArchivedExpense.toString()],
+      ['กำไรสะสมสุทธิเข้ากองกลาง', '', lifetimeArchivedProfit.toString()],
       ['เงินกองกลางสุทธิคงเหลือ', '', totalCentralFundReserve.toString()],
     ];
 
@@ -670,26 +746,35 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
             {totalCentralFundReserve.toLocaleString()}฿
           </span>
         </button>
-
         <button
           type="button"
-          onClick={() => setActiveSubTab('shuttles')}
+          onClick={() => setActiveSubTab('shuttle_report')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-            activeSubTab === 'shuttles'
-              ? 'bg-amber-400 text-slate-950 shadow'
+            activeSubTab === 'shuttle_report'
+              ? 'bg-cyan-500 text-slate-950 shadow'
               : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
           }`}
         >
-          <Package className="w-4 h-4" />
-          <span>4. คลังลูกแบด (Shuttle Stock)</span>
-          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-            isLowStock
-              ? 'bg-rose-950 text-rose-300'
-              : 'bg-slate-800 text-slate-300'
-          }`}>
-            {inventorySummary.stockQuantity} ลูก
-          </span>
+          <span>🪶</span>
+          <span>4. คลังลูกแบด Report</span>
         </button>
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('court_report')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+            activeSubTab === 'court_report'
+              ? 'bg-violet-500 text-white shadow'
+              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
+          }`}
+        >
+          <span>🏸</span>
+          <span>5. สนาม & Court Profitability</span>
+        </button>
+
+        {/* REMOVE_DUPLICATE_SHUTTLE_MENU_V78B
+    Stock management is available from the top "คลังลูกแบด" tab.
+    Reports remain in "4. คลังลูกแบด Report".
+*/}
       </div>
 
       {/* ============================================================ */}
@@ -740,7 +825,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                   <ArrowDownRight className="w-4 h-4 text-rose-400" />
                   <span>รายจ่ายต้นทุนจริง</span>
                 </span>
-                <span className="text-[11px] text-slate-400">จ่ายสนาม & ลูก</span>
+                <span className="text-[11px] text-slate-400">จ่ายจริงทั้งหมด</span>
               </div>
               <div className="text-3xl font-black text-white">
                 {totalRealExpense.toLocaleString()} <span className="text-xs font-normal text-slate-400">บาท</span>
@@ -781,6 +866,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
             </div>
 
             {/* 3. Net Profit / Loss */}
+            {/* LOSS_WORDING_CLEANUP_V75 */}
             <div className={`border rounded-2xl p-4 sm:p-5 shadow-sm space-y-2 ${
               expectedNetProfit >= 0
                 ? 'bg-gradient-to-br from-slate-900 to-emerald-950/40 border-emerald-500/30'
@@ -798,7 +884,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
                   expectedNetProfit >= 0 ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-rose-950 text-rose-300 border border-rose-800'
                 }`}>
-                  {expectedNetProfit >= 0 ? '🎉 กำไรเข้ากองกลาง' : '⚠️ ขาดทุนเข้าเนื้อ'}
+                  {expectedNetProfit >= 0 ? '🎉 กำไรเข้ากองกลาง' : '⚠️ ขาดทุน'}
                 </span>
               </div>
 
@@ -898,7 +984,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
               <div className="flex justify-between text-[10px] text-slate-500">
                 <span className="flex items-center gap-1">
                   <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
-                  <span>ต้นทุนสนาม & ค่าลูก</span>
+                  <span>ต้นทุนรวมจริง</span>
                 </span>
                 <span className="flex items-center gap-1">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
@@ -1027,7 +1113,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                     <th className="px-4 py-3">สมาชิก</th>
                     <th className="px-3 py-3 text-center">ประเภท</th>
                     <th className="px-3 py-3 text-center">เล่นไป</th>
-                    <th className="px-3 py-3 text-center">ลูกเพิ่ม</th>
+                    <th className="hidden">ลูกเพิ่ม</th>
                     <th className="px-3 py-3 text-right">ยอดที่ต้องจ่าย</th>
                     <th className="px-4 py-3 text-center">สถานะชำระ</th>
                   </tr>
@@ -1119,10 +1205,10 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                 <span className="text-emerald-400 font-bold">รวมทุกรอบ</span>
               </div>
               <div className="text-3xl font-black text-emerald-400">
-                +{(lifetimeArchivedProfit + expectedNetProfit).toLocaleString()} <span className="text-xs font-normal text-slate-400">฿</span>
+                +{lifetimeArchivedProfit.toLocaleString()} <span className="text-xs font-normal text-slate-400">฿</span>
               </div>
               <p className="text-[11px] text-slate-400">
-                กำไรสะสมจาก {archives.length + 1} รอบที่จัด
+                กำไรสะสมจาก {archives.length} รอบที่บันทึกแล้ว
               </p>
             </div>
 
@@ -1132,7 +1218,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                 <span className="text-slate-400 text-xs">Gross Inflow</span>
               </div>
               <div className="text-3xl font-black text-white">
-                {(lifetimeArchivedRevenue + totalExpectedRevenue).toLocaleString()} <span className="text-xs font-normal text-slate-400">฿</span>
+                {lifetimeArchivedRevenue.toLocaleString()} <span className="text-xs font-normal text-slate-400">฿</span>
               </div>
               <p className="text-[11px] text-slate-400">
                 เงินค่าคอร์ทและค่าลูกที่เก็บจากสมาชิกทั้งหมด
@@ -1145,7 +1231,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                 <span className="text-slate-400 text-xs">Gross Outflow</span>
               </div>
               <div className="text-3xl font-black text-rose-400">
-                {(lifetimeArchivedExpense + totalRealExpense).toLocaleString()} <span className="text-xs font-normal text-slate-400">฿</span>
+                {lifetimeArchivedExpense.toLocaleString()} <span className="text-xs font-normal text-slate-400">฿</span>
               </div>
               <p className="text-[11px] text-slate-400">
                 ค่าเช่าคอร์ทสนามและลูกแบดที่จ่ายจริงทั้งหมด
@@ -1175,7 +1261,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                   <span>ตารางบันทึกสถิติและผลกำไรแต่ละรอบ ({archives.length} ครั้งในคลังประวัติ)</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  ประวัติข้อมูลจะถูกบันทึกอัตโนมัติทุกครั้งที่ผู้จัดกดปุ่ม "บันทึกประวัติ & รีเซ็ตวันใหม่"
+                  แสดงเฉพาะรอบที่บันทึกเข้า Archive แล้ว • รอบปัจจุบันจะยังไม่รวมในรายรับ รายจ่าย กำไร หรือสถิติสะสม จนกด "บันทึกประวัติ & รีเซ็ตวันใหม่"
                 </p>
               </div>
 
@@ -1206,39 +1292,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/80">
-                  {/* Current ongoing session row */}
-                  <tr className="bg-emerald-950/20 hover:bg-emerald-950/30 transition border-l-4 border-l-emerald-500">
-                    <td className="px-4 py-3 font-bold text-emerald-400">
-                      {sessionConfig.date} <span className="text-[10px] bg-emerald-950 px-1.5 py-0.2 rounded border border-emerald-800 ml-1">วันนี้</span>
-                    </td>
-                    <td className="px-3 py-3 text-white font-medium">
-                      <div>{sessionConfig.sessionTitle}</div>
-                      <div className="text-[10px] text-slate-400">{sessionConfig.venueName}</div>
-                    </td>
-                    <td className="px-3 py-3 text-center text-slate-200 font-semibold">
-                      {eligiblePlayers.length} คน
-                    </td>
-                    <td className="px-3 py-3 text-center text-slate-200">
-                      {sessionConfig.shuttlecocksUsedTotal} ลูก
-                    </td>
-                    <td className="px-3 py-3 text-right text-emerald-400 font-bold">
-                      {totalExpectedRevenue.toLocaleString()} ฿
-                    </td>
-                    <td className="px-3 py-3 text-right text-rose-400 font-bold">
-                      {totalRealExpense.toLocaleString()} ฿
-                    </td>
-                    <td className="px-3 py-3 text-right font-black">
-                      <span className={`px-2 py-0.5 rounded-full text-[11px] ${
-                        expectedNetProfit >= 0 ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-rose-950 text-rose-300 border border-rose-800'
-                      }`}>
-                        {expectedNetProfit >= 0 ? `+${expectedNetProfit.toLocaleString()}` : expectedNetProfit.toLocaleString()} ฿
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center text-slate-400 text-[11px]">
-                      กำลังดำเนินการ
-                    </td>
-                  </tr>
-
+                  {/* HISTORY_ARCHIVE_ONLY_V69: current live session intentionally excluded */}
                   {/* Past archives rows */}
                   {archives.map((item) => {
                     const profit = item.netProfit ?? (item.totalRevenue - item.totalExpense);
@@ -1284,9 +1338,69 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
       )}
 
       {/* ============================================================ */}
+      {/* ============================================================ */}
+      {/* SUB-TAB 4: SHUTTLE STOCK REPORT */}
+      {/* ============================================================ */}
+      {activeSubTab === 'shuttle_report' && (
+        <div
+          className="space-y-5"
+          data-guanguan-shuttle-report-menu4-v78
+        >
+          {/* SHUTTLE_REPORT_MENU4_CONTENT_V78 */}
+          <div className="rounded-2xl border border-cyan-800/50 bg-cyan-950/15 p-4">
+            <h3 className="text-base font-black text-white">
+              🪶 คลังลูกแบด Report
+            </h3>
+            <p className="mt-1 text-xs text-slate-400">
+              Monthly Report • ต้นทุน • รายรับค่าลูก • กำไร/ขาดทุน • ประวัติการใช้ลูก
+            </p>
+          </div>
+
+          <MonthlyShuttleReportV76
+            purchases={shuttlePurchases as any[]}
+            usages={shuttleUsageLedger as any[]}
+            defaultPiecesPerTube={
+              shuttleDefaultPiecesPerTube
+            }
+            sessionDate={sessionConfig.date}
+          />
+
+          <ShuttleLedgerHistoryV76
+            purchases={shuttlePurchases as any[]}
+            usages={shuttleUsageLedger as any[]}
+            adjustments={
+              shuttleStockAdjustments as any[]
+            }
+          />
+        </div>
+      )}
+
+      {/* ============================================================ */}
       {/* SUB-TAB 3: CLUB TREASURY FUND (กองกลางก๊วน) */}
       {/* ============================================================ */}
+            {/* TREASURY_ACCOUNTING_V79C */}
+      {/* COURT_PROFITABILITY_V82 */}
+      {activeSubTab === 'court_report' && (
+        <CourtProfitabilityV82
+          archives={archives}
+          sessionConfig={sessionConfig}
+          players={players}
+          matchHistory={matchHistory}
+        />
+      )}
       {activeSubTab === 'treasury' && (
+        <TreasuryViewV79
+          archives={archives}
+          transactions={transactions}
+          shuttlePurchases={shuttlePurchases as any[]}
+          shuttleUsageLedger={shuttleUsageLedger as any[]}
+          currentSessionProfit={expectedNetProfit}
+          onRefreshTransactions={() =>
+            setTransactions(loadFundTransactions())
+          }
+        />
+      )}
+{false && activeSubTab === 'treasury' && (
         <div className="space-y-6">
           {/* Treasury Summary Card */}
           <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/70 border border-indigo-500/30 rounded-3xl p-6 shadow-md space-y-4">
@@ -1316,7 +1430,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
               <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800">
                 <span className="text-slate-400 block">กำไรสะสมจากก๊วน:</span>
                 <span className="text-emerald-400 font-bold text-sm">
-                  +{(lifetimeArchivedProfit + expectedNetProfit).toLocaleString()} ฿
+                  +{lifetimeArchivedProfit.toLocaleString()} ฿
                 </span>
               </div>
               <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800">
@@ -2458,3 +2572,4 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
     </div>
   );
 };
+
