@@ -271,7 +271,8 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* 6. Financial Summary & Profit/Loss (Organizer Only - Hidden from members) */}
           {isOrganizerMode && (
-            <button
+  <>
+    <button
               type="button"
               onClick={() => onSelectTab('finance')}
               className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition whitespace-nowrap shrink-0 ${
@@ -284,7 +285,23 @@ export const Header: React.FC<HeaderProps> = ({
               <span>6. สรุปเงิน</span>
               <span className={`text-[11px] ${currentTab === 'finance' ? 'text-slate-950' : 'text-amber-400'}`} title="เฉพาะผู้จัด">👑</span>
             </button>
-          )}
+
+    {/* TOOLS_TOP_MENU_V68C */}
+    <button
+              type="button"
+              onClick={() => onSelectTab('tools')}
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition whitespace-nowrap shrink-0 ${
+                currentTab === 'tools'
+                  ? 'bg-amber-500 text-slate-950 font-semibold shadow-sm'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <TrendingUp className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${currentTab === 'tools' ? 'text-slate-950' : 'text-amber-400'}`} />
+              <span>7. Tools</span>
+              <span className={`text-[11px] ${currentTab === 'tools' ? 'text-slate-950' : 'text-amber-400'}`} title="เฉพาะผู้จัด">🧰</span>
+            </button>
+  </>
+)}
         </nav>
       </div>
     </header>

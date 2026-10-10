@@ -1,4 +1,5 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
+import { getSessionCourtCost } from '../utils/sessionCourts'; // DYNAMIC_SESSION_COURTS_V63A
 import QRCode from 'qrcode';
 import confetti from 'canvas-confetti';
 import { 
@@ -12,7 +13,8 @@ import { PaymentConfirmModal } from './PaymentConfirmModal';
 import { createPendingPaymentTransaction } from '../payment/paymentTransactions';
 import { MemberPaymentAction } from './MemberPaymentAction';
 import { OrganizerPaymentVerificationPanel } from './OrganizerPaymentVerificationPanel';
-import { OrganizerBillingAdjustments } from './OrganizerBillingAdjustments';
+import { OrganizerBillingAdjustments } from './OrganizerBillingAdjustments';
+import { BillingExportView } from './BillingExportView'; // BILLING_EXPORT_V50B
 import {
   PromotionRedemption,
   calculatePlayerFinalCharge,
@@ -63,6 +65,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
   const [copiedPromptPay, setCopiedPromptPay] = useState(false);
   const [selectedPlayerForQr, setSelectedPlayerForQr] = useState<Player | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
+  const [showBillingExport, setShowBillingExport] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   // ACTIVE_MATCH_BILLING_LOCK_V43
   const activePlayerIdSet = new Set(activePlayerIds);
@@ -118,7 +121,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
   const extraExpensesTotal = sessionConfig.extraExpenses.reduce((acc, curr) => acc + curr.amount, 0);
 
   // Venue-based totals (for equal / per_game / fixed)
-  const venueCourtTotal = sessionConfig.courtCount * sessionConfig.totalHours * sessionConfig.courtHourlyRate;
+  const venueCourtTotal = getSessionCourtCost(sessionConfig);
   const venueShuttleTotal = sessionConfig.shuttlecocksUsedTotal * sessionConfig.shuttlecockPrice;
   const venueGrandTotal = venueCourtTotal + venueShuttleTotal + extraExpensesTotal;
 
@@ -449,46 +452,6 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
     setTimeout(() => setCopiedLine(false), 2500);
   };
 
-
-  // Export to CSV
-  const handleExportCsv = () => {
-    const rows = [
-      ['ชื่อเล่น', 'ชื่อจริง', 'เบอร์โทร', 'ระดับมือ', 'จำนวนเกม', 'จำนวนแมตช์', 'ลูกซื้อเพิ่ม (ลูก)', 'ยอดที่ต้องจ่าย (บาท)', 'สถานะการจ่าย'],
-      ...eligiblePlayers.map((p) => [
-        p.nickname,
-        p.fullName || '',
-        p.phone || '',
-        p.skillLevel,
-        (p.gamesPlayed || 0).toString(),
-        (p.matchesPlayed || 0).toString(),
-        (p.extraShuttlecocks || 0).toString(),
-        calculatePlayerCost(p).toString(),
-        p.paid ? 'ชำระแล้ว' : 'รอชำระ',
-      ]),
-      [],
-      ['สรุปค่าใช้จ่าย'],
-      isClubRate
-        ? ['ค่าคอร์ทสมาชิกทั้งหมด', clubCourtTotal.toString()]
-        : ['ค่าคอร์ทสนาม', venueCourtTotal.toString()],
-      isClubRate
-        ? ['ค่าลูกตามแมตช์', clubShuttleMatchTotal.toString()]
-        : ['ค่าลูกขนไก่', venueShuttleTotal.toString()],
-      isClubRate
-        ? ['ค่าลูกซื้อเพิ่ม', clubExtraShuttleTotal.toString()]
-        : [],
-      ['ค่าใช้จ่ายอื่นๆ', extraExpensesTotal.toString()],
-      ['ยอดรวมทั้งหมด', grandTotal.toString()],
-    ];
-
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + rows.map((e) => e.join(',')).join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `badminton_billing_${sessionConfig.date}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
   const totalCollected = eligiblePlayers
     .filter((p) => p.paid)
@@ -1290,14 +1253,7 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
                 <span>{copiedLine ? 'คัดลอกสำเร็จแล้ว!' : 'คัดลอกส่งเข้า LINE กลุ่ม 📱'}</span>
               </button>
 
-              <button
-                type="button"
-                onClick={handleExportCsv}
-                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
-                title="ส่งออกไฟล์ CSV"
-              >
-                <Download className="w-4 h-4" />
-              </button>
+              {/* BILLING_NO_EXPORT_V68G */}
             </>
           )}
         </div>
@@ -1325,6 +1281,29 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
       )}
 
 
+
+      {/* BILLING_EXPORT_TRIGGER_V50B */}
+      {isOrganizerMode && (
+        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-cyan-800/50 bg-cyan-950/20 p-4 sm:flex-row sm:items-center sm:justify-between" style={{ display: 'none' }} data-billing-export-hidden="BILLING_EXPORT_HIDDEN_V68K">
+          <div>
+            <div className="text-sm font-black text-white">📤 Export รายชื่อ / ค่าใช้จ่าย</div>
+            <div className="mt-0.5 text-[11px] text-slate-400">ยอดรายคน + สถานะชำระ + Timestamp ตอนแจ้งชำระและตอนยืนยันรับเงิน</div>
+          </div>
+          <button type="button" onClick={() => setShowBillingExport(true)} className="shrink-0 rounded-xl bg-cyan-500 px-4 py-2.5 text-xs font-black text-slate-950 transition hover:bg-cyan-400">
+            เปิดหน้า Export
+          </button>
+        </div>
+      )}
+
+      {isOrganizerMode && showBillingExport && (
+        <BillingExportView
+          sessionDate={sessionConfig.date}
+          players={eligiblePlayers}
+          calculatePlayerCost={calculatePlayerCost}
+          getPlayerBreakdownText={getPlayerBreakdownText}
+          onClose={() => setShowBillingExport(false)}
+        />
+      )}
 
       {/* Players Billing Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
@@ -1685,6 +1664,8 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
     </div>
   );
 };
+
+
 
 
 

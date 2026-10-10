@@ -1,4 +1,4 @@
-﻿import {
+import {
   collection,
   doc,
   getDoc,
@@ -106,7 +106,19 @@ export async function createPendingPaymentTransaction(
   const existingSnapshot = await getDoc(paymentRef);
 
   if (existingSnapshot.exists()) {
-    return invoiceId;
+    const existingData = existingSnapshot.data() as any;
+    const existingStatus = String(existingData?.status || 'pending');
+
+    // DISCARD_SESSION_PAYMENT_RECREATE_V72C
+    // A discarded/test invoice is reusable for a real session later
+    // on the same date. Recreate it as a fresh pending invoice.
+    if (
+      existingStatus !== 'cancelled' &&
+      existingStatus !== 'failed' &&
+      existingStatus !== 'expired'
+    ) {
+      return invoiceId;
+    }
   }
 
   await setDoc(paymentRef, {
@@ -247,4 +259,50 @@ export function subscribeToPaymentTransaction(
     },
     onError
   );
+}
+
+// DISCARD_SESSION_PAYMENT_CANCEL_V72C
+// Security rules may allow organizer UPDATE but not DELETE.
+// Keep the old function name for compatibility with App.tsx,
+// but cancel the invoice instead of deleting it.
+export async function deleteSessionPaymentTransactions(
+  sessionDate: string,
+  playerIds: string[]
+): Promise<number> {
+  const ids = Array.from(
+    new Set(
+      (playerIds || [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  let cancelled = 0;
+
+  for (const playerId of ids) {
+    const invoiceId = buildPaymentInvoiceId(sessionDate, playerId);
+
+    const paymentRef = doc(
+      db,
+      'clubs',
+      'guanguan',
+      'paymentTransaction',
+      invoiceId
+    );
+
+    const snapshot = await getDoc(paymentRef);
+
+    if (!snapshot.exists()) continue;
+
+    await updateDoc(paymentRef, {
+      status: 'cancelled',
+      cancellationReason: 'discard_session',
+      cancelledAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
+    cancelled += 1;
+  }
+
+  return cancelled;
 }

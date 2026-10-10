@@ -19,6 +19,7 @@ interface PreMatchViewProps {
   currentMemberId?: string | null;
   confirmedPreMatch?: ConfirmedPreMatch | null;
   confirmedPreMatch2?: ConfirmedPreMatch | null;
+  confirmedPreMatch3?: ConfirmedPreMatch | null; // PREMATCH_3_PUBLIC_V64
   onConfirmPreMatch?: (preMatch: ConfirmedPreMatch, slot: 1 | 2) => void;
   onCancelPreMatch?: (slot: 1 | 2) => void;
   onRemovePlayerFromPreMatch?: (playerId: string, slot: 1 | 2) => void;
@@ -30,6 +31,8 @@ interface PreMatchViewProps {
   onToggleWalkInPenalty?: (playerId: string) => void;
   onToggleRegistrationType?: (playerId: string) => void;
   onPromptIdentifyMember?: () => void;
+  organizerDisplayOnly?: boolean;
+  organizerManagerOnly?: boolean; // ORGANIZER_MANAGER_ONLY_V62F
 }
 
 export const PreMatchView: React.FC<PreMatchViewProps> = ({
@@ -40,6 +43,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
   currentMemberId,
   confirmedPreMatch,
   confirmedPreMatch2,
+  confirmedPreMatch3,
   onConfirmPreMatch,
   onCancelPreMatch,
   onRemovePlayerFromPreMatch,
@@ -51,6 +55,8 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
   onToggleWalkInPenalty,
   onToggleRegistrationType,
   onPromptIdentifyMember,
+  organizerDisplayOnly = false,
+  organizerManagerOnly = false,
 }) => {
   // Live ticking timer for realtime minute/second counters
   const [currentTime, setCurrentTime] = useState(Date.now());
@@ -900,8 +906,176 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
     });
   }, [waitingQueue, filterSearch]);
 
-  return (
+  
+  // ORGANIZER_QUEUE_DISPLAY_ONLY_V62D
+  if (isOrganizerMode && organizerDisplayOnly) {
+    const availableOnly = activeCourtsData.filter(
+      (court) => court.isAvailable
+    );
+
+    const renderConfirmedPreMatch = (
+      title: string,
+      courtName: string,
+      preMatch: ConfirmedPreMatch | null
+    ) => {
+      if (!preMatch) {
+        return (
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-black text-white">{title}</div>
+                <div className="mt-1 text-[11px] text-slate-400">
+                  สำหรับ {courtName}
+                </div>
+              </div>
+              <span className="rounded-full border border-amber-700/50 bg-amber-950/30 px-2.5 py-1 text-[10px] font-black text-amber-300">
+                รอจัดคิว
+              </span>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-950/50 px-4 py-6 text-center text-xs text-slate-400">
+              ยังไม่มี Pre-Match ที่ยืนยัน
+            </div>
+          </div>
+        );
+      }
+
+      const teamA = preMatch.teamA.map(getPlayer).filter(Boolean) as Player[];
+      const teamB = preMatch.teamB.map(getPlayer).filter(Boolean) as Player[];
+
+      return (
+        <div className="rounded-2xl border border-emerald-700/50 bg-slate-900 p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <div>
+              <div className="text-sm font-black text-white">{title}</div>
+              <div className="mt-1 text-[11px] text-slate-400">
+                สำหรับ {courtName}
+              </div>
+            </div>
+            <span className="rounded-full bg-emerald-500 px-2.5 py-1 text-[10px] font-black text-slate-950">
+              CONFIRMED
+            </span>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-blue-900/50 bg-slate-950/70 p-3">
+              <div className="mb-2 text-[10px] font-black uppercase tracking-wider text-blue-400">
+                Team A
+              </div>
+              <div className="space-y-1.5">
+                {teamA.map((player) => (
+                  <div
+                    key={player.id}
+                    className="rounded-lg bg-slate-900 px-2.5 py-2 text-xs font-bold text-white"
+                  >
+                    {player.nickname}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-rose-900/50 bg-slate-950/70 p-3">
+              <div className="mb-2 text-[10px] font-black uppercase tracking-wider text-rose-400">
+                Team B
+              </div>
+              <div className="space-y-1.5">
+                {teamB.map((player) => (
+                  <div
+                    key={player.id}
+                    className="rounded-lg bg-slate-900 px-2.5 py-2 text-xs font-bold text-white"
+                  >
+                    {player.nickname}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div className="space-y-5">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-base font-black text-white">
+                1. คิวรอเล่น
+              </div>
+              <div className="mt-1 text-xs text-slate-400">
+                สำหรับผู้จัด หน้านี้เป็น Display Only — การจัด Pre-Match และจัดคนลงสนามให้ทำที่หน้า “จัดคอร์ท”
+              </div>
+            </div>
+            <span className="rounded-full border border-cyan-800/50 bg-cyan-950/35 px-3 py-1.5 text-[10px] font-black text-cyan-300">
+              👀 DISPLAY ONLY
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 text-sm font-black text-white">
+            🟢 คอร์ทว่าง
+          </div>
+
+          {availableOnly.length > 0 ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {availableOnly.map((court) => (
+                <div
+                  key={court.courtId}
+                  className="rounded-2xl border border-emerald-500/45 bg-emerald-950/20 p-4"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-base font-black text-white">
+                        {court.courtName}
+                      </div>
+                      <div className="mt-1 text-xs text-emerald-300">
+                        พร้อมรับ Match ถัดไป
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-emerald-500 px-3 py-1 text-[10px] font-black text-slate-950">
+                      ว่าง
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-6 text-center text-xs text-slate-400">
+              ขณะนี้ไม่มีคอร์ทว่าง
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div className="mb-2 text-sm font-black text-white">
+            🏸 Pre-Match
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {renderConfirmedPreMatch(
+              'Pre-Match #1',
+              sessionConfig.courtNames[0] || 'คอร์ท 1',
+              safeConfirmedPreMatch1
+            )}
+
+            {renderConfirmedPreMatch(
+              'Pre-Match #2',
+              sessionConfig.courtNames[1] || 'คอร์ท 2',
+              safeConfirmedPreMatch2
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+return (
     <div className="space-y-6">
+      {!organizerManagerOnly && (
+        <>
+      {!organizerManagerOnly && (
+        <>
       {/* Top Banner with TV Mode Toggle & Court Overview */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm">
         <div>
@@ -945,6 +1119,12 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
         </div>
       </div>
 
+        </>
+      )}
+
+        </>
+      )}
+
       {/* Notice Banner for Member Mode actions */}
       {actionNotice && (
         <div className="bg-amber-950/80 border border-amber-500/50 rounded-xl p-3.5 text-xs text-amber-200 flex items-center justify-between gap-2 shadow-md">
@@ -962,6 +1142,10 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
         </div>
       )}
 
+      {!organizerManagerOnly && (
+        <>
+      {!organizerManagerOnly && (
+        <>
       {/* SECTION 1: ACTIVE COURTS (Courts 1 & 2 - Visible to all members & organizers) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {activeCourtsData.map((court, idx) => {
@@ -1100,6 +1284,12 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
           );
         })}
       </div>
+
+        </>
+      )}
+
+        </>
+      )}
 
       {/* SECTION 2: DUAL PRE-MATCH NEXT UP QUEUES (For 2 Courts)
           Requirement:
@@ -1252,8 +1442,9 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                 </div>
               )}
 
+              {/* PREMATCH_COURT_VIEW_V71D */}
               {/* Lineup Team A vs Team B */}
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2">
                 {/* Team A */}
                 <div className="bg-slate-950 border border-blue-900/40 rounded-xl p-2.5 space-y-2">
                   <span className="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider block">
@@ -1292,6 +1483,12 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                       );
                     })}
                   </div>
+                </div>
+
+                <div className="flex items-center justify-center px-0.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 bg-slate-950 text-[9px] font-black text-slate-400">
+                    VS
+                  </span>
                 </div>
 
                 {/* Team B */}
@@ -1597,7 +1794,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
               )}
 
               {/* Lineup Team A vs Team B */}
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2">
                 {/* Team A */}
                 <div className="bg-slate-950 border border-blue-900/40 rounded-xl p-2.5 space-y-2">
                   <span className="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider block">
@@ -1636,6 +1833,12 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                       );
                     })}
                   </div>
+                </div>
+
+                <div className="flex items-center justify-center px-0.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 bg-slate-950 text-[9px] font-black text-slate-400">
+                    VS
+                  </span>
                 </div>
 
                 {/* Team B */}
@@ -1855,6 +2058,77 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
           )}
         </div>
 
+
+        {/* PREMATCH_3_PUBLIC_V64 */}
+        {!isOrganizerMode && (
+          <div className="mt-4">
+            {confirmedPreMatch3 ? (
+              <div className="rounded-2xl border-2 border-violet-500/60 bg-gradient-to-r from-violet-950/40 via-slate-900 to-fuchsia-950/20 p-4 sm:p-5 shadow-lg">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-500/20 text-sm font-black text-violet-300">
+                      3️⃣
+                    </span>
+                    <div>
+                      <div className="text-sm sm:text-base font-extrabold text-white">Pre-Match #3</div>
+                      <div className="mt-0.5 text-[11px] text-violet-300">
+                        Confirmed {formatConfirmedTime(confirmedPreMatch3.confirmedAt)}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="rounded-full bg-violet-500 px-2.5 py-1 text-[10px] font-black text-white">
+                    CONFIRMED
+                  </span>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2.5">
+                  <div className="rounded-xl border border-blue-900/40 bg-slate-950 p-2.5">
+                    <div className="mb-2 text-[10px] font-black uppercase tracking-wider text-blue-400">Team A</div>
+                    <div className="space-y-1.5">
+                      {confirmedPreMatch3.teamA.map((id) => {
+                        const p = getPlayer(id);
+                        if (!p) return null;
+                        return (
+                          <div key={id} className="rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-2 text-xs font-bold text-white">
+                            {p.nickname}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-rose-900/40 bg-slate-950 p-2.5">
+                    <div className="mb-2 text-[10px] font-black uppercase tracking-wider text-rose-400">Team B</div>
+                    <div className="space-y-1.5">
+                      {confirmedPreMatch3.teamB.map((id) => {
+                        const p = getPlayer(id);
+                        if (!p) return null;
+                        return (
+                          <div key={id} className="rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-2 text-xs font-bold text-white">
+                            {p.nickname}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4 sm:p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-extrabold text-white">Pre-Match #3</div>
+                    <div className="mt-1 text-[11px] text-slate-400">รอผู้จัดยืนยันคิวลำดับที่ 3</div>
+                  </div>
+                  <span className="rounded-full border border-slate-700 bg-slate-800 px-2.5 py-1 text-[10px] font-bold text-slate-400">
+                    รอ Confirm
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ORGANIZER STAGING & PAIRING PANEL */}
         {isOrganizerMode && isEditingSlot !== null && (
           <div
@@ -1972,14 +2246,14 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
 
             {/* Interactive Player Slots with Swap Pickers */}
             {currentStagingLineup ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-3">
                 {/* Team A Slots */}
                 <div className="bg-slate-950 border border-blue-900/50 rounded-xl p-4 space-y-3">
                   <span className="text-xs font-bold text-blue-400 uppercase tracking-wider block">
                     ทีม A (2 คน)
                   </span>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3">
                     {/* Slot A1 */}
                     <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
                       <div className="flex items-center gap-2">
@@ -2070,13 +2344,19 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
                   </div>
                 </div>
 
+                <div className="flex items-center justify-center px-0.5">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-700 bg-slate-950 text-[9px] font-black text-slate-400">
+                    VS
+                  </span>
+                </div>
+
                 {/* Team B Slots */}
                 <div className="bg-slate-950 border border-rose-900/50 rounded-xl p-4 space-y-3">
                   <span className="text-xs font-bold text-rose-400 uppercase tracking-wider block">
                     ทีม B (2 คน)
                   </span>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3">
                     {/* Slot B1 */}
                     <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
                       <div className="flex items-center gap-2">
@@ -2434,7 +2714,7 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
       )}
 
       {/* Resting Players List (if any) */}
-      {restingPlayers.length > 0 && (
+      {!organizerManagerOnly && restingPlayers.length > 0 && (
         <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
             <Coffee className="w-4 h-4 text-amber-400" />
@@ -2488,3 +2768,6 @@ export const PreMatchView: React.FC<PreMatchViewProps> = ({
     </div>
   );
 };
+
+
+

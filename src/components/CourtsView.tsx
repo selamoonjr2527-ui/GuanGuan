@@ -15,6 +15,9 @@ interface CourtsViewProps {
   hideSkillFromMembers?: boolean;
   confirmedPreMatch?: ConfirmedPreMatch | null;
   confirmedPreMatch2?: ConfirmedPreMatch | null;
+  singleColumnCourts?: boolean; // COURTS_TWO_COLUMN_LAYOUT_V64
+  hideWaitingQueue?: boolean;
+  hidePreMatchQuickLoad?: boolean;
   onStartMatch: (courtId: string, courtName: string, teamA: [string, string], teamB: [string, string]) => void;
   onFinishMatch: (
     matchId: string,
@@ -51,6 +54,9 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
   hideSkillFromMembers = true,
   confirmedPreMatch,
   confirmedPreMatch2,
+  singleColumnCourts = false,
+  hideWaitingQueue = false,
+  hidePreMatchQuickLoad = false,
   onStartMatch,
   onFinishMatch,
   onCancelMatch,
@@ -174,7 +180,7 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
       </div>
 
       {/* Courts Visual Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className={singleColumnCourts ? "grid grid-cols-1 gap-5" : "grid grid-cols-1 lg:grid-cols-2 gap-5"}>
         {sessionConfig.courtNames.map((courtName, idx) => {
           const courtId = `court-${idx + 1}`;
           const activeMatch = activeMatches.find((m) => m.courtId === courtId || m.courtName === courtName);
@@ -199,6 +205,8 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
 
                 {isOrganizerMode ? (
                   <div className="flex flex-col gap-2 w-full max-w-xs">
+                    {!hidePreMatchQuickLoad && (
+                      <>
                     {/* Quick Load Pre-Match 1 if exists */}
                     {confirmedPreMatch && (
                       <button
@@ -235,6 +243,9 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
                         <Play className="w-3.5 h-3.5 fill-current" />
                         <span>🚀 ส่ง Pre-Match 2 ลงคอร์ทนี้</span>
                       </button>
+                    )}
+
+                      </>
                     )}
 
                     <button
@@ -594,6 +605,8 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
         })}
       </div>
 
+      {!hideWaitingQueue && (
+        <>
       {/* Waiting List & Queue */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -642,6 +655,9 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
           )}
         </div>
       </div>
+
+        </>
+      )}
 
       {/* Recent Match History */}
       {matchHistory.length > 0 && (
@@ -776,6 +792,8 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
               </button>
             </div>
 
+            {!hidePreMatchQuickLoad && (
+              <>
             {/* Confirmed Pre-Match Quick Load Banners (1 & 2) */}
             {confirmedPreMatch && (
               <div className="bg-blue-950/40 border border-blue-500/40 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -825,6 +843,9 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
                   ใช้คิว Pre-Match 2
                 </button>
               </div>
+            )}
+
+              </>
             )}
 
             {/* Match Preview */}

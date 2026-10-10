@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+*.bak-*
+.firebase/*.cache
+apply_*.ps1

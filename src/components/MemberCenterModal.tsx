@@ -40,6 +40,7 @@ import {
   calculatePlayerBaseCharge,
   getSessionPromotionDiscountTotal,
 } from '../utils/promotionRules';
+import { loadSessionArchives } from '../utils/storage'; // HISTORICAL_MEMBER_COST_V67
 
 interface Props {
   isOpen: boolean;
@@ -72,6 +73,14 @@ const NEW_RULE = (): PromotionRule => ({
   updatedAt: Date.now(),
 });
 
+
+const formatHistoryDateV67 = (value: string) => {
+  if (!value) return '-';
+  const [year, month, day] = value.split('-');
+  if (!year || !month || !day) return value;
+  return `${day}/${month}/${year}`;
+};
+
 export const MemberCenterModal: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -97,6 +106,17 @@ export const MemberCenterModal: React.FC<Props> = ({
   const [resetPin, setResetPin] = useState('');
   const [resetPinConfirm, setResetPinConfirm] = useState('');
   const [resetPinError, setResetPinError] = useState('');
+
+  // HISTORICAL_MEMBER_COST_V67
+  // Archive is the source of truth for previous-session cost/history.
+  // Keep it separate from current-session Billing so historical matches
+  // never increase today's payable amount.
+  const historicalArchives = useMemo(() => {
+    if (!isOpen) return [];
+    return loadSessionArchives()
+      .filter((archive) => archive.archiveDate !== sessionDate)
+      .sort((a, b) => b.archiveDate.localeCompare(a.archiveDate));
+  }, [isOpen, sessionDate]);
 
   const statsRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -139,11 +159,136 @@ export const MemberCenterModal: React.FC<Props> = ({
           promotionRedemptions
         );
 
+        const historicalSessions = historicalArchives
+          .map((archive) => {
+            const snapshot =
+              archive.playersSnapshot.find((item) => item.id === player.id) ||
+              archive.playersSnapshot.find(
+                (item) =>
+                  item.nickname.trim().toLowerCase() ===
+                  player.nickname.trim().toLowerCase()
+              );
+
+            if (!snapshot) return null;
+
+            const matchCount = Math.max(0, Number(snapshot.matchesPlayed || 0));
+            const gamesPlayed = Math.max(0, Number(snapshot.gamesPlayed || 0));
+            const extraShuttleCount = Math.max(
+              0,
+              Number(snapshot.extraShuttlecocks || 0)
+            );
+
+            const hasActivity =
+              matchCount > 0 ||
+              gamesPlayed > 0 ||
+              extraShuttleCount > 0 ||
+              Boolean(snapshot.paid) ||
+              snapshot.status === 'left';
+
+            if (!hasActivity) return null;
+
+            const pricing = (archive as any).historicalPricing || {};
+            const shuttleRate = Math.max(
+              0,
+              Number(
+                pricing.shuttleFeePerMatchPerPerson ??
+                  sessionConfig.shuttlecockFeePerMatchPerPerson ??
+                  25
+              )
+            );
+            const memberCourtFee = Math.max(
+              0,
+              Number(
+                pricing.memberCourtFee ??
+                  sessionConfig.memberCourtFee ??
+                  110
+              )
+            );
+            const extraShuttleRate = Math.max(
+              0,
+              Number(
+                pricing.extraShuttlecockPrice ??
+                  sessionConfig.extraShuttlecockPrice ??
+                  25
+              )
+            );
+
+            const shuttleFee = matchCount * shuttleRate;
+            const extraShuttleFee = extraShuttleCount * extraShuttleRate;
+            const sourceFinalCharge = Number(
+              (snapshot as any).historicalSourceFinalCharge
+            );
+            const finalCharge = Number.isFinite(sourceFinalCharge)
+              ? Math.max(0, sourceFinalCharge)
+              : typeof snapshot.paidAmount === 'number' &&
+                Number.isFinite(snapshot.paidAmount)
+              ? Math.max(0, snapshot.paidAmount)
+              : memberCourtFee + shuttleFee + extraShuttleFee;
+
+            return {
+              archiveDate: archive.archiveDate,
+              sessionTitle: archive.sessionTitle,
+              venueName: archive.venueName,
+              matchCount,
+              gamesPlayed,
+              shuttleRate,
+              shuttleFee,
+              extraShuttleCount,
+              extraShuttleRate,
+              extraShuttleFee,
+              memberCourtFee,
+              finalCharge,
+              paid: Boolean(snapshot.paid),
+            };
+          })
+          .filter(
+            (
+              item
+            ): item is NonNullable<typeof item> => item !== null
+          );
+
+        const historicalMatchCount = historicalSessions.reduce(
+          (sum, item) => sum + item.matchCount,
+          0
+        );
+        const historicalBaseShuttleFee = historicalSessions.reduce(
+          (sum, item) => sum + item.shuttleFee,
+          0
+        );
+        const historicalExtraShuttleFee = historicalSessions.reduce(
+          (sum, item) => sum + item.extraShuttleFee,
+          0
+        );
+        const historicalExtraShuttleCount = historicalSessions.reduce(
+          (sum, item) => sum + item.extraShuttleCount,
+          0
+        );
+        // HISTORICAL_TOTAL_COST_V67B
+        // Shuttle total must include normal Match shuttle fee + Extra Shuttle.
+        const historicalShuttleFee =
+          historicalBaseShuttleFee + historicalExtraShuttleFee;
+        const historicalTotalCharge = historicalSessions.reduce(
+          (sum, item) => sum + item.finalCharge,
+          0
+        );
+        const lastHistoricalDate =
+          historicalSessions.length > 0
+            ? historicalSessions[0].archiveDate
+            : undefined;
+
         return {
           player,
           stats,
           availablePromos,
           baseCharge,
+          historicalSessions,
+          historicalMatchCount,
+          historicalBaseShuttleFee,
+          historicalExtraShuttleFee,
+          historicalExtraShuttleCount,
+          historicalShuttleFee,
+          historicalTotalCharge,
+          lastHistoricalDate,
           promotionDiscount: Math.min(baseCharge.total, discount),
           finalCharge: Math.max(0, baseCharge.total - discount),
         };
@@ -161,6 +306,7 @@ export const MemberCenterModal: React.FC<Props> = ({
     promotionRules,
     promotionRedemptions,
     sessionConfig,
+    historicalArchives,
   ]);
 
   const trashRows = useMemo(() => {
@@ -288,6 +434,14 @@ export const MemberCenterModal: React.FC<Props> = ({
                       stats,
                       availablePromos,
                       baseCharge,
+                      historicalSessions,
+                      historicalMatchCount,
+                      historicalBaseShuttleFee,
+                      historicalExtraShuttleFee,
+                      historicalExtraShuttleCount,
+                      historicalShuttleFee,
+                      historicalTotalCharge,
+                      lastHistoricalDate,
                       promotionDiscount,
                       finalCharge,
                     }) => (
@@ -338,6 +492,128 @@ export const MemberCenterModal: React.FC<Props> = ({
                             <div className="text-lg font-black text-white">{stats.totalSessions}</div>
                             <div className="text-[9px] text-slate-500">Visits</div>
                           </div>
+                        </div>
+
+                        {/* HISTORICAL_MEMBER_COST_V67 */}
+                        <div className="rounded-xl bg-indigo-950/20 border border-indigo-800/40 p-3 text-xs space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="font-bold text-indigo-200">
+                              📚 สถิติย้อนหลังจาก Archive
+                            </div>
+                            <div className="text-[10px] text-slate-500">
+                              ไม่รวมยอดรอบนี้
+                            </div>
+                          </div>
+
+                          {historicalSessions.length > 0 ? (
+                            <>
+                              {/* HISTORICAL_TOTAL_COST_V67B */}
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                <div className="rounded-lg bg-slate-950/70 border border-slate-800 p-2 text-center">
+                                  <div className="text-base font-black text-amber-300">
+                                    {historicalMatchCount}
+                                  </div>
+                                  <div className="text-[9px] text-slate-500">
+                                    Match ย้อนหลัง
+                                  </div>
+                                </div>
+
+                                <div className="rounded-lg bg-slate-950/70 border border-slate-800 p-2 text-center">
+                                  <div className="text-base font-black text-cyan-300">
+                                    {historicalShuttleFee.toLocaleString()}
+                                  </div>
+                                  <div className="text-[9px] text-slate-500">
+                                    ค่าลูกสะสมรวม Extra (บาท)
+                                  </div>
+                                  <div className="mt-0.5 text-[8px] text-slate-600">
+                                    Match {historicalBaseShuttleFee.toLocaleString()}฿
+                                    {historicalExtraShuttleCount > 0
+                                      ? ` + Extra ${historicalExtraShuttleFee.toLocaleString()}฿ (${historicalExtraShuttleCount} ลูก)`
+                                      : ' + Extra 0฿'}
+                                  </div>
+                                </div>
+
+                                <div className="rounded-lg bg-slate-950/70 border border-violet-800/50 p-2 text-center">
+                                  <div className="text-base font-black text-violet-300">
+                                    {historicalTotalCharge.toLocaleString()}
+                                  </div>
+                                  <div className="text-[9px] text-slate-500">
+                                    ค่าใช้จ่ายสะสมทั้งหมด (บาท)
+                                  </div>
+                                  <div className="mt-0.5 text-[8px] text-slate-600">
+                                    คอร์ท + ค่าลูก + Extra - ส่วนลด
+                                  </div>
+                                </div>
+
+                                <div className="rounded-lg bg-slate-950/70 border border-slate-800 p-2 text-center">
+                                  <div className="text-[11px] font-black text-emerald-300">
+                                    {lastHistoricalDate
+                                      ? formatHistoryDateV67(lastHistoricalDate)
+                                      : '-'}
+                                  </div>
+                                  <div className="text-[9px] text-slate-500">
+                                    เล่นล่าสุด
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1.5">
+                                {historicalSessions.slice(0, 4).map((item) => (
+                                  <div
+                                    key={`${player.id}-${item.archiveDate}`}
+                                    className="rounded-lg bg-slate-950/65 border border-slate-800 px-2.5 py-2"
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="font-bold text-white">
+                                        {formatHistoryDateV67(item.archiveDate)}
+                                      </span>
+                                      <span
+                                        className={`text-[9px] px-2 py-0.5 rounded-full border font-bold ${
+                                          item.paid
+                                            ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300'
+                                            : 'bg-amber-950/60 border-amber-800 text-amber-300'
+                                        }`}
+                                      >
+                                        {item.paid ? 'PAID' : 'PENDING'}
+                                      </span>
+                                    </div>
+                                    <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-400">
+                                      <span>
+                                        ค่าลูก {item.matchCount} Match × {item.shuttleRate.toLocaleString()}฿
+                                      </span>
+                                      <span className="text-right font-bold text-cyan-300">
+                                        {item.shuttleFee.toLocaleString()} บาท
+                                      </span>
+                                      {item.extraShuttleCount > 0 && (
+                                        <>
+                                          <span>
+                                            ลูกเพิ่ม {item.extraShuttleCount} × {item.extraShuttleRate.toLocaleString()}฿
+                                          </span>
+                                          <span className="text-right text-blue-300">
+                                            {item.extraShuttleFee.toLocaleString()} บาท
+                                          </span>
+                                        </>
+                                      )}
+                                      <span className="font-bold text-cyan-200">
+                                        ค่าลูกรวม
+                                      </span>
+                                      <span className="text-right font-bold text-cyan-200">
+                                        {(item.shuttleFee + item.extraShuttleFee).toLocaleString()} บาท
+                                      </span>
+                                      <span>ยอดวันนั้น</span>
+                                      <span className="text-right font-black text-white">
+                                        {item.finalCharge.toLocaleString()} บาท
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-2.5 text-[10px] text-slate-500">
+                              ยังไม่มี Archive ย้อนหลังของสมาชิกคนนี้
+                            </div>
+                          )}
                         </div>
 
                         <div className="rounded-xl bg-slate-900 border border-slate-800 p-3 text-xs">
