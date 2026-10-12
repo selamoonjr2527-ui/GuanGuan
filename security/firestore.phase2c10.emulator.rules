@@ -1,0 +1,97 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function organizerPath(uid) {
+      return /databases/$(database)/documents/clubs/guanguan/organizerRoles/$(uid);
+    }
+
+    function isOrganizer() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && exists(organizerPath(request.auth.uid))
+        && get(organizerPath(request.auth.uid)).data.role == 'organizer'
+        && get(organizerPath(request.auth.uid)).data.active == true
+        && get(organizerPath(request.auth.uid)).data.authUid == request.auth.uid;
+    }
+
+    function memberPrivatePath(memberId) {
+      return /databases/$(database)/documents/clubs/guanguan/memberPrivate/$(memberId);
+    }
+
+    function isMemberFor(memberId) {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && request.auth.token.role == 'member'
+        && request.auth.token.memberId == memberId
+        && request.auth.token.credentialVersion is int
+        && request.auth.token.credentialVersion >= 1
+        && exists(memberPrivatePath(memberId))
+        && get(memberPrivatePath(memberId)).data.status == 'active'
+        && get(memberPrivatePath(memberId)).data.memberId == memberId
+        && get(memberPrivatePath(memberId)).data.authUid == request.auth.uid
+        && get(memberPrivatePath(memberId)).data.credentialVersion == request.auth.token.credentialVersion;
+    }
+
+    match /clubs/guanguan/runtime/currentSession {
+      allow read, write: if isOrganizer();
+    }
+
+    match /clubs/guanguan/runtime/publicSession {
+      allow get: if isOrganizer()
+        || (signedIn()
+          && request.auth.token.memberId is string
+          && isMemberFor(request.auth.token.memberId));
+      allow list, write: if false;
+    }
+
+    match /clubs/guanguan/memberPrivate/{memberId} {
+      allow read, write: if false;
+    }
+
+    match /clubs/guanguan/memberViews/{memberId} {
+      allow get: if isOrganizer() || isMemberFor(memberId);
+      allow list: if isOrganizer();
+      allow write: if false;
+    }
+
+    match /clubs/guanguan/memberEnrollmentChallenges/{challengeId} {
+      allow read, write: if false;
+    }
+
+    match /clubs/guanguan/memberActionReceipts/{receiptId} {
+      allow read, write: if false;
+    }
+
+    match /clubs/guanguan/memberAuthLimits/{memberId} {
+      allow read, write: if false;
+    }
+
+    match /clubs/guanguan/archives/{archiveId} {
+      allow read, write: if isOrganizer();
+    }
+
+    match /clubs/guanguan/fundTransactions/{transactionId} {
+      allow read, write: if isOrganizer();
+    }
+
+    match /clubs/guanguan/paymentTransaction/{invoiceId} {
+      allow get: if isOrganizer()
+        || (signedIn()
+          && request.auth.token.role == 'member'
+          && request.auth.token.memberId is string
+          && resource.data.playerId == request.auth.token.memberId
+          && isMemberFor(request.auth.token.memberId));
+      allow list: if isOrganizer();
+      allow create, update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
