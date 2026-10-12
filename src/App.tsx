@@ -6,6 +6,7 @@ import {
 } from 'firebase/auth';
 import { auth, isOrganizerUid } from './firebase';
 import { Header } from './components/Header';
+import { GuanDashboard } from './components/GuanDashboard';
 import { PreMatchView } from './components/PreMatchView';
 import { CheckInView } from './components/CheckInView';
 import { SkillAssessmentView } from './components/SkillAssessmentView';
@@ -5064,7 +5065,7 @@ export default function App() {
       )}
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="gg-app-main flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Offline / reconnect status */}
         {!isOnline && (
           <div className="mb-4 rounded-2xl border border-amber-600/60 bg-amber-950/45 px-4 py-3 shadow-lg">
@@ -5219,6 +5220,18 @@ onUpdateMemberStatus={(playerId, status) => {
         />
 
 
+
+        {currentTab === 'prematch' && (
+          <GuanDashboard
+            sessionConfig={sessionConfig}
+            players={players}
+            activeMatches={activeMatches}
+            currentMemberId={currentMemberId}
+            isOrganizerMode={isOrganizerMode}
+            confirmedPreMatch={appState.confirmedPreMatch}
+            confirmedPreMatch2={appState.confirmedPreMatch2}
+          />
+        )}
 
         {currentTab === 'prematch' && (
           <PreMatchView

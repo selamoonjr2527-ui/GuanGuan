@@ -1147,7 +1147,7 @@ return (
       {!organizerManagerOnly && (
         <>
       {/* SECTION 1: ACTIVE COURTS (Courts 1 & 2 - Visible to all members & organizers) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div id="gg-live-courts" className="grid grid-cols-1 md:grid-cols-2 gap-4 scroll-mt-36">
         {activeCourtsData.map((court, idx) => {
           const isCourtAvailable = court.isAvailable;
           const match = court.match;
