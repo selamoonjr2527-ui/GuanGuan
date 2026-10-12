@@ -53,14 +53,25 @@ export async function projectLatestPublicSession(
 
     const envelope = canonicalSnapshot.data() ?? {};
     const revision = normalizedRevision(envelope.revision);
-    const next = mapCanonicalStateToPublicSession(envelope.state, revision);
+    // Distinguish deletion/recreation of the canonical document from a revision reset.
+    const createdAt = canonicalSnapshot.createTime;
+    if (!createdAt) throw new Error('Canonical source createTime is unavailable');
+    const sourceGeneration = `${createdAt.seconds}:${createdAt.nanoseconds}`;
+    const next = {
+      ...mapCanonicalStateToPublicSession(envelope.state, revision),
+      sourceGeneration,
+    };
     const existing = publicSnapshot.exists
       ? publicSnapshot.data() as Record<string, unknown>
       : undefined;
 
     if (existing) {
       const existingRevision = normalizedRevision(existing.sourceRevision);
-      if (existingRevision > revision) return 'stale';
+      // Revisions are comparable only within the same Firestore document generation.
+      // Refresh legacy projections that do not have a generation marker.
+      if (existing.sourceGeneration === sourceGeneration && existingRevision > revision) {
+        return 'stale';
+      }
       if (samePublicPayload(existing, next as unknown as Record<string, unknown>)) {
         return 'unchanged';
       }
