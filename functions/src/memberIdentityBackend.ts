@@ -89,24 +89,25 @@ export class MemberIdentityBackend {
     if (!MEMBER_ID_PATTERN.test(memberId) || !/^\d{6}$/.test(pin)) throw GENERIC_ERROR();
     const identityRef = this.deps.db.doc(`${ROOT}/memberPrivate/${memberId}`);
     const limitRef = this.deps.db.doc(`${ROOT}/memberAuthLimits/${memberId}`);
-    let successUid: string | undefined;
-    await this.deps.db.runTransaction(async tx => {
+    // The callback can be retried. Only trust the UID returned by the
+    // transaction attempt that actually committed, never closure state.
+    const committedUid = await this.deps.db.runTransaction(async tx => {
       const [idSnap, limitSnap] = await Promise.all([tx.get(identityRef), tx.get(limitRef)]);
       const identity = idSnap.data() as MemberIdentity | undefined;
       const limit = limitSnap.data() as LoginLimit | undefined;
       const now = this.clock();
-      try { assertNotLocked(limit, now); } catch { return; }
+      try { assertNotLocked(limit, now); } catch { return null; }
       const valid = Boolean(identity && identity.status === 'active' &&
         await verifyPin(pin, this.deps.pepper, identity));
       if (valid && identity) {
         tx.set(limitRef, { windowStart: now, failedAttempts: 0, lockedUntil: 0, updatedAt: now });
-        successUid = identity.authUid;
-      } else {
-        tx.set(limitRef, { ...nextFailure(limit, now), updatedAt: now });
+        return identity.authUid;
       }
+      tx.set(limitRef, { ...nextFailure(limit, now), updatedAt: now });
+      return null;
     });
-    if (!successUid) throw GENERIC_ERROR();
-    return this.deps.tokens.issue(successUid, { role: 'member', memberId });
+    if (!committedUid) throw GENERIC_ERROR();
+    return this.deps.tokens.issue(committedUid, { role: 'member', memberId });
   }
 
   async disable(organizerUid: string, memberId: string): Promise<void> {

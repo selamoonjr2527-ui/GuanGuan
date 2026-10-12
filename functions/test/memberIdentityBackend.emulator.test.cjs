@@ -109,3 +109,23 @@ test('concurrent activation must issue at most one successful credential', async
   ]);
   assert.equal(attempts.filter(x => x.status === 'fulfilled').length, 1);
 });
+
+// Parallel failures must not overwrite each other's Firestore rate-limit state.
+test('parallel wrong PIN attempts are counted and lockout survives backend recreation', async () => {
+  const memberId = unique();
+  await enrolled(memberId);
+  const attempts = await Promise.allSettled([
+    backend.login(memberId, '671839'),
+    backend.login(memberId, '671839'),
+  ]);
+  assert.equal(attempts.filter(x => x.status === 'fulfilled').length, 0);
+  const limitRef = db.doc(`${ROOT}/memberAuthLimits/${memberId}`);
+  assert.equal((await limitRef.get()).data()?.failedAttempts, 2);
+  for (let i = 0; i < 3; i++) await expectDenied(backend.login(memberId, '671839'));
+  const locked = (await limitRef.get()).data();
+  assert.equal(locked?.failedAttempts, 5);
+  assert.ok(locked?.lockedUntil > clock);
+  const another = new MemberIdentityBackend({ db, tokens, pepper: PEPPER, clock: () => clock });
+  await expectDenied(another.login(memberId, '482917'));
+  assert.equal((await limitRef.get()).data()?.failedAttempts, 5);
+});
