@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 
 type AnyRecord = Record<string, any>;
 
@@ -6,6 +6,16 @@ interface Props {
   purchases: AnyRecord[];
   usages: AnyRecord[];
   adjustments: AnyRecord[];
+
+  // SHUTTLE_USAGE_MODEL_REPAIR_V1
+  onRepairUsageDay?: (input: {
+    sessionDate: string;
+    brand: string;
+    model: string;
+    unitCost: number;
+    correctedQuantity: number;
+  }) => boolean;
+
   sessionCourts?: Array<{
     id: string;
     name: string;
@@ -122,6 +132,7 @@ export const ShuttleLedgerHistoryV76: React.FC<Props> = ({
   purchases = [],
   usages = [],
   adjustments = [],
+  onRepairUsageDay,
 }) => {
   const dailyUsages = useMemo(() => {
     const map = new Map<
@@ -133,6 +144,10 @@ export const ShuttleLedgerHistoryV76: React.FC<Props> = ({
         matches: number;
         totalCost: number;
         revenue: number;
+
+        // SHUTTLE_USAGE_MODEL_REPAIR_V1
+        unknownQuantity: number;
+        unknownCost: number;
       }
     >();
 
@@ -148,25 +163,37 @@ export const ShuttleLedgerHistoryV76: React.FC<Props> = ({
           matches: 0,
           totalCost: 0,
           revenue: 0,
+          unknownQuantity: 0,
+          unknownCost: 0,
         };
 
       const name = shuttleName(item);
-      if (name && name !== '-') current.names.add(name);
 
-      current.quantity += Math.max(
+      const rowQuantity = Math.max(
         0,
         num(item.quantity)
       );
+
+      const rowCost = Math.max(
+        0,
+        usageCost(item)
+      );
+
+      if (name && name !== '-') {
+        current.names.add(name);
+      } else {
+        current.unknownQuantity += rowQuantity;
+        current.unknownCost += rowCost;
+      }
+
+      current.quantity += rowQuantity;
 
       current.matches += Math.max(
         0,
         usageMatchCount(item)
       );
 
-      current.totalCost += Math.max(
-        0,
-        usageCost(item)
-      );
+      current.totalCost += rowCost;
 
       current.revenue += Math.max(
         0,
@@ -181,6 +208,76 @@ export const ShuttleLedgerHistoryV76: React.FC<Props> = ({
     );
   }, [usages]);
 
+  // SHUTTLE_USAGE_MODEL_REPAIR_V1
+  const modelOptions = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        key: string;
+        brand: string;
+        model: string;
+        label: string;
+        quantity: number;
+        totalCost: number;
+        unitCost: number;
+      }
+    >();
+
+    purchases.forEach((item) => {
+      const brand = String(item.brand || '').trim();
+      const model = String(item.model || '').trim();
+
+      // A repair target must have an explicit model.
+      if (!model) return;
+
+      const label =
+        [brand, model].filter(Boolean).join(' ') || model;
+
+      const key = `${brand}|||${model}`;
+
+      const current =
+        map.get(key) || {
+          key,
+          brand,
+          model,
+          label,
+          quantity: 0,
+          totalCost: 0,
+          unitCost: 0,
+        };
+
+      current.quantity += Math.max(
+        0,
+        num(item.quantity)
+      );
+
+      current.totalCost += Math.max(
+        0,
+        purchaseTotal(item)
+      );
+
+      current.unitCost =
+        current.quantity > 0
+          ? current.totalCost / current.quantity
+          : purchaseUnitCost(item);
+
+      map.set(key, current);
+    });
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.label.localeCompare(b.label)
+    );
+  }, [purchases]);
+
+  const [repairDrafts, setRepairDrafts] = useState<
+    Record<
+      string,
+      {
+        modelKey: string;
+        quantity: string;
+      }
+    >
+  >({});
   const sortedPurchases = useMemo(
     () =>
       [...purchases].sort(
@@ -306,6 +403,9 @@ export const ShuttleLedgerHistoryV76: React.FC<Props> = ({
                 <th className="px-4 py-3 text-right">
                   กำไรค่าลูก
                 </th>
+                <th className="px-4 py-3 text-center">
+                  แก้รุ่น/จำนวน
+                </th>
               </tr>
             </thead>
 
@@ -319,6 +419,21 @@ export const ShuttleLedgerHistoryV76: React.FC<Props> = ({
 
                   const profit =
                     day.revenue - day.totalCost;
+
+                  const repairDraft =
+                    repairDrafts[day.date] || {
+                      modelKey:
+                        modelOptions[0]?.key || '',
+                      quantity:
+                        String(day.unknownQuantity),
+                    };
+
+                  const selectedModel =
+                    modelOptions.find(
+                      (item) =>
+                        item.key ===
+                        repairDraft.modelKey
+                    ) || modelOptions[0];
 
                   return (
                     <tr
@@ -364,13 +479,147 @@ export const ShuttleLedgerHistoryV76: React.FC<Props> = ({
                         {profit >= 0 ? '+' : ''}
                         {money(profit)} ฿
                       </td>
+
+                      <td className="px-4 py-3">
+                        {day.unknownQuantity > 0 &&
+                        onRepairUsageDay ? (
+                          <div className="min-w-[240px] space-y-2 rounded-xl border border-amber-800/50 bg-amber-950/20 p-2">
+                            <div className="text-[10px] font-bold text-amber-300">
+                              พบไม่ระบุรุ่น {day.unknownQuantity} ลูก
+                            </div>
+
+                            <select
+                              value={
+                                repairDraft.modelKey ||
+                                modelOptions[0]?.key ||
+                                ''
+                              }
+                              onChange={(event) =>
+                                setRepairDrafts(
+                                  (current) => ({
+                                    ...current,
+                                    [day.date]: {
+                                      modelKey:
+                                        event.target.value,
+                                      quantity:
+                                        repairDraft.quantity,
+                                    },
+                                  })
+                                )
+                              }
+                              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-[11px] text-white outline-none focus:border-amber-500"
+                            >
+                              {modelOptions.length === 0 && (
+                                <option value="">
+                                  ยังไม่มี Stock ที่ระบุรุ่น
+                                </option>
+                              )}
+
+                              {modelOptions.map((option) => (
+                                <option
+                                  key={option.key}
+                                  value={option.key}
+                                >
+                                  {option.label} • {money(option.unitCost)} ฿/ลูก
+                                </option>
+                              ))}
+                            </select>
+
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={repairDraft.quantity}
+                                onChange={(event) =>
+                                  setRepairDrafts(
+                                    (current) => ({
+                                      ...current,
+                                      [day.date]: {
+                                        modelKey:
+                                          repairDraft.modelKey ||
+                                          modelOptions[0]?.key ||
+                                          '',
+                                        quantity:
+                                          event.target.value,
+                                      },
+                                    })
+                                  )
+                                }
+                                className="w-20 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-center text-[11px] font-bold text-white outline-none focus:border-amber-500"
+                                title="จำนวนลูกที่ถูกต้อง"
+                              />
+
+                              <span className="text-[10px] text-slate-500">
+                                ลูก
+                              </span>
+
+                              <button
+                                type="button"
+                                disabled={!selectedModel}
+                                onClick={() => {
+                                  if (!selectedModel) {
+                                    window.alert(
+                                      'ยังไม่มี Stock ที่ระบุรุ่นให้เลือก'
+                                    );
+                                    return;
+                                  }
+
+                                  const correctedQuantity =
+                                    Math.max(
+                                      0,
+                                      Math.round(
+                                        Number(
+                                          repairDraft.quantity
+                                        )
+                                      )
+                                    );
+
+                                  const repaired =
+                                    onRepairUsageDay({
+                                      sessionDate:
+                                        day.date,
+                                      brand:
+                                        selectedModel.brand,
+                                      model:
+                                        selectedModel.model,
+                                      unitCost:
+                                        selectedModel.unitCost,
+                                      correctedQuantity,
+                                    });
+
+                                  if (repaired) {
+                                    setRepairDrafts(
+                                      (current) => {
+                                        const next = {
+                                          ...current,
+                                        };
+
+                                        delete next[day.date];
+                                        return next;
+                                      }
+                                    );
+                                  }
+                                }}
+                                className="ml-auto rounded-lg bg-amber-500 px-2.5 py-1.5 text-[10px] font-black text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                ✏️ แก้ไข
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-center text-[10px] text-emerald-400">
+                            ✓ ระบุแล้ว
+                          </div>
+                        )}
+                      </td>
                     </tr>
                   );
                 })
               ) : (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="px-4 py-6 text-center text-slate-500"
                   >
                     ยังไม่มีประวัติการใช้ลูก

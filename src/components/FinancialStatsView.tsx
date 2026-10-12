@@ -2,20 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { MonthlyShuttleReportV76 } from './MonthlyShuttleReportV76'; // SHUTTLE_REPORT_MENU4_V78
 import { ShuttleLedgerHistoryV76 } from './ShuttleLedgerHistoryV76';
 import { getSessionCourtCost } from '../utils/sessionCourts'; // DYNAMIC_SESSION_COURTS_V63A
-import { 
-  TrendingUp, TrendingDown, DollarSign, Wallet, 
-  Receipt, Users, Calendar, Award, ShieldAlert, Lock, 
-  Download, ArrowUpRight, ArrowDownRight, CheckCircle2, 
+import {
+  TrendingUp, TrendingDown, DollarSign, Wallet,
+  Receipt, Users, Calendar, Award, ShieldAlert, Lock,
+  Download, ArrowUpRight, ArrowDownRight, CheckCircle2,
   AlertCircle, ChevronRight, Plus, Trash2, PieChart, BarChart2,
   FileSpreadsheet, Sparkles, RefreshCw, Layers, ShieldCheck,
   Package, ShoppingCart, Boxes, Scale, CircleDollarSign
 } from 'lucide-react';
 import { SessionConfig, Player, DailySessionArchive, FundTransaction } from '../types';
-import { 
-  loadSessionArchives, 
-  loadFundTransactions, 
-  saveFundTransaction, 
-  deleteFundTransaction 
+import {
+  loadSessionArchives,
+  saveSessionArchive,
+  loadFundTransactions,
+  saveFundTransaction,
+  deleteFundTransaction
 } from '../utils/storage';
 import confetti from 'canvas-confetti';
 import { CourtProfitabilityV82 } from './CourtProfitabilityV82'; // COURT_PROFITABILITY_V82
@@ -48,6 +49,15 @@ interface FinancialStatsViewProps {
   shuttleUsageLedger?: ShuttleUsageRecord[];
   onAddShuttlePurchase?: (purchase: ShuttlePurchase) => void;
   onDeleteShuttlePurchase?: (purchaseId: string) => boolean;
+
+  // SHUTTLE_USAGE_MODEL_REPAIR_V1
+  onRepairShuttleUsageDay?: (input: {
+    sessionDate: string;
+    brand: string;
+    model: string;
+    unitCost: number;
+    correctedQuantity: number;
+  }) => boolean;
   shuttleLowStockThreshold?: number;
   onSetShuttleLowStockThreshold?: (value: number) => void;
   shuttleStockAdjustments?: ShuttleStockAdjustment[];
@@ -76,6 +86,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
   shuttleUsageLedger = [],
   onAddShuttlePurchase,
   onDeleteShuttlePurchase,
+  onRepairShuttleUsageDay,
   shuttleLowStockThreshold = 12,
   onSetShuttleLowStockThreshold,
   shuttleStockAdjustments = [],
@@ -161,6 +172,18 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
 
   // Selected archive for detailed inspection
   const [selectedArchive, setSelectedArchive] = useState<DailySessionArchive | null>(null);
+
+  // FINANCE_ARCHIVE_EDIT_V1E
+  const [editingArchive, setEditingArchive] =
+    useState<DailySessionArchive | null>(null);
+
+  const [editArchivePlayers, setEditArchivePlayers] = useState('');
+  const [editArchiveShuttles, setEditArchiveShuttles] = useState('');
+  const [editArchiveRevenue, setEditArchiveRevenue] = useState('');
+  const [editArchiveExpense, setEditArchiveExpense] = useState('');
+  const [editArchiveCollected, setEditArchiveCollected] = useState('');
+  const [editArchiveReason, setEditArchiveReason] = useState('');
+
 
   // --- Today's Calculations ---
   // Participants in THIS session.
@@ -325,7 +348,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
   const lifetimeArchivedRevenue = archives.reduce((acc, a) => acc + a.totalRevenue, 0);
   const lifetimeArchivedExpense = archives.reduce((acc, a) => acc + a.totalExpense, 0);
   const lifetimeArchivedProfit = archives.reduce((acc, a) => acc + (a.netProfit ?? (a.totalRevenue - a.totalExpense)), 0);
-  
+
   // Treasury balance
   // TREASURY_ACCOUNTING_FORMULA_V79C
   // Club Fund = CLOSED archive profit + real contributions
@@ -522,6 +545,326 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
     setTransactions(loadFundTransactions());
   };
 
+  // FINANCE_ARCHIVE_EDIT_V1E
+  const openArchiveEditor = (archive: DailySessionArchive) => {
+    setEditingArchive(archive);
+
+    setEditArchivePlayers(
+      String(Number(archive.totalPlayers || 0))
+    );
+
+    setEditArchiveShuttles(
+      String(Number(archive.totalShuttlecocks || 0))
+    );
+
+    setEditArchiveRevenue(
+      String(Number(archive.totalRevenue || 0))
+    );
+
+    setEditArchiveExpense(
+      String(Number(archive.totalExpense || 0))
+    );
+
+    setEditArchiveCollected(
+      String(
+        Number(
+          archive.totalCollected ??
+            archive.totalRevenue ??
+            0
+        )
+      )
+    );
+
+    setEditArchiveReason('');
+  };
+
+  const closeArchiveEditor = () => {
+    setEditingArchive(null);
+    setEditArchiveReason('');
+  };
+  // FINANCE_ARCHIVE_AUTO_CALC_V2B
+  // FINANCE_ARCHIVE_AUTO_CALC_V2D
+  // Historical correction helper:
+  // - Player count delta changes BOTH Revenue and Expense by Court Fee/person.
+  // - Shuttle count delta changes Expense by archived average shuttle cost/piece.
+  // - Actual collected cash is NEVER overwritten automatically.
+  const roundArchiveMoneyV2 = (value: number) =>
+    Math.round((Number(value || 0) + Number.EPSILON) * 1000) / 1000;
+
+  const calculateArchiveCorrectionV2 = (
+    archive: DailySessionArchive,
+    nextPlayersRaw: string,
+    nextShuttlesRaw: string
+  ) => {
+    const originalPlayers =
+      Math.max(0, Number(archive.totalPlayers || 0));
+
+    const nextPlayers =
+      Math.max(
+        0,
+        Number.isFinite(Number(nextPlayersRaw))
+          ? Number(nextPlayersRaw)
+          : originalPlayers
+      );
+
+    const originalShuttles =
+      Math.max(0, Number(archive.totalShuttlecocks || 0));
+
+    const nextShuttles =
+      Math.max(
+        0,
+        Number.isFinite(Number(nextShuttlesRaw))
+          ? Number(nextShuttlesRaw)
+          : originalShuttles
+      );
+
+    // Revenue:
+    // A member who checked-in by mistake but never played contributes only
+    // the member court fee. Match/extra-shuttle revenue remains unchanged.
+    const playerDelta =
+      nextPlayers - originalPlayers;
+
+    const courtFeePerPlayer =
+      Math.max(0, Number(memberCourtFee || 0));
+
+    const correctedRevenue =
+      Math.max(
+        0,
+        Number(archive.totalRevenue || 0) +
+          playerDelta * courtFeePerPlayer
+      );
+
+    // Expense:
+    // Archive already stores the fixed venue cost, actual shuttle cost,
+    // and extra expenses. Only shuttle cost changes when shuttle count
+    // is corrected.
+    const venueCost =
+      Math.max(0, Number(archive.venueCost || 0));
+
+    const extraExpenses =
+      Math.max(
+        0,
+        Number(archive.extraExpensesTotal || 0)
+      );
+
+    const storedShuttleCost =
+      Math.max(
+        0,
+        Number(
+          archive.shuttleCost ??
+            (
+              Number(archive.totalExpense || 0) -
+              venueCost -
+              extraExpenses
+            )
+        )
+      );
+
+    const shuttleUnitCost =
+      originalShuttles > 0
+        ? storedShuttleCost / originalShuttles
+        : 0;
+
+    const shuttleDelta =
+      nextShuttles - originalShuttles;
+
+    // FINANCE_ARCHIVE_AUTO_CALC_V2D
+    // Correction is applied as a DELTA from the archived totals:
+    //
+    // Revenue =
+    //   archived revenue
+    //   + player delta × member court fee
+    //
+    // Expense =
+    //   archived expense
+    //   + player delta × member court fee
+    //   + shuttle delta × archived average shuttle cost
+    //
+    // Example:
+    // 20 -> 19 members = -1 × 110
+    // 18 -> 17 shuttles = -1 × archived unit cost
+    const originalExpense =
+      Math.max(
+        0,
+        Number(archive.totalExpense || 0)
+      );
+
+    const correctedExpense =
+      Math.max(
+        0,
+        originalExpense +
+          playerDelta * courtFeePerPlayer +
+          shuttleDelta * shuttleUnitCost
+      );
+
+    return {
+      originalPlayers,
+      nextPlayers,
+      playerDelta,
+      courtFeePerPlayer,
+
+      originalShuttles,
+      nextShuttles,
+      shuttleDelta,
+      shuttleUnitCost,
+
+      revenue:
+        roundArchiveMoneyV2(correctedRevenue),
+
+      expense:
+        roundArchiveMoneyV2(correctedExpense),
+    };
+  };
+
+  const applyArchiveAutoCalculationV2 = (
+    nextPlayersRaw: string,
+    nextShuttlesRaw: string
+  ) => {
+    if (!editingArchive) return;
+
+    const calculated =
+      calculateArchiveCorrectionV2(
+        editingArchive,
+        nextPlayersRaw,
+        nextShuttlesRaw
+      );
+
+    setEditArchiveRevenue(
+      String(calculated.revenue)
+    );
+
+    setEditArchiveExpense(
+      String(calculated.expense)
+    );
+  };
+
+  const parseArchiveNumber = (
+    value: string,
+    label: string
+  ) => {
+    const numberValue = Number(value);
+
+    if (
+      !Number.isFinite(numberValue) ||
+      numberValue < 0
+    ) {
+      window.alert(
+        `${label} ต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป`
+      );
+      return null;
+    }
+
+    return numberValue;
+  };
+
+  const handleSaveArchiveEdit = () => {
+    if (!editingArchive) return;
+
+    const totalPlayers = parseArchiveNumber(
+      editArchivePlayers,
+      'จำนวนสมาชิก'
+    );
+
+    if (totalPlayers === null) return;
+
+    const totalShuttlecocks = parseArchiveNumber(
+      editArchiveShuttles,
+      'จำนวนลูกแบด'
+    );
+
+    if (totalShuttlecocks === null) return;
+
+    const totalRevenue = parseArchiveNumber(
+      editArchiveRevenue,
+      'รายรับ'
+    );
+
+    if (totalRevenue === null) return;
+
+    const totalExpense = parseArchiveNumber(
+      editArchiveExpense,
+      'รายจ่าย'
+    );
+
+    if (totalExpense === null) return;
+
+    const totalCollected = parseArchiveNumber(
+      editArchiveCollected,
+      'ยอดเก็บเงินจริง'
+    );
+
+    if (totalCollected === null) return;
+
+    if (!editArchiveReason.trim()) {
+      window.alert(
+        'กรุณาระบุเหตุผลในการแก้ไขประวัติ'
+      );
+      return;
+    }
+
+    const netProfit =
+      totalRevenue - totalExpense;
+
+    const pendingAmount = Math.max(
+      0,
+      totalRevenue - totalCollected
+    );
+
+    const auditLine =
+      `[แก้ไข ${new Date().toLocaleString('th-TH')}] ` +
+      editArchiveReason.trim();
+
+    const previousNotes =
+      String(editingArchive.notes || '').trim();
+
+    const updatedArchive: DailySessionArchive = {
+      ...editingArchive,
+
+      totalPlayers: Math.round(totalPlayers),
+      totalShuttlecocks: Math.round(totalShuttlecocks),
+
+      totalRevenue,
+      totalExpense,
+      netProfit,
+
+      totalCollected,
+      pendingAmount,
+
+      notes: previousNotes
+        ? `${previousNotes}\n${auditLine}`
+        : auditLine,
+    };
+
+    const confirmed = window.confirm(
+      `บันทึกการแก้ไข ${editingArchive.archiveDate} หรือไม่?\n\n` +
+      `สมาชิก: ${editingArchive.totalPlayers} → ${updatedArchive.totalPlayers}\n` +
+      `ลูกแบด: ${editingArchive.totalShuttlecocks} → ${updatedArchive.totalShuttlecocks}\n` +
+      `รายรับ: ${editingArchive.totalRevenue.toLocaleString()} → ${updatedArchive.totalRevenue.toLocaleString()} บาท\n` +
+      `รายจ่าย: ${editingArchive.totalExpense.toLocaleString()} → ${updatedArchive.totalExpense.toLocaleString()} บาท\n` +
+      `กำไรสุทธิใหม่: ${updatedArchive.netProfit?.toLocaleString()} บาท\n\n` +
+      `เหตุผล: ${editArchiveReason.trim()}`
+    );
+
+    if (!confirmed) return;
+
+    saveSessionArchive(updatedArchive);
+
+    setArchives(loadSessionArchives());
+
+    setSelectedArchive((current) =>
+      current?.id === updatedArchive.id
+        ? updatedArchive
+        : current
+    );
+
+    closeArchiveEditor();
+
+    confetti({
+      particleCount: 35,
+      spread: 55,
+      origin: { y: 0.65 },
+    });
+  };
   // Export Financial CSV
   const handleExportFinancialReport = () => {
     const rows = [
@@ -1324,8 +1667,21 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                             {profit >= 0 ? `+${profit.toLocaleString()}` : profit.toLocaleString()} ฿
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-center text-slate-400 text-[11px] max-w-xs truncate">
-                          {item.notes || '-'}
+                        <td className="px-4 py-3 text-center text-slate-400 text-[11px] max-w-xs">
+                          <div className="truncate">
+                            {item.notes || '-'}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openArchiveEditor(item)
+                            }
+                            className="mt-1.5 inline-flex items-center gap-1 rounded-lg border border-amber-700/60 bg-amber-950/30 px-2 py-1 text-[10px] font-bold text-amber-300 transition hover:bg-amber-900/50"
+                            title="แก้ไขข้อมูลประวัติรอบนี้"
+                          >
+                            ✏️ แก้ไข
+                          </button>
                         </td>
                       </tr>
                     );
@@ -1371,10 +1727,283 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
             adjustments={
               shuttleStockAdjustments as any[]
             }
+            onRepairUsageDay={
+              onRepairShuttleUsageDay
+            }
           />
         </div>
       )}
 
+      {/* FINANCE_ARCHIVE_EDIT_V1E */}
+      {editingArchive && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-amber-700/50 bg-slate-950 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-800 p-4 sm:p-5">
+              <div>
+                <div className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                  Finance History Correction
+                </div>
+
+                <h3 className="mt-1 text-lg font-black text-white">
+                  ✏️ แก้ไขประวัติ {editingArchive.archiveDate}
+                </h3>
+
+                <p className="mt-1 text-xs text-slate-400">
+                  {editingArchive.sessionTitle} • {editingArchive.venueName}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeArchiveEditor}
+                className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-slate-800"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="max-h-[75vh] overflow-y-auto p-4 sm:p-5">
+              <div className="mb-4 rounded-2xl border border-amber-800/50 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">
+                แก้เฉพาะข้อมูล Archive ที่บันทึกไปแล้ว ไม่ย้อนกลับไปเปลี่ยน Match History
+                หรือสถานะสมาชิกของ Session ปัจจุบัน
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold text-slate-300">
+                    จำนวนสมาชิก
+                  </span>
+
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={editArchivePlayers}
+                    onChange={(e) => {
+                      const nextValue = e.target.value;
+
+                      setEditArchivePlayers(nextValue);
+
+                      applyArchiveAutoCalculationV2(
+                        nextValue,
+                        editArchiveShuttles
+                      );
+                    }}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm font-bold text-white outline-none focus:border-amber-500"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold text-slate-300">
+                    จำนวนลูกแบด
+                  </span>
+
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={editArchiveShuttles}
+                    onChange={(e) => {
+                      const nextValue = e.target.value;
+
+                      setEditArchiveShuttles(nextValue);
+
+                      applyArchiveAutoCalculationV2(
+                        editArchivePlayers,
+                        nextValue
+                      );
+                    }}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm font-bold text-white outline-none focus:border-amber-500"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold text-slate-300">
+                    รายรับรวม (บาท)
+                  </span>
+
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editArchiveRevenue}
+                    onChange={(e) =>
+                      setEditArchiveRevenue(e.target.value)
+                    }
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm font-bold text-emerald-300 outline-none focus:border-emerald-500"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold text-slate-300">
+                    รายจ่ายรวม (บาท)
+                  </span>
+
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    value={editArchiveExpense}
+                    onChange={(e) =>
+                      setEditArchiveExpense(e.target.value)
+                    }
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm font-bold text-rose-300 outline-none focus:border-rose-500"
+                  />
+                </label>
+
+                <div className="sm:col-span-2 rounded-xl border border-emerald-800/40 bg-emerald-950/20 px-3 py-2 text-[10px] leading-5 text-emerald-200">
+                  <span className="font-black">
+                    🧮 คำนวณอัตโนมัติ:
+                  </span>{' '}
+                  เปลี่ยนจำนวนสมาชิก → ปรับทั้งรายรับและรายจ่ายตามค่าคอร์ทสมาชิก {memberCourtFee.toLocaleString()} บาท/คน
+                  {' • '}
+                  เปลี่ยนจำนวนลูก → ปรับรายจ่ายเฉพาะส่วนต่างตามต้นทุนลูกเฉลี่ยของ Archive เดิม
+                  {' • '}
+                  รายรับ/รายจ่ายยังสามารถแก้ตัวเลขเองได้หากมีกรณีพิเศษ
+                </div>
+
+                <label className="space-y-1 sm:col-span-2">
+                  <span className="text-xs font-semibold text-slate-300">
+                    ยอดเก็บเงินจริง (บาท)
+                  </span>
+
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editArchiveCollected}
+                    onChange={(e) =>
+                      setEditArchiveCollected(e.target.value)
+                    }
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm font-bold text-sky-300 outline-none focus:border-sky-500"
+                  />
+                </label>
+
+                <label className="space-y-1 sm:col-span-2">
+                  <span className="text-xs font-semibold text-slate-300">
+                    เหตุผลการแก้ไข *
+                  </span>
+
+                  <textarea
+                    rows={3}
+                    value={editArchiveReason}
+                    onChange={(e) =>
+                      setEditArchiveReason(e.target.value)
+                    }
+                    placeholder="เช่น Check-in ผิด 1 คน และจำนวนลูกเกิน 1 ลูก"
+                    className="w-full resize-none rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-500"
+                  />
+                </label>
+              </div>
+
+              {(() => {
+                const autoCalc =
+                  editingArchive
+                    ? calculateArchiveCorrectionV2(
+                        editingArchive,
+                        editArchivePlayers,
+                        editArchiveShuttles
+                      )
+                    : null;
+
+                const revenue =
+                  Number(editArchiveRevenue) || 0;
+
+                const expense =
+                  Number(editArchiveExpense) || 0;
+
+                const collected =
+                  Number(editArchiveCollected) || 0;
+
+                const profit =
+                  revenue - expense;
+
+                const pending =
+                  Math.max(0, revenue - collected);
+
+                return (
+                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <div className="rounded-xl border border-slate-800 bg-slate-900 p-3">
+                      <div className="text-[10px] text-slate-500">
+                        กำไร/ขาดทุนใหม่
+                      </div>
+
+                      <div
+                        className={`mt-1 text-lg font-black ${
+                          profit >= 0
+                            ? 'text-emerald-400'
+                            : 'text-rose-400'
+                        }`}
+                      >
+                        {profit >= 0 ? '+' : ''}
+                        {profit.toLocaleString()} ฿
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-900 p-3">
+                      <div className="text-[10px] text-slate-500">
+                        ยอดเก็บเงินจริง
+                      </div>
+
+                      <div className="mt-1 text-lg font-black text-sky-400">
+                        {collected.toLocaleString()} ฿
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-900 p-3">
+                      <div className="text-[10px] text-slate-500">
+                        ยอดค้างใหม่
+                      </div>
+
+                      <div className="mt-1 text-lg font-black text-amber-400">
+                        {pending.toLocaleString()} ฿
+                      </div>
+                    </div>
+                    {autoCalc && (
+                      <div className="sm:col-span-3 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 text-[10px] leading-5 text-slate-400">
+                        สูตรรอบนี้:
+                        {' '}
+                        Δสมาชิก {autoCalc.playerDelta >= 0 ? '+' : ''}
+                        {autoCalc.playerDelta}
+                        {' × '}
+                        {autoCalc.courtFeePerPlayer.toLocaleString()}฿
+                        {' • '}
+                        Δลูก {autoCalc.shuttleDelta >= 0 ? '+' : ''}
+                        {autoCalc.shuttleDelta}
+                        {' × '}
+                        {autoCalc.shuttleUnitCost.toLocaleString(
+                          undefined,
+                          {
+                            maximumFractionDigits: 3,
+                          }
+                        )}฿/ลูก
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={closeArchiveEditor}
+                  className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-xs font-bold text-slate-300 hover:bg-slate-800"
+                >
+                  ยกเลิก
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveArchiveEdit}
+                  className="rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-black text-slate-950 transition hover:bg-amber-400"
+                >
+                  💾 บันทึกการแก้ไข
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ============================================================ */}
       {/* SUB-TAB 3: CLUB TREASURY FUND (กองกลางก๊วน) */}
       {/* ============================================================ */}

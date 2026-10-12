@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { Player } from '../types';
 import { subscribeToPaymentTransactions } from '../payment/paymentTransactions';
 import type { PaymentTransaction } from '../payment/paymentTypes';
@@ -415,7 +415,8 @@ export const OrganizerGlobalAlertCenter: React.FC<OrganizerGlobalAlertCenterProp
         </button>
       )}
 
-      <div className="fixed bottom-4 right-4 z-[115] flex w-[min(94vw,390px)] flex-col items-end gap-2">
+      // ORGANIZER_ALERT_TOP_RIGHT_V1
+      <div className="fixed top-24 right-4 z-[115] flex w-[min(94vw,390px)] flex-col items-end gap-2">
         <div className="flex items-center gap-2">
           {alerts.length > 0 && (
             <button

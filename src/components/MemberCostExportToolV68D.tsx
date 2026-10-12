@@ -1,6 +1,7 @@
 import React from 'react';
 import { Download, X, Users, Wallet, CheckCircle2, Clock3 } from 'lucide-react';
-import type { Player, SessionConfig } from '../types';
+import type { DailySessionArchive, Player, SessionConfig } from '../types';
+import { loadSessionArchives } from '../utils/storage';
 import {
   calculatePlayerFinalCharge,
   type PromotionRedemption,
@@ -36,7 +37,90 @@ export const MemberCostExportToolV68D: React.FC<MemberCostExportToolV68DProps> =
   onClose,
 }) => {
   // MEMBER_COST_EXPORT_TOOL_V68D
-  const billingPlayers = players.filter(
+  // MEMBER_COST_EXPORT_DATE_V1
+  const archives = React.useMemo(
+    () => loadSessionArchives(),
+    []
+  );
+
+  const newestArchiveByDate = React.useMemo(() => {
+    const map = new Map<string, DailySessionArchive>();
+
+    archives.forEach((archive) => {
+      const date = String(archive.archiveDate || '').trim();
+      if (!date) return;
+
+      const existing = map.get(date);
+      if (
+        !existing ||
+        Number(archive.savedAt || 0) >=
+          Number(existing.savedAt || 0)
+      ) {
+        map.set(date, archive);
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) =>
+      b.archiveDate.localeCompare(a.archiveDate)
+    );
+  }, [archives]);
+
+  const currentSourceKey = `current:${sessionConfig.date}`;
+
+  const [selectedSourceKey, setSelectedSourceKey] =
+    React.useState(currentSourceKey);
+
+  React.useEffect(() => {
+    const sourceStillExists =
+      selectedSourceKey === currentSourceKey ||
+      newestArchiveByDate.some(
+        (archive) =>
+          `archive:${archive.id}` === selectedSourceKey
+      );
+
+    if (!sourceStillExists) {
+      setSelectedSourceKey(currentSourceKey);
+    }
+  }, [
+    currentSourceKey,
+    newestArchiveByDate,
+    selectedSourceKey,
+  ]);
+
+  const selectedArchive =
+    newestArchiveByDate.find(
+      (archive) =>
+        `archive:${archive.id}` === selectedSourceKey
+    ) || null;
+
+  const selectedSessionConfig: SessionConfig =
+    selectedArchive
+      ? {
+          ...sessionConfig,
+          date: selectedArchive.archiveDate,
+          sessionTitle:
+            selectedArchive.sessionTitle ||
+            sessionConfig.sessionTitle,
+          venueName:
+            selectedArchive.venueName ||
+            sessionConfig.venueName,
+        }
+      : sessionConfig;
+
+  const selectedPlayers =
+    selectedArchive?.playersSnapshot || players;
+
+  const formatSourceDate = (date: string) => {
+    const match = String(date || '').match(
+      /^(\d{4})-(\d{2})-(\d{2})$/
+    );
+
+    return match
+      ? `${match[3]}/${match[2]}/${match[1]}`
+      : date;
+  };
+
+  const billingPlayers = selectedPlayers.filter(
     (p) =>
       p.isCheckedIn ||
       p.status === 'left' ||
@@ -65,9 +149,9 @@ export const MemberCostExportToolV68D: React.FC<MemberCostExportToolV68DProps> =
 
     const charge = calculatePlayerFinalCharge(
       adjustedPlayer,
-      sessionConfig,
+      selectedSessionConfig,
       promotionRedemptions,
-      sessionConfig.date
+      selectedSessionConfig.date
     );
 
     const manualAdjustment = Number(
@@ -118,9 +202,9 @@ export const MemberCostExportToolV68D: React.FC<MemberCostExportToolV68DProps> =
 
     const data: unknown[][] = [
       ['GuanGuan - รายชื่อ / ค่าใช้จ่าย'],
-      ['วันที่', sessionConfig.date],
-      ['ก๊วน', sessionConfig.sessionTitle],
-      ['สถานที่', sessionConfig.venueName],
+      ['วันที่', selectedSessionConfig.date],
+      ['ก๊วน', selectedSessionConfig.sessionTitle],
+      ['สถานที่', selectedSessionConfig.venueName],
       [],
       [
         'ชื่อเล่น',
@@ -170,7 +254,7 @@ export const MemberCostExportToolV68D: React.FC<MemberCostExportToolV68DProps> =
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `GuanGuan_Member_Cost_${sessionConfig.date}.csv`;
+    link.download = `GuanGuan_Member_Cost_${selectedSessionConfig.date}.csv`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -208,6 +292,75 @@ export const MemberCostExportToolV68D: React.FC<MemberCostExportToolV68DProps> =
             ปิด
           </button>
         </div>
+      </div>
+
+      <div className="border-b border-slate-800 bg-slate-950/45 px-4 py-4 sm:px-5">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,320px)_1fr] sm:items-end">
+          <label className="block">
+            <div className="mb-1.5 text-[10px] font-black uppercase tracking-wider text-emerald-400">
+              วันที่สำหรับ Export
+            </div>
+            <select
+              value={selectedSourceKey}
+              onChange={(event) =>
+                setSelectedSourceKey(event.target.value)
+              }
+              className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm font-bold text-white outline-none focus:border-emerald-500"
+            >
+              <option value={currentSourceKey}>
+                {formatSourceDate(sessionConfig.date)} • Session ปัจจุบัน
+              </option>
+
+              {newestArchiveByDate.map((archive) => (
+                <option
+                  key={archive.id}
+                  value={`archive:${archive.id}`}
+                >
+                  {formatSourceDate(archive.archiveDate)} • Archive
+                  {archive.venueName
+                    ? ` • ${archive.venueName}`
+                    : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div
+            className={`rounded-xl border px-3 py-2.5 text-[11px] leading-5 ${
+              selectedArchive
+                ? 'border-amber-800/50 bg-amber-950/20 text-amber-200'
+                : 'border-cyan-800/50 bg-cyan-950/20 text-cyan-200'
+            }`}
+          >
+            {selectedArchive ? (
+              <>
+                📦 กำลังดูข้อมูลจาก Archive วันที่{' '}
+                <strong>
+                  {formatSourceDate(
+                    selectedArchive.archiveDate
+                  )}
+                </strong>
+                {' • '}
+                {selectedPlayers.length.toLocaleString()} รายชื่อใน Snapshot
+              </>
+            ) : (
+              <>
+                🟢 กำลังดู Session ปัจจุบันวันที่{' '}
+                <strong>
+                  {formatSourceDate(sessionConfig.date)}
+                </strong>
+              </>
+            )}
+          </div>
+        </div>
+
+        {selectedArchive && (
+          <div className="mt-2 text-[10px] leading-5 text-slate-500">
+            หมายเหตุ: Archive เก็บ Snapshot รายชื่อ/Match/สถานะชำระของวันนั้น
+            แต่ Archive รุ่นเดิมยังไม่ได้เก็บ Billing rate ทั้งชุดแยกตามวัน
+            หากมีการเปลี่ยน Rate ภายหลัง ควรตรวจยอดก่อน Export
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4 sm:p-5">

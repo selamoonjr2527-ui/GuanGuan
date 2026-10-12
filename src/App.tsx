@@ -30,7 +30,8 @@ import { MemberPlayNotification } from './components/MemberPlayNotification';
 import { MemberGateModal } from './components/MemberGateModal';
 import { MemberCenterModal } from './components/MemberCenterModal';
 import { MemberHistoryModal } from './components/MemberHistoryModal'; // MEMBER_HISTORY_V65
-import { MemberPinModal } from './components/MemberPinModal';
+import { MemberPinModal } from './components/MemberPinModal';
+
 import { MemberCostExportToolV68D } from './components/MemberCostExportToolV68D'; // MEMBER_COST_EXPORT_TOOL_V68D
 import { DataStatsManagerV66 } from './components/DataStatsManagerV66'; // DATA_STATS_REPAIR_V66
 
@@ -273,6 +274,13 @@ export default function App() {
   const [cancelFinishedMatchId, setCancelFinishedMatchId] = useState('');
 
   const [showMatchHistoryExport, setShowMatchHistoryExport] = useState(false);
+
+  // MATCH_HISTORY_EXPORT_DATE_V1
+  const [
+    matchHistoryExportSourceKey,
+    setMatchHistoryExportSourceKey,
+  ] = useState<string>('current');
+
   const [showMemberCostExportV68D, setShowMemberCostExportV68D] = useState(false);
   
   // Never trust ?mode=organizer by itself.
@@ -768,10 +776,104 @@ export default function App() {
   const { sessionConfig, players, activeMatches, matchHistory } = appState;
 
   const confirmedPreMatch3 = ((appState as any).confirmedPreMatch3 || null) as ConfirmedPreMatch | null; // PREMATCH_3_FIFO_V64
+
+  // PM_DRAFT_STATE_V6D
+  // Draft and Confirmed PM are separate states.
+  const draftPreMatch1 = ((appState as any).draftPreMatch1 || null) as ConfirmedPreMatch | null;
+  const draftPreMatch2 = ((appState as any).draftPreMatch2 || null) as ConfirmedPreMatch | null;
+  const draftPreMatch3 = ((appState as any).draftPreMatch3 || null) as ConfirmedPreMatch | null;
+  // MISTAKEN_CHECKIN_RESET_V1
+  // Organizer repair candidate:
+  // checked-in / checked-out signal exists, but there is still no play/billing activity.
+  const mistakenCheckInCandidates = players.filter((p) => {
+    const hasCheckInSignal =
+      p.isCheckedIn ||
+      p.status === 'left' ||
+      Boolean(p.checkInTime) ||
+      Boolean(p.checkInTimestamp);
+
+    const hasRealActivity =
+      Number(p.matchesPlayed || 0) > 0 ||
+      Number(p.gamesPlayed || 0) > 0 ||
+      Number(p.extraShuttlecocks || 0) > 0 ||
+      Boolean(p.paid) ||
+      Number((p as any).billingMatchAdjustment || 0) !== 0 ||
+      Number((p as any).billingAmountAdjustment || 0) !== 0;
+
+    return hasCheckInSignal && !hasRealActivity;
+  });
   const deletedMembers: DeletedMemberRecord[] = getDeletedMembers(appState as any);
   const memberStats: MemberLifetimeStatsMap = getMemberStatsMap(appState as any);
   const promotionRules: PromotionRule[] = getPromotionRules(appState as any);
   const promotionRedemptions: PromotionRedemption[] = getPromotionRedemptions(appState as any);
+
+  // MATCH_HISTORY_EXPORT_DATE_V1
+  // Use only the newest saved Archive for each date.
+  const matchHistoryExportArchives = (() => {
+    const newestByDate = new Map<string, any>();
+
+    for (const archive of loadSessionArchives() as any[]) {
+      const date = String(
+        archive?.archiveDate || ''
+      ).trim();
+
+      if (!date) continue;
+
+      const existing = newestByDate.get(date);
+
+      if (
+        !existing ||
+        Number(archive?.savedAt || 0) >=
+          Number(existing?.savedAt || 0)
+      ) {
+        newestByDate.set(date, archive);
+      }
+    }
+
+    return Array.from(newestByDate.values()).sort(
+      (a, b) =>
+        String(b?.archiveDate || '').localeCompare(
+          String(a?.archiveDate || '')
+        )
+    );
+  })();
+
+  const selectedMatchHistoryArchive =
+    matchHistoryExportSourceKey.startsWith('archive:')
+      ? matchHistoryExportArchives.find(
+          (archive: any) =>
+            `archive:${archive.id}` ===
+            matchHistoryExportSourceKey
+        ) || null
+      : null;
+
+  const selectedMatchHistoryDate =
+    selectedMatchHistoryArchive
+      ? String(
+          selectedMatchHistoryArchive.archiveDate || ''
+        )
+      : sessionConfig.date;
+
+  const selectedMatchHistory: MatchHistoryItem[] =
+    selectedMatchHistoryArchive &&
+    Array.isArray(
+      selectedMatchHistoryArchive.matchHistorySnapshot
+    )
+      ? selectedMatchHistoryArchive.matchHistorySnapshot
+      : matchHistory;
+
+  const formatMatchHistoryExportDate = (
+    value: string
+  ): string => {
+    const match = String(value || '').match(
+      /^(\d{4})-(\d{2})-(\d{2})$/
+    );
+
+    return match
+      ? `${match[3]}/${match[2]}/${match[1]}`
+      : String(value || '-');
+  };
+
   const shuttlePurchases: ShuttlePurchase[] = getShuttlePurchases(appState as any);
   const shuttleUsageLedger: ShuttleUsageRecord[] = getShuttleUsageLedger(appState as any);
   const shuttleStockAdjustments: ShuttleStockAdjustment[] =
@@ -1633,6 +1735,159 @@ export default function App() {
     }
   };
 
+  // MISTAKEN_CHECKIN_RESET_V1
+  // Use only when a member was checked-in by mistake and never actually played.
+  const handleUndoMistakenCheckIn = (playerId: string) => {
+    if (!isOrganizerMode) {
+      window.alert('เฉพาะผู้จัดก๊วนเท่านั้นที่ยกเลิก Check-in ผิดได้');
+      return;
+    }
+
+    const target = appState.players.find(
+      (p) => p.id === playerId
+    );
+
+    if (!target) {
+      window.alert('ไม่พบสมาชิก');
+      return;
+    }
+
+    const matchContainsPlayer = (match: any) =>
+      [
+        ...(Array.isArray(match?.teamA) ? match.teamA : []),
+        ...(Array.isArray(match?.teamB) ? match.teamB : []),
+      ].includes(playerId);
+
+    const inActiveMatch =
+      appState.activeMatches.some(
+        matchContainsPlayer
+      );
+
+    const inMatchHistory =
+      appState.matchHistory.some(
+        matchContainsPlayer
+      );
+
+    const allPm = [
+      appState.confirmedPreMatch,
+      appState.confirmedPreMatch2,
+      (appState as any).confirmedPreMatch3,
+      (appState as any).draftPreMatch1,
+      (appState as any).draftPreMatch2,
+      (appState as any).draftPreMatch3,
+    ].filter(Boolean) as ConfirmedPreMatch[];
+
+    const inPreMatch =
+      allPm.some((pm) =>
+        [
+          ...pm.teamA,
+          ...pm.teamB,
+        ].includes(playerId)
+      );
+
+    const hasUsageOrPayment =
+      Number(target.matchesPlayed || 0) > 0 ||
+      Number(target.gamesPlayed || 0) > 0 ||
+      Number(target.extraShuttlecocks || 0) > 0 ||
+      Boolean(target.paid) ||
+      Number((target as any).billingMatchAdjustment || 0) !== 0 ||
+      Number((target as any).billingAmountAdjustment || 0) !== 0;
+
+    if (
+      inActiveMatch ||
+      inMatchHistory ||
+      inPreMatch ||
+      hasUsageOrPayment
+    ) {
+      const reasons: string[] = [];
+
+      if (inActiveMatch) reasons.push('กำลังอยู่ใน Match');
+      if (inMatchHistory) reasons.push('มี Match History แล้ว');
+      if (inPreMatch) reasons.push('อยู่ใน Pre-Match / Draft PM');
+      if (hasUsageOrPayment) reasons.push('มี Match / ลูก / Billing / Payment แล้ว');
+
+      window.alert(
+        `ยกเลิก Check-in ผิดไม่ได้สำหรับ "${target.nickname}"\n\n` +
+        reasons.map((x) => `• ${x}`).join('\n') +
+        '\n\nกรณีมีการเล่นจริง ให้ใช้เครื่องมือ Match/Billing Repair แทน'
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `ยกเลิก Check-in ผิดของ "${target.nickname}" หรือไม่?\n\n` +
+      'ระบบจะ:\n' +
+      '• เอาออกจาก Waiting / Today session\n' +
+      '• ล้างเวลา Check-in\n' +
+      '• ไม่คิด Court Fee / Billing ของรอบนี้\n' +
+      '• ไม่ลบ Member Master และไม่ลบข้อมูลสมาชิกถาวร\n\n' +
+      'ใช้เฉพาะกรณีสมาชิกไม่ได้ลงเล่นจริง'
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setAppState((prev) => ({
+      ...prev,
+
+      players: prev.players.map((p) => {
+        if (p.id !== playerId) {
+          return p;
+        }
+
+        return {
+          ...p,
+
+          // Remove all current-session participation signals
+          // used by Today/Billing calculations.
+          todayRoster: false,
+          isCheckedIn: false,
+          checkInTime: undefined,
+          checkInTimestamp: undefined,
+          lastMatchFinishTime: undefined,
+          status: 'waiting' as PlayerStatus,
+
+          gamesPlayed: 0,
+          matchesPlayed: 0,
+          extraShuttlecocks: 0,
+
+          billingMatchAdjustment: 0,
+          billingAmountAdjustment: 0,
+          billingAdjustmentReason: undefined,
+          billingAdjustmentLog: [],
+
+          paid: false,
+          paidAmount: undefined,
+          paymentMethod: undefined,
+          paymentTime: undefined,
+
+          stopAfterCurrentMatch: false,
+          stopAfterCurrentMatchId: undefined,
+          stopRequestedAt: undefined,
+        } as any;
+      }),
+    }));
+
+    // If this browser was logged in as the mistaken member,
+    // clear only that local member session.
+    if (currentMemberId === playerId) {
+      setCurrentMemberId('');
+      sessionStorage.removeItem(
+        'badminton_active_member_id'
+      );
+    }
+
+    // Allow the normal Check-in prompt again if this member later logs in correctly.
+    sessionStorage.removeItem(
+      `guanguan_checkin_prompt_v58:${sessionConfig.date}:${playerId}`
+    );
+
+    window.alert(
+      `✅ ยกเลิก Check-in ผิดของ "${target.nickname}" แล้ว\n\n` +
+      'สมาชิกจะไม่ถูกนับเป็นผู้เข้าร่วม/Billing ของรอบนี้'
+    );
+  };
   // TODAY_ROSTER_HANDLER_V48B
   const handleToggleTodayRoster = (playerId: string, inRoster: boolean) => {
     setAppState((prev) => ({
@@ -2201,6 +2456,288 @@ export default function App() {
     return true;
   };
 
+  // SHUTTLE_USAGE_MODEL_REPAIR_V1
+  const handleRepairShuttleUsageDay = (input: {
+    sessionDate: string;
+    brand: string;
+    model: string;
+    unitCost: number;
+    correctedQuantity: number;
+  }): boolean => {
+    if (!isOrganizerMode) {
+      window.alert('เฉพาะผู้จัดก๊วนเท่านั้นที่แก้ประวัติการใช้ลูกได้');
+      return false;
+    }
+
+    const sessionDate = String(input.sessionDate || '').trim();
+    const brand = String(input.brand || '').trim();
+    const model = String(input.model || '').trim();
+    const unitCost = Math.max(0, Number(input.unitCost || 0));
+    const correctedQuantity = Math.max(
+      0,
+      Math.round(Number(input.correctedQuantity || 0))
+    );
+
+    if (!sessionDate || !model || unitCost <= 0) {
+      window.alert('ข้อมูลรุ่นลูกหรือต้นทุนไม่ถูกต้อง');
+      return false;
+    }
+
+    const isUnspecifiedUsage = (item: any) => {
+      const directName = String(
+        item?.shuttleName || item?.name || ''
+      ).trim();
+
+      const rowBrand = String(item?.brand || '').trim();
+      const rowModel = String(item?.model || '').trim();
+
+      return !directName && !rowBrand && !rowModel;
+    };
+
+    const dayRows = shuttleUsageLedger.filter(
+      (item) => String(item.sessionDate || '') === sessionDate
+    );
+
+    const unknownRows = dayRows.filter(isUnspecifiedUsage);
+    const knownRows = dayRows.filter((item) => !isUnspecifiedUsage(item));
+
+    if (unknownRows.length === 0) {
+      window.alert('วันนี้ไม่มีรายการลูกที่เป็น "ไม่ระบุรุ่น" ให้แก้ไข');
+      return false;
+    }
+
+    const oldUnknownQuantity = unknownRows.reduce(
+      (sum, item) =>
+        sum + Math.max(0, Number(item.quantity || 0)),
+      0
+    );
+
+    const oldUnknownCost = unknownRows.reduce(
+      (sum, item) =>
+        sum + Math.max(0, Number(item.totalCost || 0)),
+      0
+    );
+
+    const knownQuantity = knownRows.reduce(
+      (sum, item) =>
+        sum + Math.max(0, Number(item.quantity || 0)),
+      0
+    );
+
+    const knownCost = knownRows.reduce(
+      (sum, item) =>
+        sum + Math.max(0, Number(item.totalCost || 0)),
+      0
+    );
+
+    const oldUnknownAverageCost =
+      oldUnknownQuantity > 0
+        ? oldUnknownCost / oldUnknownQuantity
+        : 0;
+
+    const modelLabel =
+      [brand, model].filter(Boolean).join(' ') || model;
+
+    const newUnknownCost =
+      correctedQuantity * unitCost;
+
+    const newDayQuantity =
+      knownQuantity + correctedQuantity;
+
+    const newDayCost =
+      knownCost + newUnknownCost;
+
+    const costDifference =
+      newUnknownCost - oldUnknownCost;
+
+    const confirmed = window.confirm(
+      `แก้ประวัติการใช้ลูกวันที่ ${sessionDate} หรือไม่?\n\n` +
+        `ไม่ระบุรุ่น: ${oldUnknownQuantity} ลูก\n` +
+        `แก้เป็น: ${modelLabel}\n` +
+        `จำนวนที่ถูกต้อง: ${correctedQuantity} ลูก\n` +
+        `ต้นทุน/ลูกใหม่: ${unitCost.toLocaleString()} บาท\n\n` +
+        `ต้นทุนรายการเดิม: ${oldUnknownCost.toLocaleString()} บาท\n` +
+        `ต้นทุนรายการใหม่: ${newUnknownCost.toLocaleString()} บาท\n` +
+        `ส่วนต่าง: ${costDifference >= 0 ? '+' : ''}${costDifference.toLocaleString()} บาท\n\n` +
+        `ระบบจะอัปเดต Stock แยกตามรุ่น, ประวัติการใช้จริง และ Finance Archive ของวันเดียวกัน`
+    );
+
+    if (!confirmed) return false;
+
+    // Preserve Match rows but redistribute the corrected daily quantity
+    // across the existing unknown Usage rows.
+    const orderedUnknownRows = [...unknownRows].sort(
+      (a, b) =>
+        Number(a.createdAt || 0) - Number(b.createdAt || 0)
+    );
+
+    let remaining = correctedQuantity;
+    const repairedById = new Map<string, any>();
+
+    orderedUnknownRows.forEach((row, index) => {
+      const oldQuantity = Math.max(
+        0,
+        Math.round(Number(row.quantity || 0))
+      );
+
+      let nextQuantity = Math.min(
+        oldQuantity,
+        remaining
+      );
+
+      remaining -= nextQuantity;
+
+      // If corrected quantity is greater than the old total,
+      // place the extra quantity on the final Usage row.
+      if (
+        index === orderedUnknownRows.length - 1 &&
+        remaining > 0
+      ) {
+        nextQuantity += remaining;
+        remaining = 0;
+      }
+
+      repairedById.set(row.id, {
+        ...row,
+        brand: brand || undefined,
+        model,
+        shuttleName: modelLabel,
+        quantity: nextQuantity,
+        unitCost,
+        totalCost: nextQuantity * unitCost,
+        modelCorrectedAt: Date.now(),
+        modelCorrectionNote:
+          `แก้รุ่นย้อนหลัง ${sessionDate}: ` +
+          `${oldUnknownQuantity} -> ${correctedQuantity} ลูก`,
+      });
+    });
+
+    setAppState((prev) => {
+      const currentUsages =
+        getShuttleUsageLedger(prev as any);
+
+      const nextUsages = currentUsages.map((item) =>
+        repairedById.has(item.id)
+          ? repairedById.get(item.id)
+          : item
+      );
+
+      const nextSessionSummary =
+        getSessionShuttleUsageSummary(
+          nextUsages,
+          prev.sessionConfig.date,
+          prev.sessionConfig.shuttlecocksUsedTotal,
+          unitCost
+        );
+
+      return {
+        ...prev,
+        shuttleUsageLedger: nextUsages,
+
+        // Remember this repaired model as the active model.
+        // New finished Matches will inherit it automatically.
+        activeShuttleModel: {
+          brand: brand || undefined,
+          model,
+          shuttleName: modelLabel,
+          unitCost,
+          selectedAt: Date.now(),
+        },
+
+        sessionConfig: {
+          ...prev.sessionConfig,
+          ...(prev.sessionConfig.date === sessionDate
+            ? {
+                shuttlecocksUsedTotal: newDayQuantity,
+                shuttlecockPrice:
+                  nextSessionSummary.quantity > 0
+                    ? nextSessionSummary.averageUnitCost
+                    : unitCost,
+              }
+            : {}),
+        },
+      } as any;
+    });
+
+    // Keep the closed Finance Archive consistent with the Usage repair.
+    const archives = loadSessionArchives();
+
+    let archiveChanged = false;
+
+    const nextArchives = archives.map((archive) => {
+      if (archive.archiveDate !== sessionDate) {
+        return archive;
+      }
+
+      archiveChanged = true;
+
+      const archiveQuantity = Math.max(
+        0,
+        Number(archive.totalShuttlecocks || 0)
+      );
+
+      // If Finance History was already corrected from 18 -> 17,
+      // use that corrected count when removing the OLD average cost.
+      const archiveUnknownQuantity = Math.max(
+        0,
+        archiveQuantity - knownQuantity
+      );
+
+      const oldArchiveShuttleCost =
+        knownCost +
+        archiveUnknownQuantity *
+          oldUnknownAverageCost;
+
+      const newArchiveShuttleCost =
+        knownCost + newUnknownCost;
+
+      const nextExpense = Math.max(
+        0,
+        Number(archive.totalExpense || 0) -
+          oldArchiveShuttleCost +
+          newArchiveShuttleCost
+      );
+
+      const auditLine =
+        `[แก้รุ่นลูก ${new Date().toLocaleString('th-TH')}] ` +
+        `ไม่ระบุรุ่น ${oldUnknownQuantity} ลูก -> ` +
+        `${modelLabel} ${correctedQuantity} ลูก @ ` +
+        `${unitCost.toLocaleString()} บาท/ลูก`;
+
+      const previousNotes =
+        String(archive.notes || '').trim();
+
+      return {
+        ...archive,
+        totalShuttlecocks: newDayQuantity,
+        shuttleCost: newArchiveShuttleCost,
+        totalExpense: nextExpense,
+        netProfit:
+          Number(archive.totalRevenue || 0) -
+          nextExpense,
+        notes: previousNotes
+          ? `${previousNotes}\n${auditLine}`
+          : auditLine,
+      };
+    });
+
+    if (archiveChanged) {
+      replaceSessionArchivesLocal(nextArchives);
+      setArchiveRevision((value) => value + 1);
+    }
+
+    window.alert(
+      `✅ แก้ประวัติการใช้ลูกเรียบร้อย\n\n` +
+        `${sessionDate}: ${modelLabel}\n` +
+        `${correctedQuantity} ลูก × ${unitCost.toLocaleString()} บาท\n` +
+        `ต้นทุนรวม ${newUnknownCost.toLocaleString()} บาท` +
+        (archiveChanged
+          ? '\n\nFinance Archive ถูกคำนวณใหม่แล้ว'
+          : '\n\nไม่พบ Finance Archive ของวันที่นี้')
+    );
+
+    return true;
+  };
   const handleSetShuttleLowStockThreshold = (value: number) => {
     const threshold = Math.max(0, Math.floor(Number(value || 0)));
     setAppState((prev) => ({
@@ -2582,6 +3119,22 @@ export default function App() {
         getShuttleStockAdjustments(prev as any)
       );
 
+      // SHUTTLE_USAGE_MODEL_REPAIR_V1
+      // After Organizer identifies the actual model, future Usage rows
+      // inherit that model and its model-specific cost.
+      const activeShuttleModel =
+        (prev as any).activeShuttleModel || null;
+
+      const activeModelCost = Math.max(
+        0,
+        Number(activeShuttleModel?.unitCost || 0)
+      );
+
+      const resolvedUsageUnitCost =
+        activeShuttleModel?.model && activeModelCost > 0
+          ? activeModelCost
+          : usageUnitCost;
+
       const newUsage: ShuttleUsageRecord | null =
         shuttlecocksCount > 0
           ? {
@@ -2589,9 +3142,27 @@ export default function App() {
               historyId: historyItem.id,
               sessionDate: prev.sessionConfig.date,
               courtName: targetMatch.courtName,
+
+              // SHUTTLE_USAGE_MODEL_REPAIR_V1
+              brand:
+                activeShuttleModel?.brand || undefined,
+              model:
+                activeShuttleModel?.model || undefined,
+              shuttleName:
+                activeShuttleModel?.shuttleName ||
+                [
+                  activeShuttleModel?.brand,
+                  activeShuttleModel?.model,
+                ]
+                  .filter(Boolean)
+                  .join(' ') ||
+                undefined,
+
               quantity: shuttlecocksCount,
-              unitCost: usageUnitCost,
-              totalCost: shuttlecocksCount * usageUnitCost,
+              unitCost: resolvedUsageUnitCost,
+              totalCost:
+                shuttlecocksCount *
+                resolvedUsageUnitCost,
               memberCount: allPlayerIds.size,
               memberRatePerMatch:
                 prev.sessionConfig.shuttlecockFeePerMatchPerPerson,
@@ -2620,7 +3191,7 @@ export default function App() {
         nextUsages,
         prev.sessionConfig.date,
         nextSessionUsedTotal,
-        usageUnitCost || prev.sessionConfig.shuttlecockPrice
+        resolvedUsageUnitCost || prev.sessionConfig.shuttlecockPrice
       );
 
       prev.players.forEach((p) => {
@@ -3202,16 +3773,369 @@ export default function App() {
   };
 
   // --- PREMATCH_3_FIFO_V64: Pre-Match Queue & Organizer Confirmation (3 slots) ---
+  // PM_DRAFT_STATE_V6D
+  const handleSavePreMatchDraft = (
+    draft: ConfirmedPreMatch,
+    slotNumber: 1 | 2 | 3
+  ) => {
+    const normalizedDraft: ConfirmedPreMatch = {
+      ...draft,
+      slotNumber,
+      // 0 means "not confirmed yet".
+      confirmedAt: Number(draft.confirmedAt || 0),
+    };
+
+    setAppState((prev) => ({
+      ...prev,
+
+      draftPreMatch1:
+        slotNumber === 1
+          ? normalizedDraft
+          : (prev as any).draftPreMatch1,
+
+      draftPreMatch2:
+        slotNumber === 2
+          ? normalizedDraft
+          : (prev as any).draftPreMatch2,
+
+      draftPreMatch3:
+        slotNumber === 3
+          ? normalizedDraft
+          : (prev as any).draftPreMatch3,
+    } as any));
+  };
+
+  // PM_WAITING_TO_DRAFT_V6D
+  const handleAssignWaitingPlayerToDraft = (
+    playerId: string,
+    currentDraftSlot: 1 | 2 | 3 | null,
+    targetSlot: 1 | 2 | 3,
+    targetPlayerId: string
+  ): boolean => {
+    if (
+      currentDraftSlot === targetSlot ||
+      playerId === targetPlayerId
+    ) {
+      return false;
+    }
+
+    const player =
+      appState.players.find(
+        (item) => item.id === playerId
+      );
+
+    if (!player) {
+      return false;
+    }
+
+    const activeIds = new Set(
+      appState.activeMatches.flatMap(
+        (match) => [
+          ...match.teamA,
+          ...match.teamB,
+        ]
+      )
+    );
+
+    if (
+      !player.isCheckedIn ||
+      player.status !== 'waiting' ||
+      activeIds.has(playerId)
+    ) {
+      return false;
+    }
+
+    const confirmed = [
+      appState.confirmedPreMatch || null,
+      appState.confirmedPreMatch2 || null,
+      confirmedPreMatch3,
+    ] as Array<ConfirmedPreMatch | null>;
+
+    const drafts = [
+      draftPreMatch1,
+      draftPreMatch2,
+      draftPreMatch3,
+    ] as Array<ConfirmedPreMatch | null>;
+
+    // Confirmed PM members use the existing PM swap flow.
+    const isInConfirmedPm =
+      confirmed.some(
+        (pm) =>
+          pm &&
+          [
+            ...pm.teamA,
+            ...pm.teamB,
+          ].includes(playerId)
+      );
+
+    if (isInConfirmedPm) {
+      return false;
+    }
+
+    if (currentDraftSlot) {
+      const sourceDraft =
+        drafts[currentDraftSlot - 1];
+
+      if (
+        !sourceDraft ||
+        ![
+          ...sourceDraft.teamA,
+          ...sourceDraft.teamB,
+        ].includes(playerId)
+      ) {
+        return false;
+      }
+    }
+    else {
+      const isAlreadyInDraft =
+        drafts.some(
+          (pm) =>
+            pm &&
+            [
+              ...pm.teamA,
+              ...pm.teamB,
+            ].includes(playerId)
+        );
+
+      if (isAlreadyInDraft) {
+        return false;
+      }
+    }
+
+    const makeVacant = (
+      slot: number,
+      position: number
+    ) =>
+      `__PM_VACANT__${slot}_${position}_${Date.now()}`;
+
+    const createEmptyDraft = (
+      slot: 1 | 2 | 3
+    ): ConfirmedPreMatch => ({
+      id: `draft-pm-${slot}-${Date.now()}`,
+      slotNumber: slot,
+      teamA: [
+        makeVacant(slot, 1),
+        makeVacant(slot, 2),
+      ],
+      teamB: [
+        makeVacant(slot, 3),
+        makeVacant(slot, 4),
+      ],
+      confirmedAt: 0,
+      pairingLabelThai: 'Draft รอ Confirm',
+      explanationThai:
+        'ผู้จัดกำลังจัดรายชื่อและยังไม่ได้ Confirm PM',
+      notes: '',
+    });
+
+    const replaceId = (
+      pm: ConfirmedPreMatch,
+      oldId: string,
+      newId: string
+    ): ConfirmedPreMatch => ({
+      ...pm,
+
+      teamA: pm.teamA.map(
+        (id) =>
+          id === oldId
+            ? newId
+            : id
+      ) as [string, string],
+
+      teamB: pm.teamB.map(
+        (id) =>
+          id === oldId
+            ? newId
+            : id
+      ) as [string, string],
+
+      pairingLabelThai:
+        'Draft รอ Confirm',
+
+      explanationThai:
+        'มีการแก้รายชื่อ Draft จาก Waiting Queue',
+
+      // A Draft never changes FIFO itself.
+      confirmedAt:
+        confirmed[
+          Number(pm.slotNumber || targetSlot) - 1
+        ]?.confirmedAt ||
+        pm.confirmedAt ||
+        0,
+    });
+
+    setAppState((prev) => {
+      const nextDrafts = [
+        ((prev as any).draftPreMatch1 || null) as ConfirmedPreMatch | null,
+        ((prev as any).draftPreMatch2 || null) as ConfirmedPreMatch | null,
+        ((prev as any).draftPreMatch3 || null) as ConfirmedPreMatch | null,
+      ];
+
+      const confirmedNow = [
+        prev.confirmedPreMatch || null,
+        prev.confirmedPreMatch2 || null,
+        ((prev as any).confirmedPreMatch3 || null) as ConfirmedPreMatch | null,
+      ];
+
+      let targetDraft =
+        nextDrafts[targetSlot - 1];
+
+      if (!targetDraft) {
+        const confirmedBase =
+          confirmedNow[targetSlot - 1];
+
+        targetDraft = confirmedBase
+          ? {
+              ...confirmedBase,
+              teamA:
+                [...confirmedBase.teamA] as [string, string],
+              teamB:
+                [...confirmedBase.teamB] as [string, string],
+              pairingLabelThai:
+                'Draft รอ Confirm',
+              explanationThai:
+                'สำเนาจาก PM ที่ Confirm แล้ว เพื่อแก้ไขรายชื่อ',
+            }
+          : createEmptyDraft(targetSlot);
+      }
+
+      let replaceTargetId =
+        targetPlayerId;
+
+      if (
+        targetPlayerId ===
+        '__START_NEW__'
+      ) {
+        const firstVacant = [
+          ...targetDraft.teamA,
+          ...targetDraft.teamB,
+        ].find(
+          (id) =>
+            id.startsWith(
+              '__PM_VACANT__'
+            )
+        );
+
+        if (!firstVacant) {
+          return prev;
+        }
+
+        replaceTargetId =
+          firstVacant;
+      }
+
+      if (
+        ![
+          ...targetDraft.teamA,
+          ...targetDraft.teamB,
+        ].includes(replaceTargetId)
+      ) {
+        return prev;
+      }
+
+      // If moving from another Draft:
+      // - destination full => swap destination player back into source
+      // - destination vacant => source becomes vacant
+      if (currentDraftSlot) {
+        const sourceDraft =
+          nextDrafts[
+            currentDraftSlot - 1
+          ];
+
+        if (!sourceDraft) {
+          return prev;
+        }
+
+        const incomingToSource =
+          replaceTargetId.startsWith(
+            '__PM_VACANT__'
+          )
+            ? makeVacant(
+                currentDraftSlot,
+                9
+              )
+            : replaceTargetId;
+
+        nextDrafts[
+          currentDraftSlot - 1
+        ] =
+          replaceId(
+            sourceDraft,
+            playerId,
+            incomingToSource
+          );
+      }
+
+      nextDrafts[targetSlot - 1] =
+        replaceId(
+          targetDraft,
+          replaceTargetId,
+          playerId
+        );
+
+      const allRealDraftIds =
+        nextDrafts
+          .filter(
+            (pm): pm is ConfirmedPreMatch =>
+              Boolean(pm)
+          )
+          .flatMap(
+            (pm) => [
+              ...pm.teamA,
+              ...pm.teamB,
+            ]
+          )
+          .filter(
+            (id) =>
+              !id.startsWith(
+                '__PM_VACANT__'
+              )
+          );
+
+      if (
+        new Set(allRealDraftIds).size !==
+        allRealDraftIds.length
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        draftPreMatch1:
+          nextDrafts[0],
+        draftPreMatch2:
+          nextDrafts[1],
+        draftPreMatch3:
+          nextDrafts[2],
+      } as any;
+    });
+
+    return true;
+  };
   const handleConfirmPreMatch = (
     preMatch: ConfirmedPreMatch,
     slotNumber: 1 | 2 | 3 = 1
   ) => {
     const preMatchPlayerIds = new Set([...preMatch.teamA, ...preMatch.teamB]);
 
+    // PM_PLAYING_BLOCK_V4
+    const activePlayerIds = new Set(
+      appState.activeMatches.flatMap(
+        (match) => [
+          ...match.teamA,
+          ...match.teamB,
+        ]
+      )
+    );
+
     const unavailablePlayers = appState.players.filter(
       (p) =>
         preMatchPlayerIds.has(p.id) &&
-        (!p.isCheckedIn || p.status === 'resting' || p.status === 'left')
+        (
+          !p.isCheckedIn ||
+          p.status !== 'waiting' ||
+          activePlayerIds.has(p.id)
+        )
     );
 
     if (unavailablePlayers.length > 0) {
@@ -3269,10 +4193,204 @@ export default function App() {
         confirmedPreMatch: next[0],
         confirmedPreMatch2: next[1],
         confirmedPreMatch3: next[2],
+
+        // PM_DRAFT_STATE_V6D
+        // Confirm succeeded: clear the pending Draft for this PM only.
+        draftPreMatch1:
+          slotNumber === 1
+            ? null
+            : (prev as any).draftPreMatch1,
+
+        draftPreMatch2:
+          slotNumber === 2
+            ? null
+            : (prev as any).draftPreMatch2,
+
+        draftPreMatch3:
+          slotNumber === 3
+            ? null
+            : (prev as any).draftPreMatch3,
       } as any;
     });
 
     confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
+  };
+
+  // PM_SWAP_V4
+  // Swap one member between any two CONFIRMED PM slots.
+  // Both PMs remain exactly 4 people and keep their original FIFO timestamps.
+  const handleSwapPreMatchPlayers = (
+    playerAId: string,
+    slotA: 1 | 2 | 3,
+    playerBId: string,
+    slotB: 1 | 2 | 3
+  ): boolean => {
+    if (
+      slotA === slotB ||
+      playerAId === playerBId
+    ) {
+      return false;
+    }
+
+    const currentPms = [
+      appState.confirmedPreMatch || null,
+      appState.confirmedPreMatch2 || null,
+      confirmedPreMatch3,
+    ] as Array<ConfirmedPreMatch | null>;
+
+    const pmA = currentPms[slotA - 1];
+    const pmB = currentPms[slotB - 1];
+
+    if (!pmA || !pmB) {
+      return false;
+    }
+
+    const idsA = [
+      ...pmA.teamA,
+      ...pmA.teamB,
+    ];
+
+    const idsB = [
+      ...pmB.teamA,
+      ...pmB.teamB,
+    ];
+
+    if (
+      !idsA.includes(playerAId) ||
+      !idsB.includes(playerBId)
+    ) {
+      return false;
+    }
+
+    const playerA =
+      appState.players.find(
+        (p) => p.id === playerAId
+      );
+
+    const playerB =
+      appState.players.find(
+        (p) => p.id === playerBId
+      );
+
+    if (!playerA || !playerB) {
+      return false;
+    }
+
+    const activeIds = new Set(
+      appState.activeMatches.flatMap(
+        (match) => [
+          ...match.teamA,
+          ...match.teamB,
+        ]
+      )
+    );
+
+    // Never move a Playing / Resting / Left player into another PM.
+    if (
+      !playerA.isCheckedIn ||
+      !playerB.isCheckedIn ||
+      playerA.status !== 'waiting' ||
+      playerB.status !== 'waiting' ||
+      activeIds.has(playerAId) ||
+      activeIds.has(playerBId)
+    ) {
+      return false;
+    }
+
+    const replacePlayer = (
+      pm: ConfirmedPreMatch,
+      oldId: string,
+      newId: string
+    ): ConfirmedPreMatch => ({
+      ...pm,
+
+      teamA: pm.teamA.map(
+        (id) =>
+          id === oldId ? newId : id
+      ) as [string, string],
+
+      teamB: pm.teamB.map(
+        (id) =>
+          id === oldId ? newId : id
+      ) as [string, string],
+
+      // Keep PM queue position unchanged.
+      confirmedAt: pm.confirmedAt,
+    });
+
+    setAppState((prev) => {
+      const next = [
+        prev.confirmedPreMatch || null,
+        prev.confirmedPreMatch2 || null,
+        (
+          (prev as any).confirmedPreMatch3 ||
+          null
+        ) as ConfirmedPreMatch | null,
+      ] as Array<ConfirmedPreMatch | null>;
+
+      const sourceA = next[slotA - 1];
+      const sourceB = next[slotB - 1];
+
+      if (!sourceA || !sourceB) {
+        return prev;
+      }
+
+      if (
+        ![
+          ...sourceA.teamA,
+          ...sourceA.teamB,
+        ].includes(playerAId) ||
+        ![
+          ...sourceB.teamA,
+          ...sourceB.teamB,
+        ].includes(playerBId)
+      ) {
+        return prev;
+      }
+
+      next[slotA - 1] =
+        replacePlayer(
+          sourceA,
+          playerAId,
+          playerBId
+        );
+
+      next[slotB - 1] =
+        replacePlayer(
+          sourceB,
+          playerBId,
+          playerAId
+        );
+
+      const allPmIds = next
+        .filter(
+          (pm): pm is ConfirmedPreMatch =>
+            Boolean(pm)
+        )
+        .flatMap(
+          (pm) => [
+            ...pm.teamA,
+            ...pm.teamB,
+          ]
+        );
+
+      // No duplicate member across PM1/PM2/PM3.
+      if (
+        new Set(allPmIds).size !==
+        allPmIds.length
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        confirmedPreMatch: next[0],
+        confirmedPreMatch2: next[1],
+        confirmedPreMatch3: next[2],
+      } as any;
+    });
+
+    return true;
   };
 
   const handleCancelPreMatch = (slotNumber: 1 | 2 | 3 = 1) => {
@@ -3282,6 +4400,14 @@ export default function App() {
       confirmedPreMatch2: slotNumber === 2 ? null : prev.confirmedPreMatch2,
       confirmedPreMatch3:
         slotNumber === 3 ? null : (prev as any).confirmedPreMatch3,
+
+      // PM_DRAFT_STATE_V6D
+      draftPreMatch1:
+        slotNumber === 1 ? null : (prev as any).draftPreMatch1,
+      draftPreMatch2:
+        slotNumber === 2 ? null : (prev as any).draftPreMatch2,
+      draftPreMatch3:
+        slotNumber === 3 ? null : (prev as any).draftPreMatch3,
     } as any));
   };
 
@@ -5262,6 +6388,65 @@ onUpdateMemberStatus={(playerId, status) => {
             title="สมาชิก"
             onBack={() => setCurrentTab('prematch')}
           >
+            {/* MISTAKEN_CHECKIN_RESET_V1 */}
+            {isOrganizerMode && mistakenCheckInCandidates.length > 0 && (
+              <details className="mb-4 overflow-hidden rounded-2xl border border-amber-700/50 bg-amber-950/15">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 select-none">
+                  <div>
+                    <div className="text-sm font-black text-amber-200">
+                      🧹 แก้ Check-in ผิด ({mistakenCheckInCandidates.length})
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-slate-400">
+                      สำหรับสมาชิกที่กด Check-in ผิดและยังไม่ได้ลงเล่นเท่านั้น
+                    </div>
+                  </div>
+
+                  <span className="shrink-0 rounded-lg border border-amber-700/50 bg-slate-950 px-2.5 py-1 text-[10px] font-black text-amber-300">
+                    เปิด ▾
+                  </span>
+                </summary>
+
+                <div className="border-t border-amber-900/40 p-3 sm:p-4">
+                  <div className="mb-3 rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-[10px] leading-5 text-slate-400">
+                    ใช้ได้เฉพาะ 0 Match / 0 Game / 0 ลูกเพิ่ม / ยังไม่ Paid
+                    ระบบจะตรวจ Active Match, Match History และ PM ซ้ำอีกครั้งก่อนยกเลิก
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {mistakenCheckInCandidates.map((player) => (
+                      <div
+                        key={player.id}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/80 p-3"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-black text-white">
+                            {player.nickname}
+                          </div>
+                          <div className="mt-0.5 text-[9px] text-slate-500">
+                            {player.isCheckedIn
+                              ? 'กำลัง Check-in'
+                              : player.status === 'left'
+                              ? 'Check-out แล้ว แต่ยังไม่มี Match'
+                              : 'มีข้อมูล Check-in ของรอบนี้'}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleUndoMistakenCheckIn(player.id)
+                          }
+                          className="shrink-0 rounded-lg border border-rose-700/60 bg-rose-950/40 px-2.5 py-2 text-[10px] font-black text-rose-300 transition hover:bg-rose-900/60"
+                          title="ยกเลิก Check-in ผิด โดยไม่ลบสมาชิก"
+                        >
+                          ยกเลิก Check-in ผิด
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </details>
+            )}
             <CheckInView
               players={
                 isOrganizerMode
@@ -5368,6 +6553,12 @@ onUpdateMemberStatus={(playerId, status) => {
                       appState.confirmedPreMatch2 || null,
                       confirmedPreMatch3,
                     ]}
+                    draftPreMatches={[
+                      draftPreMatch1,
+                      draftPreMatch2,
+                      draftPreMatch3,
+                    ]}
+                    onSavePreMatchDraft={handleSavePreMatchDraft}
                     onConfirmPreMatch={handleConfirmPreMatch}
                     onCancelPreMatch={handleCancelPreMatch}
                     onStartConfirmedPreMatch={handleStartConfirmedPreMatch}
@@ -5386,6 +6577,13 @@ onUpdateMemberStatus={(playerId, status) => {
                     appState.confirmedPreMatch2 || null,
                     confirmedPreMatch3,
                   ]}
+                  draftPreMatches={[
+                    draftPreMatch1,
+                    draftPreMatch2,
+                    draftPreMatch3,
+                  ]}
+                  onAssignWaitingPlayerToDraft={handleAssignWaitingPlayerToDraft}
+                  onSwapPreMatchPlayers={handleSwapPreMatchPlayers}
                 />
               </div>
             )}
@@ -5544,11 +6742,91 @@ onUpdateMemberStatus={(playerId, status) => {
             </div>
 
             {showMatchHistoryExport && (
-              <MatchHistoryExportView
-                sessionDate={sessionConfig.date}
-                matchHistory={matchHistory}
-                onClose={() => setShowMatchHistoryExport(false)}
-              />
+              <div className="space-y-3">
+                {/* MATCH_HISTORY_EXPORT_DATE_V1 */}
+                <div className="rounded-2xl border border-cyan-800/45 bg-cyan-950/15 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-black text-white">
+                        📅 วันที่สำหรับ Match History
+                      </div>
+                      <div className="mt-1 text-[11px] text-slate-400">
+                        เลือก Session ปัจจุบัน หรือประวัติวันที่เคย Archive ไว้
+                      </div>
+
+                      <select
+                        value={matchHistoryExportSourceKey}
+                        onChange={(event) =>
+                          setMatchHistoryExportSourceKey(
+                            event.target.value
+                          )
+                        }
+                        className="mt-3 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs font-semibold text-white outline-none focus:border-cyan-500"
+                      >
+                        <option value="current">
+                          {formatMatchHistoryExportDate(
+                            sessionConfig.date
+                          )} • Session ปัจจุบัน
+                        </option>
+
+                        {matchHistoryExportArchives
+                          .filter(
+                            (archive: any) =>
+                              String(
+                                archive?.archiveDate || ''
+                              ) !== sessionConfig.date
+                          )
+                          .map((archive: any) => (
+                            <option
+                              key={archive.id}
+                              value={`archive:${archive.id}`}
+                            >
+                              {formatMatchHistoryExportDate(
+                                String(
+                                  archive.archiveDate || ''
+                                )
+                              )} • Archive
+                              {archive.venueName
+                                ? ` • ${archive.venueName}`
+                                : ''}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+
+                    <div className="shrink-0 rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-right">
+                      <div className="text-[10px] text-slate-500">
+                        วันที่กำลังดู
+                      </div>
+                      <div className="mt-1 text-sm font-black text-cyan-300">
+                        {formatMatchHistoryExportDate(
+                          selectedMatchHistoryDate
+                        )}
+                      </div>
+                      <div className="mt-1 text-[10px] text-slate-500">
+                        {selectedMatchHistory.length} Match
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedMatchHistoryArchive && (
+                    <div className="mt-3 rounded-xl border border-violet-800/40 bg-violet-950/20 px-3 py-2 text-[10px] text-violet-300">
+                      📦 กำลังดู Match History จาก Archive วันที่{' '}
+                      {formatMatchHistoryExportDate(
+                        selectedMatchHistoryDate
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <MatchHistoryExportView
+                  sessionDate={selectedMatchHistoryDate}
+                  matchHistory={selectedMatchHistory}
+                  onClose={() =>
+                    setShowMatchHistoryExport(false)
+                  }
+                />
+              </div>
             )}
 
 
@@ -5569,7 +6847,13 @@ onUpdateMemberStatus={(playerId, status) => {
         {currentTab === 'billing' && (
           <BillingView
             sessionConfig={sessionConfig}
-            players={players}
+            players={
+              [...players].sort((a, b) => {
+                // BILLING_PAID_BOTTOM_V1B
+                if (a.paid === b.paid) return 0;
+                return a.paid ? 1 : -1;
+              })
+            }
             activePlayerIds={activeMatches.flatMap((match) => [
               ...match.teamA,
               ...match.teamB,
@@ -5637,6 +6921,11 @@ onUpdateMemberStatus={(playerId, status) => {
             shuttleUsageLedger={shuttleUsageLedger}
             onAddShuttlePurchase={handleAddShuttlePurchase}
             onDeleteShuttlePurchase={handleDeleteShuttlePurchase}
+            onRepairShuttleUsageDay={
+              isOrganizerMode
+                ? handleRepairShuttleUsageDay
+                : undefined
+            }
             shuttleLowStockThreshold={shuttleLowStockThreshold}
             onSetShuttleLowStockThreshold={handleSetShuttleLowStockThreshold}
             shuttleStockAdjustments={shuttleStockAdjustments}

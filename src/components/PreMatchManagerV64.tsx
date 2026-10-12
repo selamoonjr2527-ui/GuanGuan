@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 import { Check, Edit2, Play, X, Clock, Users, Sparkles } from 'lucide-react';
 import { ActiveMatch, ConfirmedPreMatch, Player, SessionConfig, SKILL_LEVELS } from '../types';
 import {
-  comparePlayerPriority,
   findBalancedMatch,
   getPlayerWaitTimeMs,
   formatWaitMinutes,
@@ -15,6 +14,15 @@ interface PreMatchManagerV64Props {
   players: Player[];
   activeMatches: ActiveMatch[];
   confirmedPreMatches: Array<ConfirmedPreMatch | null>;
+
+  // PM_DRAFT_CONFIRM_V6D
+  draftPreMatches: Array<ConfirmedPreMatch | null>;
+
+  onSavePreMatchDraft: (
+    draft: ConfirmedPreMatch,
+    slot: PreMatchSlot
+  ) => void;
+
   onConfirmPreMatch: (preMatch: ConfirmedPreMatch, slot: PreMatchSlot) => void;
   onCancelPreMatch: (slot: PreMatchSlot) => void;
   onStartConfirmedPreMatch: (
@@ -88,11 +96,38 @@ const formatConfirmedTime = (timestamp?: number) => {
   });
 };
 
+// PM_WAIT_LONGEST_V4
+const compareWaitingLongestFirst = (
+  a: Player,
+  b: Player,
+  now: number
+) => {
+  const waitA = getPlayerWaitTimeMs(a, now);
+  const waitB = getPlayerWaitTimeMs(b, now);
+
+  // Main priority: longest Waiting Time first.
+  if (waitA !== waitB) {
+    return waitB - waitA;
+  }
+
+  // Tie breaker: earlier check-in first.
+  const checkInA = Number(a.checkInTimestamp || 0);
+  const checkInB = Number(b.checkInTimestamp || 0);
+
+  if (checkInA !== checkInB) {
+    return checkInA - checkInB;
+  }
+
+  return a.nickname.localeCompare(b.nickname, 'th');
+};
+
 export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
   sessionConfig,
   players,
   activeMatches,
   confirmedPreMatches,
+  draftPreMatches,
+  onSavePreMatchDraft,
   onConfirmPreMatch,
   onCancelPreMatch,
   onStartConfirmedPreMatch,
@@ -114,6 +149,67 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
     [confirmedPreMatches]
   );
 
+  // PM_DRAFT_CONFIRM_V6D
+  const normalizedDrafts = useMemo(
+    () =>
+      ([1, 2, 3] as PreMatchSlot[]).map((slot) => {
+        const draft =
+          draftPreMatches[
+            slot - 1
+          ] || null;
+
+        return draft
+          ? {
+              ...draft,
+              slotNumber: slot,
+            }
+          : null;
+      }),
+    [draftPreMatches]
+  );
+
+  const sameLineup = (
+    first?: ConfirmedPreMatch | null,
+    second?: ConfirmedPreMatch | null
+  ) => {
+    if (!first || !second) {
+      return false;
+    }
+
+    return (
+      first.teamA[0] === second.teamA[0] &&
+      first.teamA[1] === second.teamA[1] &&
+      first.teamB[0] === second.teamB[0] &&
+      first.teamB[1] === second.teamB[1]
+    );
+  };
+
+  const hasPendingDraft = (
+    slot: PreMatchSlot
+  ) => {
+    const draft =
+      normalizedDrafts[
+        slot - 1
+      ];
+
+    if (!draft) {
+      return false;
+    }
+
+    const confirmed =
+      normalizedConfirmed[
+        slot - 1
+      ];
+
+    return (
+      !confirmed ||
+      !sameLineup(
+        draft,
+        confirmed
+      )
+    );
+  };
+
   const confirmedQueue = useMemo(
     () =>
       normalizedConfirmed
@@ -130,9 +226,36 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
   const reservedIds = useMemo(
     () =>
       new Set(
-        confirmedQueue.flatMap((pm) => [...pm.teamA, ...pm.teamB])
+        [
+          ...confirmedQueue.flatMap(
+            (pm) => [
+              ...pm.teamA,
+              ...pm.teamB,
+            ]
+          ),
+
+          ...normalizedDrafts
+            .filter(
+              (pm): pm is ConfirmedPreMatch =>
+                Boolean(pm)
+            )
+            .flatMap(
+              (pm) => [
+                ...pm.teamA,
+                ...pm.teamB,
+              ]
+            ),
+        ].filter(
+          (id) =>
+            !id.startsWith(
+              '__PM_VACANT__'
+            )
+        )
       ),
-    [confirmedQueue]
+    [
+      confirmedQueue,
+      normalizedDrafts,
+    ]
   );
 
   const waitingPlayers = useMemo(() => {
@@ -144,7 +267,7 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
           player.status === 'waiting' &&
           !playingIds.has(player.id)
       )
-      .sort((a, b) => comparePlayerPriority(a, b, now));
+      .sort((a, b) => compareWaitingLongestFirst(a, b, now));
   }, [players, playingIds]);
 
   const autoDrafts = useMemo(() => {
@@ -153,6 +276,7 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
 
     ([1, 2, 3] as PreMatchSlot[]).forEach((slot) => {
       if (normalizedConfirmed[slot - 1]) return;
+      if (normalizedDrafts[slot - 1]) return;
       if (pool.length < 4) return;
 
       const candidates = pool.slice(0, Math.min(8, pool.length));
@@ -173,7 +297,12 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
     });
 
     return result;
-  }, [waitingPlayers, reservedIds, normalizedConfirmed]);
+  }, [
+    waitingPlayers,
+    reservedIds,
+    normalizedConfirmed,
+    normalizedDrafts,
+  ]);
 
   const availableCourts = useMemo(
     () =>
@@ -192,15 +321,35 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
   const getPlayer = (id: string) => players.find((player) => player.id === id);
 
   const openEditor = (slot: PreMatchSlot) => {
-    const confirmed = normalizedConfirmed[slot - 1];
-    const auto = autoDrafts[slot];
+    const savedDraft =
+      normalizedDrafts[
+        slot - 1
+      ];
 
-    const source = confirmed
-      ? {
-          teamA: [...confirmed.teamA] as [string, string],
-          teamB: [...confirmed.teamB] as [string, string],
-        }
-      : auto;
+    const confirmed =
+      normalizedConfirmed[
+        slot - 1
+      ];
+
+    const auto =
+      autoDrafts[slot];
+
+    const source =
+      savedDraft
+        ? {
+            teamA:
+              [...savedDraft.teamA] as [string, string],
+            teamB:
+              [...savedDraft.teamB] as [string, string],
+          }
+        : confirmed
+        ? {
+            teamA:
+              [...confirmed.teamA] as [string, string],
+            teamB:
+              [...confirmed.teamB] as [string, string],
+          }
+        : auto;
 
     if (!source) {
       window.alert('ยังมีผู้เล่น Waiting ไม่ครบ 4 คนสำหรับ PM นี้');
@@ -223,32 +372,76 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
         : []
     );
 
-    const reservedByOtherPm = new Set<string>();
-    normalizedConfirmed.forEach((pm, index) => {
-      if (!pm || index === editingSlot - 1) return;
-      [...pm.teamA, ...pm.teamB].forEach((id) => reservedByOtherPm.add(id));
-    });
+    const reservedByOtherPm =
+      new Set<string>();
 
-    // Manual organizer edit may reserve a player who is currently playing.
-    // They cannot be sent to court until their active match has finished.
+    normalizedConfirmed.forEach(
+      (pm, index) => {
+        if (
+          !pm ||
+          index === editingSlot - 1
+        ) {
+          return;
+        }
+
+        [
+          ...pm.teamA,
+          ...pm.teamB,
+        ].forEach((id) => {
+          if (
+            !id.startsWith(
+              '__PM_VACANT__'
+            )
+          ) {
+            reservedByOtherPm.add(id);
+          }
+        });
+      }
+    );
+
+    normalizedDrafts.forEach(
+      (pm, index) => {
+        if (
+          !pm ||
+          index === editingSlot - 1
+        ) {
+          return;
+        }
+
+        [
+          ...pm.teamA,
+          ...pm.teamB,
+        ].forEach((id) => {
+          if (
+            !id.startsWith(
+              '__PM_VACANT__'
+            )
+          ) {
+            reservedByOtherPm.add(id);
+          }
+        });
+      }
+    );
+
+    // PM_PLAYING_BLOCK_V4
+    // Organizer may select only members who are READY / Waiting.
+    // Active-court players are blocked even if their status is stale.
     return players
       .filter(
         (player) =>
           player.isCheckedIn &&
-          player.status !== 'resting' &&
-          player.status !== 'left' &&
+          player.status === 'waiting' &&
+          !playingIds.has(player.id) &&
           (currentIds.has(player.id) || !reservedByOtherPm.has(player.id))
       )
-      .sort((a, b) => {
-        if (playingIds.has(a.id) !== playingIds.has(b.id)) {
-          return playingIds.has(a.id) ? 1 : -1;
-        }
-        return comparePlayerPriority(a, b, Date.now());
-      });
+      .sort((a, b) =>
+        compareWaitingLongestFirst(a, b, Date.now())
+      );
   }, [
     editingSlot,
     editingLineup,
     normalizedConfirmed,
+    normalizedDrafts,
     players,
     playingIds,
   ]);
@@ -280,41 +473,140 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
       return;
     }
 
-    const existing = normalizedConfirmed[editingSlot - 1];
+    const existingConfirmed =
+      normalizedConfirmed[
+        editingSlot - 1
+      ];
 
-    onConfirmPreMatch(
+    const existingDraft =
+      normalizedDrafts[
+        editingSlot - 1
+      ];
+
+    // PM_DRAFT_CONFIRM_V6D
+    // SAVE = Draft only. Never Confirm here.
+    onSavePreMatchDraft(
       {
-        id: existing?.id || `pre-${editingSlot}-${Date.now()}`,
+        id:
+          existingDraft?.id ||
+          existingConfirmed?.id ||
+          `draft-pm-${editingSlot}-${Date.now()}`,
         slotNumber: editingSlot,
         teamA: editingLineup.teamA,
         teamB: editingLineup.teamB,
-        confirmedAt: existing?.confirmedAt || Date.now(),
-        pairingLabelThai: existing?.pairingLabelThai || 'จัดคู่โดยผู้จัดก๊วน',
+
+        // Preserve the old Confirm timestamp as a reference only.
+        // New PM Draft remains 0 until explicit Confirm.
+        confirmedAt:
+          existingConfirmed?.confirmedAt ||
+          0,
+
+        pairingLabelThai:
+          'Draft รอ Confirm',
+
         explanationThai:
-          existing?.explanationThai ||
-          'ยืนยันจากหน้า Organizer Court Board v64',
-        notes: existing?.notes || '',
+          'บันทึกรายชื่อ Draft แล้ว ต้องกด Confirm PM แยกอีกครั้ง',
+
+        notes:
+          existingDraft?.notes ||
+          existingConfirmed?.notes ||
+          '',
       },
       editingSlot
     );
 
-    setEditingSlot(null);
-    setEditingLineup(null);
+    // Keep editor open so organizer can edit/save again.
   };
 
-  const confirmAutoDraft = (slot: PreMatchSlot) => {
-    const draft = autoDrafts[slot];
+  const saveSuggestedDraft = (
+    slot: PreMatchSlot
+  ) => {
+    const draft =
+      autoDrafts[slot];
+
     if (!draft) return;
 
-    onConfirmPreMatch(
+    onSavePreMatchDraft(
       {
-        id: `pre-${slot}-${Date.now()}`,
+        id:
+          `draft-pm-${slot}-${Date.now()}`,
         slotNumber: slot,
         teamA: draft.teamA,
         teamB: draft.teamB,
-        confirmedAt: Date.now(),
-        pairingLabelThai: 'จัดตาม Waiting Queue + สมดุลมือ',
-        explanationThai: 'ระบบเสนอ 4 คนจากคิวรอและผู้จัดกดยืนยัน',
+        confirmedAt: 0,
+        pairingLabelThai:
+          'Draft จาก Waiting Queue',
+        explanationThai:
+          'บันทึก Draft จากระบบแนะนำ รอผู้จัด Confirm PM',
+        notes: '',
+      },
+      slot
+    );
+  };
+
+  const confirmSavedDraft = (
+    slot: PreMatchSlot
+  ) => {
+    const savedDraft =
+      normalizedDrafts[
+        slot - 1
+      ];
+
+    if (!savedDraft) {
+      window.alert(
+        'กรุณาบันทึก Draft ก่อน Confirm PM'
+      );
+      return;
+    }
+
+    const ids = [
+      ...savedDraft.teamA,
+      ...savedDraft.teamB,
+    ];
+
+    if (
+      ids.some(
+        (id) =>
+          !id ||
+          id.startsWith(
+            '__PM_VACANT__'
+          )
+      ) ||
+      new Set(ids).size !== 4
+    ) {
+      window.alert(
+        'Draft ยังมีช่องว่าง กรุณาเลือกผู้เล่นให้ครบ 4 คนก่อน Confirm PM'
+      );
+      return;
+    }
+
+    const existingConfirmed =
+      normalizedConfirmed[
+        slot - 1
+      ];
+
+    onConfirmPreMatch(
+      {
+        ...savedDraft,
+
+        id:
+          existingConfirmed?.id ||
+          savedDraft.id ||
+          `pre-${slot}-${Date.now()}`,
+
+        slotNumber: slot,
+
+        confirmedAt:
+          existingConfirmed?.confirmedAt ||
+          Date.now(),
+
+        pairingLabelThai:
+          'ยืนยันโดยผู้จัดก๊วน',
+
+        explanationThai:
+          existingConfirmed
+            ? 'Confirm การแก้ไข Draft โดยรักษาเวลา Confirm เดิม'
+            : 'Confirm จาก Draft ที่บันทึกไว้',
       },
       slot
     );
@@ -496,6 +788,19 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
                 </div>
 
                 <div className="flex shrink-0 gap-1">
+                  {hasPendingDraft(slot) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        confirmSavedDraft(slot)
+                      }
+                      className="rounded-xl border border-amber-500/60 bg-amber-500/15 px-2.5 py-2 text-[9px] font-black text-amber-300 transition hover:bg-amber-500/25"
+                      title="ยืนยันรายชื่อจาก Draft ที่บันทึกไว้"
+                    >
+                      Confirm แก้ไข
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => openEditor(slot)}
@@ -579,7 +884,15 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
         <div className="space-y-3">
           {([1, 2, 3] as PreMatchSlot[]).map((slot) => {
             if (normalizedConfirmed[slot - 1]) return null;
-            const draft = autoDrafts[slot];
+
+            const savedDraft =
+              normalizedDrafts[
+                slot - 1
+              ];
+
+            const draft =
+              savedDraft ||
+              autoDrafts[slot];
 
             return (
               <div key={slot} className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
@@ -587,7 +900,11 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
                   <div>
                     <div className="text-xs font-black text-white">PM#{slot}</div>
                     <div className="mt-0.5 text-[10px] text-slate-500">
-                      {draft ? 'Draft จาก Waiting Queue' : 'รอผู้เล่นครบ 4 คน'}
+                      {savedDraft
+                        ? 'Draft บันทึกแล้ว • รอ Confirm PM'
+                        : draft
+                        ? 'ระบบแนะนำ • ยังไม่ได้บันทึก Draft'
+                        : 'รอผู้เล่น'}
                     </div>
                   </div>
 
@@ -600,14 +917,29 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
                       >
                         แก้คู่
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => confirmAutoDraft(slot)}
-                        className="flex items-center gap-1 rounded-lg bg-violet-500 px-2.5 py-1.5 text-[10px] font-black text-white hover:bg-violet-400"
-                      >
-                        <Check className="h-3 w-3" />
-                        Confirm
-                      </button>
+                      {savedDraft ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            confirmSavedDraft(slot)
+                          }
+                          className="flex items-center gap-1 rounded-lg bg-emerald-500 px-2.5 py-1.5 text-[10px] font-black text-slate-950 hover:bg-emerald-400"
+                        >
+                          <Check className="h-3 w-3" />
+                          Confirm PM
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            saveSuggestedDraft(slot)
+                          }
+                          className="flex items-center gap-1 rounded-lg bg-amber-500 px-2.5 py-1.5 text-[10px] font-black text-slate-950 hover:bg-amber-400"
+                        >
+                          <Check className="h-3 w-3" />
+                          บันทึก Draft
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -630,7 +962,7 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
             <div>
               <div className="text-sm font-black text-white">แก้ Pre-Match #{editingSlot}</div>
               <div className="mt-0.5 text-[10px] text-amber-300">
-                ถ้าเป็น PM ที่ Confirm แล้ว เวลา Confirm เดิมจะไม่เปลี่ยน
+                บันทึก Draft ได้หลายครั้ง • การบันทึกยังไม่ใช่ Confirm PM
               </div>
             </div>
             <button
@@ -689,14 +1021,35 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
             })}
           </div>
 
-          <button
-            type="button"
-            onClick={saveEditor}
-            className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-amber-400"
-          >
-            <Check className="h-4 w-4" />
-            บันทึก / Confirm PM#{editingSlot}
-          </button>
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={saveEditor}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-amber-400"
+            >
+              <Check className="h-4 w-4" />
+              บันทึก Draft PM#{editingSlot}
+            </button>
+
+            <button
+              type="button"
+              disabled={
+                !normalizedDrafts[
+                  editingSlot - 1
+                ]
+              }
+              onClick={() =>
+                confirmSavedDraft(
+                  editingSlot
+                )
+              }
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+              title="ต้องบันทึก Draft ก่อน จึง Confirm PM ได้"
+            >
+              <Check className="h-4 w-4" />
+              Confirm PM#{editingSlot}
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -707,11 +1060,36 @@ interface OrganizerWaitingQueueV64Props {
   players: Player[];
   activeMatches: ActiveMatch[];
   confirmedPreMatches: Array<ConfirmedPreMatch | null>;
+
+  // PM_WAITING_TO_DRAFT_V6D
+  draftPreMatches: Array<ConfirmedPreMatch | null>;
+
+  onAssignWaitingPlayerToDraft?: (
+    playerId: string,
+    currentDraftSlot: PreMatchSlot | null,
+    targetSlot: PreMatchSlot,
+    targetPlayerId: string
+  ) => boolean;
+
+  // PM_SWAP_V4
+  onSwapPreMatchPlayers?: (
+    playerAId: string,
+    slotA: PreMatchSlot,
+    playerBId: string,
+    slotB: PreMatchSlot
+  ) => boolean;
 }
 
 export const OrganizerWaitingQueueV64: React.FC<
   OrganizerWaitingQueueV64Props
-> = ({ players, activeMatches, confirmedPreMatches }) => {
+> = ({
+  players,
+  activeMatches,
+  confirmedPreMatches,
+  draftPreMatches,
+  onAssignWaitingPlayerToDraft,
+  onSwapPreMatchPlayers,
+}) => {
   const now = Date.now();
 
   const playingIds = new Set(
@@ -726,6 +1104,32 @@ export const OrganizerWaitingQueueV64: React.FC<
     });
   });
 
+  // PM_WAITING_TO_DRAFT_V6D
+  const draftByPlayer =
+    new Map<string, number>();
+
+  draftPreMatches.forEach(
+    (draft, index) => {
+      if (!draft) return;
+
+      [
+        ...draft.teamA,
+        ...draft.teamB,
+      ].forEach((id) => {
+        if (
+          !id.startsWith(
+            '__PM_VACANT__'
+          )
+        ) {
+          draftByPlayer.set(
+            id,
+            index + 1
+          );
+        }
+      });
+    }
+  );
+
   const queue = players
     .filter(
       (player) =>
@@ -733,7 +1137,7 @@ export const OrganizerWaitingQueueV64: React.FC<
         player.status === 'waiting' &&
         !playingIds.has(player.id)
     )
-    .sort((a, b) => comparePlayerPriority(a, b, now));
+    .sort((a, b) => compareWaitingLongestFirst(a, b, now));
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4 sm:p-5">
@@ -746,7 +1150,7 @@ export const OrganizerWaitingQueueV64: React.FC<
             </h3>
           </div>
           <span className="text-[10px] font-bold text-amber-300">
-            เรียงตาม Waiting Priority
+            Waiting Time มากสุดอยู่บนสุด
           </span>
         </div>
 
@@ -760,22 +1164,37 @@ export const OrganizerWaitingQueueV64: React.FC<
 
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
         {queue.map((player, index) => {
-          const pmSlot = pmByPlayer.get(player.id);
+          const pmSlot = pmByPlayer.get(player.id) as PreMatchSlot | undefined;
+          const draftSlot = draftByPlayer.get(player.id) as PreMatchSlot | undefined;
           const waitMs = getPlayerWaitTimeMs(player, now);
           const waitTone = getWaitTone(waitMs);
 
           return (
             <div
               key={player.id}
-              className={`rounded-xl border p-2.5 transition ${waitTone.card}`}
+              className={`rounded-xl border p-2.5 transition ${
+                pmSlot || draftSlot
+                  ? 'border-slate-700 bg-slate-950/80 opacity-60'
+                  : waitTone.card
+              }`}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-xs font-black text-white">
+                <span
+                  className={`truncate text-xs font-black ${
+                    pmSlot || draftSlot ? 'text-slate-400' : 'text-white'
+                  }`}
+                >
                   {index + 1}. {player.nickname}
                 </span>
                 {pmSlot && (
-                  <span className="shrink-0 rounded bg-violet-500/20 px-1.5 py-0.5 text-[9px] font-black text-violet-300">
+                  <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[9px] font-black text-slate-400">
                     PM{pmSlot}
+                  </span>
+                )}
+
+                {!pmSlot && draftSlot && (
+                  <span className="shrink-0 rounded border border-amber-700/70 bg-amber-950/40 px-1.5 py-0.5 text-[9px] font-black text-amber-300">
+                    Draft PM{draftSlot}
                   </span>
                 )}
               </div>
@@ -788,6 +1207,265 @@ export const OrganizerWaitingQueueV64: React.FC<
                   {player.matchesPlayed || 0} Match
                 </span>
               </div>
+
+              {/* PM_WAITING_TO_DRAFT_SELECT_V6D */}
+              {!pmSlot &&
+                onAssignWaitingPlayerToDraft && (
+                  <select
+                    defaultValue=""
+                    onChange={(event) => {
+                      const raw =
+                        event.currentTarget.value;
+
+                      if (!raw) {
+                        return;
+                      }
+
+                      const separator =
+                        raw.indexOf(':');
+
+                      const targetSlot =
+                        Number(
+                          raw.slice(
+                            0,
+                            separator
+                          )
+                        ) as PreMatchSlot;
+
+                      const targetPlayerId =
+                        raw.slice(
+                          separator + 1
+                        );
+
+                      const targetBase =
+                        draftPreMatches[
+                          targetSlot - 1
+                        ] ||
+                        confirmedPreMatches[
+                          targetSlot - 1
+                        ];
+
+                      let actionText =
+                        `ย้าย ${player.nickname} เข้า Draft PM${targetSlot} ?`;
+
+                      if (
+                        targetPlayerId !==
+                        '__START_NEW__'
+                      ) {
+                        const vacant =
+                          targetPlayerId.startsWith(
+                            '__PM_VACANT__'
+                          );
+
+                        const target =
+                          vacant
+                            ? null
+                            : players.find(
+                                (item) =>
+                                  item.id ===
+                                  targetPlayerId
+                              );
+
+                        actionText =
+                          vacant
+                            ? `ย้าย ${player.nickname} เข้า ช่องว่าง Draft PM${targetSlot} ?`
+                            : `ย้าย ${player.nickname} เข้า Draft PM${targetSlot} แทน ${target?.nickname || 'ผู้เล่น'} ?`;
+                      }
+
+                      if (
+                        !window.confirm(
+                          actionText
+                        )
+                      ) {
+                        event.currentTarget.value = '';
+                        return;
+                      }
+
+                      const ok =
+                        onAssignWaitingPlayerToDraft(
+                          player.id,
+                          draftSlot || null,
+                          targetSlot,
+                          targetPlayerId
+                        );
+
+                      if (!ok) {
+                        window.alert(
+                          'ย้ายเข้า Draft PM ไม่สำเร็จ กรุณาตรวจสอบสถานะผู้เล่น'
+                        );
+                      }
+
+                      event.currentTarget.value = '';
+                    }}
+                    className="mt-2 w-full rounded-lg border border-amber-700/60 bg-slate-950 px-2 py-1.5 text-[9px] font-bold text-amber-300 outline-none focus:border-amber-500"
+                  >
+                    <option value="">
+                      {draftSlot
+                        ? `↔ ย้ายจาก Draft PM${draftSlot}`
+                        : '+ เลือกเข้า Draft PM'}
+                    </option>
+
+                    {([1, 2, 3] as PreMatchSlot[]).map(
+                      (targetSlot) => {
+                        if (
+                          targetSlot ===
+                          draftSlot
+                        ) {
+                          return null;
+                        }
+
+                        const targetBase =
+                          draftPreMatches[
+                            targetSlot - 1
+                          ] ||
+                          confirmedPreMatches[
+                            targetSlot - 1
+                          ];
+
+                        if (!targetBase) {
+                          return (
+                            <option
+                              key={`start-${targetSlot}`}
+                              value={`${targetSlot}:__START_NEW__`}
+                            >
+                              PM{targetSlot} • เริ่ม Draft ใหม่
+                            </option>
+                          );
+                        }
+
+                        const targetIds = [
+                          ...targetBase.teamA,
+                          ...targetBase.teamB,
+                        ];
+
+                        return (
+                          <optgroup
+                            key={`pm-${targetSlot}`}
+                            label={`Draft PM${targetSlot}`}
+                          >
+                            {targetIds.map(
+                              (targetId) => {
+                                const vacant =
+                                  targetId.startsWith(
+                                    '__PM_VACANT__'
+                                  );
+
+                                const target =
+                                  vacant
+                                    ? null
+                                    : players.find(
+                                        (item) =>
+                                          item.id ===
+                                          targetId
+                                      );
+
+                                if (
+                                  !vacant &&
+                                  !target
+                                ) {
+                                  return null;
+                                }
+
+                                return (
+                                  <option
+                                    key={`${targetSlot}-${targetId}`}
+                                    value={`${targetSlot}:${targetId}`}
+                                  >
+                                    {vacant
+                                      ? `PM${targetSlot} • ช่องว่าง`
+                                      : draftSlot
+                                      ? `PM${targetSlot} ↔ ${target?.nickname}`
+                                      : `PM${targetSlot} • แทน ${target?.nickname}`}
+                                  </option>
+                                );
+                              }
+                            )}
+                          </optgroup>
+                        );
+                      }
+                    )}
+                  </select>
+                )}
+
+              {/* PM_SWAP_SELECT_V4 */}
+              {pmSlot && onSwapPreMatchPlayers && (
+                <select
+                  defaultValue=""
+                  onChange={(event) => {
+                    const raw = event.currentTarget.value;
+
+                    if (!raw) {
+                      return;
+                    }
+
+                    const separatorIndex = raw.indexOf(':');
+                    const targetSlot = Number(
+                      raw.slice(0, separatorIndex)
+                    ) as PreMatchSlot;
+                    const targetPlayerId =
+                      raw.slice(separatorIndex + 1);
+
+                    const ok = onSwapPreMatchPlayers(
+                      player.id,
+                      pmSlot,
+                      targetPlayerId,
+                      targetSlot
+                    );
+
+                    if (!ok) {
+                      window.alert(
+                        'สลับ PM ไม่สำเร็จ กรุณาตรวจสอบสถานะผู้เล่น'
+                      );
+                    }
+
+                    event.currentTarget.value = '';
+                  }}
+                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-[9px] font-bold text-slate-300 outline-none focus:border-violet-500"
+                  title="สลับผู้เล่นระหว่าง PM1 / PM2 / PM3"
+                >
+                  <option value="">
+                    ↔ สลับไป PM อื่น
+                  </option>
+
+                  {confirmedPreMatches.flatMap(
+                    (targetPm, targetIndex) => {
+                      const targetSlot =
+                        (targetIndex + 1) as PreMatchSlot;
+
+                      if (
+                        !targetPm ||
+                        targetSlot === pmSlot
+                      ) {
+                        return [];
+                      }
+
+                      return [
+                        ...targetPm.teamA,
+                        ...targetPm.teamB,
+                      ].map((targetId) => {
+                        const targetPlayer =
+                          players.find(
+                            (item) =>
+                              item.id === targetId
+                          );
+
+                        if (!targetPlayer) {
+                          return null;
+                        }
+
+                        return (
+                          <option
+                            key={`${targetSlot}-${targetId}`}
+                            value={`${targetSlot}:${targetId}`}
+                          >
+                            PM{targetSlot} ↔ {targetPlayer.nickname}
+                          </option>
+                        );
+                      });
+                    }
+                  )}
+                </select>
+              )}
             </div>
           );
         })}

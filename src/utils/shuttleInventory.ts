@@ -23,6 +23,15 @@ export interface ShuttleUsageRecord {
   historyId: string;
   sessionDate: string;
   courtName?: string;
+
+  // SHUTTLE_USAGE_MODEL_REPAIR_V1
+  // Freeze the model actually consumed with the Usage row.
+  brand?: string;
+  model?: string;
+  shuttleName?: string;
+  modelCorrectedAt?: number;
+  modelCorrectionNote?: string;
+
   quantity: number;
   unitCost: number;
   totalCost: number;

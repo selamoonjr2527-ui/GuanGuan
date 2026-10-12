@@ -1,6 +1,6 @@
-﻿import React, { useState } from 'react';
-import { 
-  UserPlus, Search, CheckCircle2, Circle, Clock, QrCode, 
+import React, { useState } from 'react';
+import {
+  UserPlus, Search, CheckCircle2, Circle, Clock, QrCode,
   Award, RefreshCw, Flame, UserCheck, Coffee, LogOut, ChevronRight,
   Filter, Edit3, ShieldCheck, Lock, AlertTriangle
 } from 'lucide-react';
@@ -39,7 +39,8 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
   organizerPin = '1234',
   onToggleCheckIn,
   onCheckInPlayer,
-  onCheckOutPlayer,
+  onCheckOutPlayer,
+
   onToggleTodayRoster,
   onUpdatePlayerStatus,
   onOpenAddPlayerModal,
@@ -121,6 +122,30 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
     return true;
   });
 
+  // MEMBER_CHECKIN_SORT_V1
+  // Member page display order:
+  // 1) Not checked in yet
+  // 2) Checked in
+  // 3) Checked out / left
+  //
+  // Sorting is display-only. It does not mutate the canonical players array.
+  const getMemberDisplayOrder = (player: Player): number => {
+    if (!player.isCheckedIn && player.status === 'left') {
+      return 2;
+    }
+
+    if (player.isCheckedIn) {
+      return 1;
+    }
+
+    return 0;
+  };
+
+  const sortedPlayers = [...filteredPlayers].sort(
+    (a, b) =>
+      getMemberDisplayOrder(a) -
+      getMemberDisplayOrder(b)
+  );
   // Handle clicking the Check-in button
   const handleInitiateCheckIn = (player: Player) => {
     if (isOrganizerMode) {
@@ -487,7 +512,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
         )}
       {/* Player Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-        {filteredPlayers.map((player) => {
+        {sortedPlayers.map((player) => {
           const displaySkillLevel: SkillLevel =
             SKILL_LEVELS[player.skillLevel] ? player.skillLevel : 'B';
           const skillMeta = SKILL_LEVELS[displaySkillLevel] ?? SKILL_LEVELS.B;
@@ -827,7 +852,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
         })}
       </div>
 
-      {filteredPlayers.length === 0 && (
+      {sortedPlayers.length === 0 && (
         <div className="text-center py-12 bg-slate-900 border border-slate-800 rounded-2xl">
           <div className="text-4xl mb-2">🏸</div>
           <div className="text-slate-300 font-medium">ไม่พบผู้เล่นตามเงื่อนไขที่เลือก</div>

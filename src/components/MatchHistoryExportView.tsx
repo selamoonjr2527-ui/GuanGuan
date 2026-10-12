@@ -1,5 +1,6 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { MatchHistoryItem } from '../types';
+import { loadSessionArchives } from '../utils/storage';
 
 interface MatchHistoryExportViewProps {
   sessionDate: string;
@@ -61,9 +62,79 @@ export const MatchHistoryExportView: React.FC<
 > = ({ sessionDate, matchHistory, onClose }) => {
   const [copied, setCopied] = useState(false);
 
+  // MATCH_HISTORY_DATE_SELECTOR_IN_VIEW_V2
+  // MatchHistoryExportView is a fixed full-screen page, so the date
+  // selector must live INSIDE this component to remain visible.
+  const [selectedSourceKey, setSelectedSourceKey] =
+    useState<string>('current');
+
+  const archiveOptions = useMemo(() => {
+    const newestByDate = new Map<string, any>();
+
+    for (const archive of loadSessionArchives() as any[]) {
+      const date = String(
+        archive?.archiveDate || ''
+      ).trim();
+
+      if (!date) continue;
+
+      const existing = newestByDate.get(date);
+
+      if (
+        !existing ||
+        Number(archive?.savedAt || 0) >=
+          Number(existing?.savedAt || 0)
+      ) {
+        newestByDate.set(date, archive);
+      }
+    }
+
+    return Array.from(newestByDate.values()).sort(
+      (a, b) =>
+        String(b?.archiveDate || '').localeCompare(
+          String(a?.archiveDate || '')
+        )
+    );
+  }, []);
+
+  const selectedArchive = useMemo(
+    () =>
+      selectedSourceKey.startsWith('archive:')
+        ? archiveOptions.find(
+            (archive: any) =>
+              `archive:${archive.id}` ===
+              selectedSourceKey
+          ) || null
+        : null,
+    [archiveOptions, selectedSourceKey]
+  );
+
+  const effectiveSessionDate =
+    selectedArchive
+      ? String(selectedArchive.archiveDate || '')
+      : sessionDate;
+
+  const effectiveMatchHistory: MatchHistoryItem[] =
+    selectedArchive &&
+    Array.isArray(selectedArchive.matchHistorySnapshot)
+      ? selectedArchive.matchHistorySnapshot
+      : matchHistory;
+
+  const formatDisplayDate = (
+    value: string
+  ): string => {
+    const match = String(value || '').match(
+      /^(\d{4})-(\d{2})-(\d{2})$/
+    );
+
+    return match
+      ? `${match[3]}/${match[2]}/${match[1]}`
+      : String(value || '-');
+  };
+
   const rows = useMemo(
     () =>
-      matchHistory.map((match, index) => {
+      effectiveMatchHistory.map((match, index) => {
         const [teamA1, teamA2] = splitTeam(match.teamANames);
         const [teamB1, teamB2] = splitTeam(match.teamBNames);
 
@@ -94,7 +165,7 @@ export const MatchHistoryExportView: React.FC<
           result: getMatchResult(match),
         };
       }),
-    [matchHistory]
+    [effectiveMatchHistory]
   );
 
   const totalShuttles = rows.reduce(
@@ -134,7 +205,7 @@ export const MatchHistoryExportView: React.FC<
 
     const body = rows.map((row) =>
       [
-        sessionDate,
+        effectiveSessionDate,
         row.no,
         row.id,
         row.courtName,
@@ -170,7 +241,7 @@ export const MatchHistoryExportView: React.FC<
     const anchor = document.createElement('a');
 
     anchor.href = url;
-    anchor.download = `GuanGuan_Match_History_${sessionDate}.csv`;
+    anchor.download = `GuanGuan_Match_History_${effectiveSessionDate}.csv`;
 
     document.body.appendChild(anchor);
     anchor.click();
@@ -211,7 +282,7 @@ export const MatchHistoryExportView: React.FC<
               🏸 Export ประวัติแมตช์ที่แข่งจบแล้ว
             </h2>
             <div className="mt-1 text-xs text-slate-400">
-              Session Date: {sessionDate}
+              Session Date: {effectiveSessionDate}
             </div>
           </div>
 
@@ -244,6 +315,85 @@ export const MatchHistoryExportView: React.FC<
       </div>
 
       <div className="mx-auto max-w-7xl space-y-5 px-4 py-5 sm:px-6">
+        {/* MATCH_HISTORY_DATE_SELECTOR_IN_VIEW_V2 */}
+        <div className="rounded-2xl border border-cyan-800/50 bg-cyan-950/20 p-4 sm:p-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-black text-white">
+                📅 วันที่สำหรับ Match History
+              </div>
+
+              <div className="mt-1 text-[11px] text-slate-400">
+                เลือก Session ปัจจุบัน หรือวันที่ที่บันทึก Archive ไว้
+              </div>
+
+              <select
+                value={selectedSourceKey}
+                onChange={(event) =>
+                  setSelectedSourceKey(
+                    event.target.value
+                  )
+                }
+                className="mt-3 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs font-semibold text-white outline-none focus:border-cyan-500"
+              >
+                <option value="current">
+                  {formatDisplayDate(sessionDate)}
+                  {' • Session ปัจจุบัน'}
+                </option>
+
+                {archiveOptions
+                  .filter(
+                    (archive: any) =>
+                      String(
+                        archive?.archiveDate || ''
+                      ) !== sessionDate
+                  )
+                  .map((archive: any) => (
+                    <option
+                      key={archive.id}
+                      value={`archive:${archive.id}`}
+                    >
+                      {formatDisplayDate(
+                        String(
+                          archive.archiveDate || ''
+                        )
+                      )}
+                      {' • Archive'}
+                      {archive.venueName
+                        ? ` • ${archive.venueName}`
+                        : ''}
+                    </option>
+                  ))}
+              </select>
+            </div>
+
+            <div className="shrink-0 rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-right">
+              <div className="text-[10px] text-slate-500">
+                วันที่กำลังดู
+              </div>
+
+              <div className="mt-1 text-base font-black text-cyan-300">
+                {formatDisplayDate(
+                  effectiveSessionDate
+                )}
+              </div>
+
+              <div className="mt-1 text-[10px] text-slate-500">
+                {effectiveMatchHistory.length} Match
+              </div>
+            </div>
+          </div>
+
+          {selectedArchive && (
+            <div className="mt-3 rounded-xl border border-violet-800/40 bg-violet-950/20 px-3 py-2 text-[10px] text-violet-300">
+              📦 กำลังดู Match History จาก Archive วันที่{' '}
+              {formatDisplayDate(
+                effectiveSessionDate
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
             <div className="text-[11px] text-slate-400">
@@ -288,7 +438,7 @@ export const MatchHistoryExportView: React.FC<
               รายละเอียดแมตช์
             </div>
             <div className="mt-0.5 text-[11px] text-slate-400">
-              แสดงเฉพาะ Match History ของ Session ปัจจุบันที่ Finish แล้ว
+              แสดง Match History ที่ Finish แล้วของวันที่ที่เลือก
             </div>
           </div>
 
@@ -367,7 +517,7 @@ export const MatchHistoryExportView: React.FC<
                       colSpan={11}
                       className="px-4 py-10 text-center text-slate-500"
                     >
-                      ยังไม่มี Match ที่ Finish ใน Session วันนี้
+                      ยังไม่มี Match ที่ Finish ในวันที่เลือก
                     </td>
                   </tr>
                 )}
