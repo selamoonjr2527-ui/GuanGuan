@@ -20,7 +20,7 @@ const CHALLENGE_PATTERN = /^[a-f0-9]{32}$/i;
 const SECRET_PATTERN = /^[a-f0-9]{64}$/i;
 const GENERIC_ERROR = () => new IdentityDenied();
 
-export interface TokenIssuer { issue(uid: string, claims: { role: 'member'; memberId: string }): Promise<string> }
+export interface TokenIssuer { issue(uid: string, claims: { role: 'member'; memberId: string; credentialVersion: number }): Promise<string> }
 export interface BackendDependencies { db: Firestore; tokens: TokenIssuer; pepper: string; clock?: () => number }
 
 type EnrollmentChallenge = Challenge & { tokenDigest?: string };
@@ -78,10 +78,10 @@ export class MemberIdentityBackend {
       };
       tx.set(identityRef, { ...identity, enrolledAt: now, updatedAt: now });
       tx.update(challengeRef, { consumedAt: now });
-      return challenge.memberId;
+      return { memberId: challenge.memberId, credentialVersion: identity.credentialVersion };
     });
     if (!activatedMemberId) throw GENERIC_ERROR();
-    return this.deps.tokens.issue(uid, { role: 'member', memberId: activatedMemberId });
+    return this.deps.tokens.issue(uid, { role: 'member', ...activatedMemberId });
   }
 
   /** Persist failure counters transactionally, including incorrect PIN attempts. */
@@ -101,13 +101,13 @@ export class MemberIdentityBackend {
         await verifyPin(pin, this.deps.pepper, identity));
       if (valid && identity) {
         tx.set(limitRef, { windowStart: now, failedAttempts: 0, lockedUntil: 0, updatedAt: now });
-        return identity.authUid;
+        return { uid: identity.authUid, credentialVersion: identity.credentialVersion };
       }
       tx.set(limitRef, { ...nextFailure(limit, now), updatedAt: now });
       return null;
     });
     if (!committedUid) throw GENERIC_ERROR();
-    return this.deps.tokens.issue(committedUid, { role: 'member', memberId });
+    return this.deps.tokens.issue(committedUid.uid, { role: 'member', memberId, credentialVersion: committedUid.credentialVersion });
   }
 
   async disable(organizerUid: string, memberId: string): Promise<void> {
