@@ -218,9 +218,10 @@ const preFinal = fs.readFileSync(prePath, 'utf8');
 const checkFinal = fs.readFileSync(checkPath, 'utf8');
 const billFinal = fs.readFileSync(billingPath, 'utf8');
 
+
 const checks = [
   ['Queue has Match helper', preFinal.includes('getPlayerMatchCount')],
-  ['Queue header uses Match', preFinal.includes('Match ที่เล่นแล้ว') || preFinal.includes('Match')),
+  ['Queue header uses Match', preFinal.includes('Match ที่เล่นแล้ว') || preFinal.includes('Match')],
   ['Queue no visible gamesPlayed Set pattern', !/\{[A-Za-z_][A-Za-z0-9_]*\.gamesPlayed\}\s*Set/.test(preFinal)],
   ['Member page uses matchesPlayed', checkFinal.includes('matchesPlayed')],
   ['Billing helper uses matchesPlayed', billFinal.includes('player.matchesPlayed')],
