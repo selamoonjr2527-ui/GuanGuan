@@ -1077,7 +1077,7 @@ return (
       {!organizerManagerOnly && (
         <>
       {/* Top Banner with TV Mode Toggle & Court Overview */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm">
+      <div className="hidden flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm">
         <div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -1325,7 +1325,7 @@ return (
         </div>
 
         {/* Dual Pre-Match Cards Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div id="gg-prematch-cards" className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* SLOT 1 CARD */}
           {!isOrganizerMode && (!slot1Lineup || !slot1Lineup.isConfirmed) ? (
             /* Member View when Pre-Match #1 is not confirmed yet */

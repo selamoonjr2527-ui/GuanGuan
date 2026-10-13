@@ -239,7 +239,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="gg-v59-member-page space-y-6">
       {/* Dynamic Permission Notice Toast / Alert */}
       {permissionNotice && (
         <div className="bg-rose-950/90 border border-rose-600 text-rose-200 px-4 py-3 rounded-2xl flex items-center justify-between gap-3 shadow-lg shadow-rose-950/40 animate-bounce">
@@ -316,7 +316,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <h2 className="text-base font-bold text-white">ระบบเช็คอินหน้าสนาม & รายชื่อก๊วน</h2>
+            <h2 className="text-base font-bold text-white">สมาชิกก๊วนกวน · เช็กอินและรายชื่อวันนี้</h2>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
@@ -339,7 +339,7 @@ export const CheckInView: React.FC<CheckInViewProps> = ({
                     title="สถิติระยะยาว โปรโมชั่นวันเกิด โปรโมชั่น 50 Games และถังขยะสมาชิก"
                   >
                     <Award className="w-4 h-4" />
-                    <span>สถิติ / โปรโมชัน</span>
+                    <span>โปรโมชัน / จัดการข้อมูลสมาชิก</span>
                   </button>
                 )}
 

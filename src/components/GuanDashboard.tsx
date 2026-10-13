@@ -43,15 +43,16 @@ export const GuanDashboard: React.FC<GuanDashboardProps> = ({
   return (
     <section className="gg-dashboard" aria-label="GuanGuan live dashboard">
       <div className="gg-dashboard__hero">
+        <span className="gg-dashboard__hero-index" aria-hidden="true">GUANGUAN BADMINTON CLUB</span>
         <div className="gg-dashboard__hero-copy">
           <div className="gg-dashboard__eyebrow">
             <span className="gg-pulse" />
-            LIVE CLUB SESSION
+            GUANGUAN INTERNAL
             <span className="gg-dashboard__eyebrow-divider" />
-            {isOrganizerMode ? 'ORGANIZER' : 'MEMBER'}
+            {isOrganizerMode ? 'CLUB ADMIN' : 'MEMBER'}
           </div>
-          <h2>{isOrganizerMode ? 'คุมก๊วนได้ ในหน้าเดียว' : me ? `สวัสดี ${me.nickname}` : 'พร้อมลงสนามกันหรือยัง?'}</h2>
-          <p>{isOrganizerMode ? 'ภาพรวมก๊วนวันนี้ พร้อมสถานะสนามที่กำลังใช้งาน' : 'เช็กสถานะสนาม และเตรียมพร้อมสำหรับแมตช์ต่อไป'}</p>
+          <h2>{isOrganizerMode ? 'แดชบอร์ดก๊วนกวน' : me ? `สวัสดี ${me.nickname}` : 'พร้อมลงสนามกันหรือยัง?'}</h2>
+          <p>{isOrganizerMode ? 'ระบบใช้งานภายในสำหรับก๊วนกวนเท่านั้น' : 'เช็กสถานะสนาม และเตรียมพร้อมสำหรับแมตช์ต่อไป'}</p>
           <div className="gg-dashboard__session-details">
             <span><CalendarDays aria-hidden="true" size={14} />{sessionConfig.date || 'ไม่ระบุวันที่'}</span>
             <span><MapPin aria-hidden="true" size={14} />{sessionConfig.venueName || 'ยังไม่ระบุสนาม'}</span>
@@ -68,6 +69,11 @@ export const GuanDashboard: React.FC<GuanDashboardProps> = ({
         </div>
       </div>
 
+      <div className="gg-dashboard__metrics-heading">
+        <span>GUANGUAN INTERNAL</span>
+        <span className="gg-dashboard__metrics-heading-rule" />
+        <span>OVERVIEW</span>
+      </div>
       <div className="gg-dashboard__metrics">
         {isOrganizerMode ? (
           <>

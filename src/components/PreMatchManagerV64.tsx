@@ -38,9 +38,9 @@ interface EditableLineup {
 }
 
 const SLOT_COLORS: Record<PreMatchSlot, string> = {
-  1: 'border-emerald-500/50 bg-emerald-950/15',
-  2: 'border-indigo-500/50 bg-indigo-950/15',
-  3: 'border-violet-500/50 bg-violet-950/15',
+  1: 'border-slate-700/70 bg-slate-900',
+  2: 'border-slate-700/70 bg-slate-900',
+  3: 'border-slate-700/70 bg-slate-900',
 };
 
 
@@ -320,6 +320,26 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
 
   const getPlayer = (id: string) => players.find((player) => player.id === id);
 
+  // GG_PREMATCH_VALIDATION_V58
+  const getPlayerIssue = (id: string): string | null => {
+    if (!id || id.startsWith('__PM_VACANT__')) return 'ยังไม่มีผู้เล่น';
+    const p = getPlayer(id);
+    if (!p) return 'ไม่พบสมาชิก';
+    if (!p.isCheckedIn) return 'ยังไม่ได้ Check-in';
+    if (p.status === 'left') return 'Check-out แล้ว';
+    if (p.status === 'resting') return 'กำลังพัก';
+    if (p.status === 'playing' || playingIds.has(id)) return 'กำลังเล่นอยู่';
+    if (p.status !== 'waiting') return 'ยังไม่พร้อม';
+    return null;
+  };
+  const getLineupIssues = (lineup: EditableLineup | null) => {
+    if (!lineup) return ['ยังไม่มีรายชื่อ'];
+    const ids = [...lineup.teamA, ...lineup.teamB];
+    const issues = ids.map((id) => getPlayerIssue(id)).filter((v): v is string => Boolean(v));
+    if (new Set(ids).size !== 4) issues.push('มีชื่อผู้เล่นซ้ำ');
+    return issues;
+  };
+
   const openEditor = (slot: PreMatchSlot) => {
     const savedDraft =
       normalizedDrafts[
@@ -585,6 +605,12 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
         slot - 1
       ];
 
+    const issues = getLineupIssues(savedDraft);
+    if (issues.length > 0) {
+      window.alert('ยังยืนยัน Pre-Match ไม่ได้\n' + [...new Set(issues)].join('\n') + '\nกรุณาแก้รายชื่อ หรือรอ Check-in');
+      return;
+    }
+
     onConfirmPreMatch(
       {
         ...savedDraft,
@@ -618,13 +644,14 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
   // hideSkillFromMembers, so skill levels are not exposed to members.
   const renderPlayerWithSkill = (id: string) => {
     const player = getPlayer(id);
-    if (!player) return <span className="text-slate-500">—</span>;
-
+    if (!player) return <span className="text-amber-300">ไม่พบสมาชิก</span>;
+    const issue = getPlayerIssue(id);
     const skill = SKILL_LEVELS[player.skillLevel];
 
     return (
-      <span className="inline-flex items-center gap-1.5">
-        <span className="font-black text-white">{player.nickname}</span>
+      <span className={`inline-flex min-w-0 flex-wrap items-center gap-1.5 ${issue ? 'rounded-md bg-slate-800/35 px-1.5 py-1' : ''}`}>
+        <span className={`font-black ${issue ? 'text-slate-100' : 'text-white'}`}>{player.nickname}</span>
+        {issue && <span className="rounded border border-amber-700/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold text-amber-200">{issue}</span>}
         <span
           className={`inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[9px] font-black ${
             skill?.bgColor || 'bg-slate-800'
@@ -700,12 +727,12 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
   );
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border border-violet-700/45 bg-slate-900 p-4 sm:p-5">
+    <div className="gg-v57-prematch space-y-3">
+      <div className="gg-v57-queue-header rounded-2xl border border-slate-700/45 bg-slate-900 p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-base sm:text-lg font-black text-white">
-              🏸 Pre-Match Queue
+              คิว Pre-Match
             </h2>
             <p className="mt-1 text-xs text-slate-400">
               สูงสุด 3 คิว • เรียงตามเวลาที่ผู้จัดกด Confirm จริง
@@ -743,7 +770,7 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
               key={pm.id}
               className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm ${
                 isNext
-                  ? 'border-emerald-400/70 bg-emerald-950/20 ring-1 ring-emerald-400/30'
+                  ? 'border-teal-500/65 bg-slate-900 ring-1 ring-teal-500/20'
                   : SLOT_COLORS[slot]
               }`}
             >
@@ -836,7 +863,7 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
 
               {hasInvalidPlayer && (
                 <div className="mt-3 rounded-xl border border-amber-700/50 bg-amber-950/25 px-3 py-2 text-[10px] text-amber-300">
-                  ⚠️ มีผู้เล่นที่ยังไม่พร้อมลงสนาม/กำลังเล่นอยู่
+                  มีผู้เล่นที่ยังไม่พร้อม: {[...new Set(getLineupIssues(pm))].join(' / ')}
                 </div>
               )}
 
@@ -893,9 +920,11 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
             const draft =
               savedDraft ||
               autoDrafts[slot];
+            const draftIssues = draft ? getLineupIssues(draft) : [];
+            const canConfirm = Boolean(savedDraft) && draftIssues.length === 0;
 
             return (
-              <div key={slot} className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+              <div key={slot} className={`rounded-xl border p-3 transition-colors ${draftIssues.length ? 'border-slate-700/70 bg-[#171e27]' : 'border-slate-700/70 bg-[#171e27]'}`}>
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-black text-white">PM#{slot}</div>
@@ -923,7 +952,9 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
                           onClick={() =>
                             confirmSavedDraft(slot)
                           }
-                          className="flex items-center gap-1 rounded-lg bg-emerald-500 px-2.5 py-1.5 text-[10px] font-black text-slate-950 hover:bg-emerald-400"
+                          disabled={!canConfirm}
+                          title={!canConfirm ? 'ต้องให้ผู้เล่นทั้ง 4 คน Check-in และพร้อมเล่นก่อน' : 'ยืนยัน Pre-Match'}
+                          className="flex items-center gap-1 rounded-lg bg-emerald-500 px-2.5 py-1.5 text-[10px] font-black text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
                         >
                           <Check className="h-3 w-3" />
                           Confirm PM
@@ -944,6 +975,7 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
                   )}
                 </div>
 
+                {draftIssues.length > 0 && <div className="mt-2 rounded-lg border-l-2 border-amber-500/70 bg-[#20252a] px-2.5 py-2 text-[10px] text-slate-300">ต้องตรวจสอบ: {[...new Set(draftIssues)].join(' / ')}</div>}
                 {draft && (
                   <div className="mt-2">
                     {/* PREMATCH_COURT_VIEW_V71E: Draft uses same orientation as court */}
@@ -1033,11 +1065,7 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
 
             <button
               type="button"
-              disabled={
-                !normalizedDrafts[
-                  editingSlot - 1
-                ]
-              }
+              disabled={!normalizedDrafts[editingSlot - 1] || getLineupIssues(normalizedDrafts[editingSlot - 1]).length > 0 || getLineupIssues(editingLineup).length > 0}
               onClick={() =>
                 confirmSavedDraft(
                   editingSlot

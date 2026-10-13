@@ -235,8 +235,8 @@ export const OrganizerPinModal: React.FC<
   };
 
   return (
-    <div className="fixed inset-0 z-[2147483500] flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur-md">
-      {/* ORGANIZER_QUICK_PIN_V61 */}
+    <div className="gg-organizer-login-v5131 fixed inset-0 z-[2147483500] flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur-md">
+      {/* ORGANIZER_QUICK_PIN_V61 / GG_ORGANIZER_LOGIN_V5131 */}
       <div className="w-full max-w-md overflow-hidden rounded-3xl border border-amber-500/40 bg-slate-900 shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950 px-5 py-4">
           <div className="flex items-center gap-3">
@@ -245,10 +245,10 @@ export const OrganizerPinModal: React.FC<
             </div>
             <div>
               <div className="text-sm font-black text-white">
-                Organizer Access
+                เข้าสู่ระบบผู้จัดก๊วน
               </div>
               <div className="text-[10px] text-slate-400">
-                Firebase Auth + Quick PIN
+                GUANGUAN / ORGANIZER
               </div>
             </div>
           </div>
@@ -268,7 +268,7 @@ export const OrganizerPinModal: React.FC<
             className="space-y-4 p-5"
           >
             <div className="rounded-2xl border border-cyan-800/50 bg-cyan-950/25 p-3 text-xs leading-5 text-cyan-100">
-              🔐 อุปกรณ์ใหม่ต้องยืนยัน Firebase Organizer ด้วย
+              อุปกรณ์ใหม่ต้องยืนยันตัวตนผู้จัดด้วย
               Email / Password <strong>เพียงครั้งแรก</strong>
               หลังจากนั้นใช้งาน Quick PIN ได้
             </div>
@@ -333,7 +333,7 @@ export const OrganizerPinModal: React.FC<
             className="space-y-4 p-5"
           >
             <div className="rounded-2xl border border-emerald-700/50 bg-emerald-950/25 p-3 text-xs leading-5 text-emerald-100">
-              ✅ Firebase Organizer ยืนยันแล้ว
+              ยืนยันบัญชีผู้จัดเรียบร้อยแล้ว
               <br />
               ตั้ง <strong>Quick PIN 6 หลัก</strong>
               สำหรับอุปกรณ์นี้ ครั้งต่อไปไม่ต้องกรอก Email
@@ -405,7 +405,7 @@ export const OrganizerPinModal: React.FC<
             className="space-y-4 p-5"
           >
             <div className="rounded-2xl border border-amber-700/50 bg-amber-950/25 p-3 text-xs leading-5 text-amber-100">
-              👑 อุปกรณ์นี้เคยยืนยัน Organizer แล้ว
+              อุปกรณ์นี้ยืนยันตัวตนผู้จัดไว้แล้ว
               <br />
               กรอก Quick PIN เพื่อเข้าโหมดผู้จัด
             </div>
@@ -443,7 +443,7 @@ export const OrganizerPinModal: React.FC<
               disabled={busy}
               className="w-full rounded-xl bg-amber-500 px-4 py-3 text-sm font-black text-slate-950 hover:bg-amber-400 disabled:opacity-50"
             >
-              👑 เข้าโหมดผู้จัด
+              เข้าสู่โหมดผู้จัด
             </button>
 
             <button

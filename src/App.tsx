@@ -6,11 +6,17 @@ import {
 } from 'firebase/auth';
 import { auth, isOrganizerUid } from './firebase';
 import { Header } from './components/Header';
+import { GuanVoiceAnnouncerV515 } from './components/GuanVoiceAnnouncerV515'; // GG_VOICE_ANNOUNCER_V515
+import { GuanTvMode } from './components/GuanTvMode'; // GG_TV_MODE_V55
 import { GuanDashboard } from './components/GuanDashboard';
 import { PreMatchView } from './components/PreMatchView';
 import { CheckInView } from './components/CheckInView';
+import { GuanMemberHistoryV510 } from './components/GuanMemberHistoryV510'; // GUANGUAN_HISTORY_V510
+import { GuanStatsHubV59 } from './components/GuanStatsHubV59'; // GG_MEMBER_STATS_V59
 import { SkillAssessmentView } from './components/SkillAssessmentView';
 import { CourtsView } from './components/CourtsView';
+import { GuanMatchHistoryV5104 } from './components/GuanMatchHistoryV5104'; // GG_MATCH_LAYOUT_CLEANUP_V5104
+import { CourtManagementView } from './components/CourtManagementView'; // COURT_MANAGEMENT_V50
 import { SessionCourtsPanel } from './components/SessionCourtsPanel'; // DYNAMIC_SESSION_COURTS_V63A
 import { PreMatchManagerV64, OrganizerWaitingQueueV64 } from './components/PreMatchManagerV64'; // PREMATCH_3_FIFO_V64
 import { BillingView } from './components/BillingView';
@@ -29,6 +35,9 @@ import { MemberPlayNotification } from './components/MemberPlayNotification';
 
 import { MemberGateModal } from './components/MemberGateModal';
 import { MemberCenterModal } from './components/MemberCenterModal';
+import { GuanPromotionHubV511 } from './components/GuanPromotionHubV511';
+import { GuanPromotionHubV512, GuanMemberAnnouncementV512, GG_PROMO_DEFAULTS_V512 } from './components/GuanPromotionHubV512';
+import type { GgPromotionSettingsV512 } from './components/GuanPromotionHubV512';
 import { MemberHistoryModal } from './components/MemberHistoryModal'; // MEMBER_HISTORY_V65
 import { MemberPinModal } from './components/MemberPinModal';
 
@@ -270,6 +279,7 @@ export default function App() {
   };
 
   const [currentTab, setCurrentTab] = useState<TabType>('prematch');
+  const [ggTvOpenV55, setGgTvOpenV55] = useState(false); // GG_TV_MODE_V55
   const [financeWorkspaceV77, setFinanceWorkspaceV77] = useState<'financial' | 'shuttle'>('financial'); // SHUTTLE_STOCK_SEPARATION_V77B
   const [cancelFinishedMatchId, setCancelFinishedMatchId] = useState('');
 
@@ -321,6 +331,7 @@ export default function App() {
   });
   const [isArchiveModalOpen, setIsArchiveModalOpen] = useState<boolean>(false);
   const [isMemberCenterOpen, setIsMemberCenterOpen] = useState<boolean>(false);
+  const [memberCenterEntryV511, setMemberCenterEntryV511] = useState<'members'|'promotions'>('members');
   const [isDataStatsManagerOpen, setIsDataStatsManagerOpen] = useState<boolean>(false); // DATA_STATS_REPAIR_V66
   const [isMemberHistoryOpen, setIsMemberHistoryOpen] = useState<boolean>(false); // MEMBER_HISTORY_V65
 
@@ -455,7 +466,7 @@ export default function App() {
       );
     }
 
-    if (currentTab === 'courts' || currentTab === 'finance' || currentTab === 'tools') {
+    if (currentTab === 'courts' || currentTab === 'courtManagement' || currentTab === 'promotions' || currentTab === 'finance' || currentTab === 'organizerStats' || currentTab === 'tools') {
       setCurrentTab('prematch');
     }
 
@@ -774,6 +785,19 @@ export default function App() {
   }, [appState, authReady, authUserUid, isOnline]);
 
   const { sessionConfig, players, activeMatches, matchHistory } = appState;
+  // GG_PROMO_ANNOUNCEMENT_V512: sync with existing Firestore app state.
+  const ggPromoSettingsV512: GgPromotionSettingsV512 = {
+    ...GG_PROMO_DEFAULTS_V512,
+    ...((appState as any).ggPromoSettingsV512 || {}),
+  };
+  const ggMemberBirthdaysV512: Record<string,string> = Object.fromEntries(
+    Object.entries(getMemberStatsMap(appState as any)).map(([id,value]) => [id, String(value?.birthday || '')])
+  );
+  const handleChangePromoV512 = (next: GgPromotionSettingsV512) => {
+    if (!isOrganizerMode) return;
+    setAppState(prev => ({...prev, ggPromoSettingsV512: next} as any));
+  };
+
 
   const confirmedPreMatch3 = ((appState as any).confirmedPreMatch3 || null) as ConfirmedPreMatch | null; // PREMATCH_3_FIFO_V64
 
@@ -5751,6 +5775,10 @@ export default function App() {
         matchHistory: [],
         confirmedPreMatch: null,
         confirmedPreMatch2: null,
+        // GG_V581_DRAFT_RESET
+        draftPreMatch1: null,
+        draftPreMatch2: null,
+        draftPreMatch3: null,
 
         ...(Object.prototype.hasOwnProperty.call(
           prev,
@@ -6080,7 +6108,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
+    <div className="gg-layout-v4 min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
             {/* TOP_ACCOUNT_MODE_BAR_V9 */}
       <div className="border-b border-slate-800/80 bg-slate-950/95">
         <div
@@ -6114,6 +6142,18 @@ export default function App() {
             </div>
           )}
 
+          {/* COURT_MANAGEMENT_V51 per-court topbar */}
+          <div className="gg-topbar-session gg-topbar-session--courts" aria-label="Court booking schedules" style={{ flexWrap: 'wrap', rowGap: '6px', maxWidth: 'min(100%, 850px)', justifyContent: 'center' }}>
+            {(sessionConfig.sessionCourts?.length
+              ? sessionConfig.sessionCourts
+              : (sessionConfig.courtNames || []).map((name, index) => ({ id: `court-${index + 1}`, name, startTime: sessionConfig.startTime, endTime: sessionConfig.endTime, hourlyRate: sessionConfig.courtHourlyRate }))
+            ).map((court, index) => (
+              <span key={court.id} className="gg-topbar-session__courts" style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '2px 8px', whiteSpace: 'nowrap', borderRight: index === (sessionConfig.sessionCourts?.length || sessionConfig.courtNames?.length || 0) - 1 ? 'none' : '1px solid #40515f' }}>
+                <strong style={{ color: '#76d2d2' }}>{court.name}</strong>
+                <span style={{ fontVariantNumeric: 'tabular-nums' }}>{court.startTime || '--:--'} - {court.endTime || '--:--'}</span>
+              </span>
+            ))}
+          </div>
           <button
             type="button"
             onClick={handleToggleOrganizerMode}
@@ -6190,8 +6230,33 @@ export default function App() {
         </div>
       )}
 
+      {/* GG_PROMO_MEMBER_POPUP_V512: member identity required; never overlay organizer. */}
+      {!isOrganizerMode && currentMemberId && (
+        <GuanMemberAnnouncementV512
+          settings={ggPromoSettingsV512}
+          memberId={currentMemberId}
+          memberBirthdays={ggMemberBirthdaysV512}
+        />
+      )}
+        {/* GG_VOICE_ANNOUNCER_V515 device-local; reads Firestore-synced state */}
+      <GuanVoiceAnnouncerV515
+        players={players}
+        confirmedPreMatches={[appState.confirmedPreMatch, appState.confirmedPreMatch2, confirmedPreMatch3]}
+        activeMatches={activeMatches}
+        sessionDate={sessionConfig.date}
+      />
+      {/* GG_TV_MODE_V55 overlay reads live state */}
+      {ggTvOpenV55 && <GuanTvMode
+        sessionConfig={sessionConfig}
+        players={players}
+        activeMatches={activeMatches}
+        confirmedPreMatches={[appState.confirmedPreMatch, appState.confirmedPreMatch2, (appState as any).confirmedPreMatch3]}
+        onClose={() => setGgTvOpenV55(false)}
+      />}
       {/* Main Content Area */}
       <main className="gg-app-main flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* GG_TV_MODE_V55 launcher */}
+        {currentTab === 'prematch' && <div className="mb-3 flex justify-end"><button type="button" onClick={() => setGgTvOpenV55(true)} className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-950/30 px-4 py-2.5 text-xs font-black text-cyan-200 transition hover:bg-cyan-900/40 hover:border-cyan-400/70" aria-label="เปิดโหมดจอทีวีก๊วน">▣ โหมดจอทีวีก๊วน</button></div>}
         {/* Offline / reconnect status */}
         {!isOnline && (
           <div className="mb-4 rounded-2xl border border-amber-600/60 bg-amber-950/45 px-4 py-3 shadow-lg">
@@ -6383,6 +6448,18 @@ onUpdateMemberStatus={(playerId, status) => {
           />
         )}
 
+        {currentTab === 'promotions' && isOrganizerMode && (
+          <GuanPromotionHubV512
+            players={players}
+            archives={loadSessionArchives()}
+            settings={ggPromoSettingsV512}
+            onChange={handleChangePromoV512}
+            memberBirthdays={ggMemberBirthdaysV512}
+            ruleCount={promotionRules.length}
+            onManageRules={() => {setMemberCenterEntryV511('promotions');setIsMemberCenterOpen(true);}}
+          />
+        )}
+
         {currentTab === 'checkin' && (
           <SectionErrorBoundary
             title="สมาชิก"
@@ -6486,9 +6563,29 @@ onUpdateMemberStatus={(playerId, status) => {
               onToggleWalkInPenalty={handleToggleWalkInPenalty}
               onToggleRegistrationType={handleToggleRegistrationType}
               onPromptIdentifyMember={() => setIsMemberGateOpen(true)}
-              onOpenMemberCenter={() => setIsMemberCenterOpen(true)}
+              onOpenMemberCenter={() => { setMemberCenterEntryV511('members'); setIsMemberCenterOpen(true); }}
             />
           </SectionErrorBoundary>
+        )}
+
+        {/* GG_MEMBER_STATS_V59 separate pages */}
+        {currentTab === 'organizerStats' && isOrganizerMode && (
+          <GuanStatsHubV59 mode="organizer" isOrganizerMode={isOrganizerMode} currentMemberId={currentMemberId} players={players} activeMatches={activeMatches} matchHistory={matchHistory} sessionConfig={sessionConfig} memberStats={memberStats} />
+        )}
+        {currentTab === 'memberStats' && (
+          <GuanStatsHubV59 mode="member" isOrganizerMode={isOrganizerMode} currentMemberId={currentMemberId} players={players} activeMatches={activeMatches} matchHistory={matchHistory} sessionConfig={sessionConfig} memberStats={memberStats} />
+        )}
+
+        {/* GUANGUAN_HISTORY_V510 role-aware match history */}
+        {currentTab === 'memberHistory' && (
+          <GuanMemberHistoryV510
+            players={players}
+            currentMemberId={currentMemberId}
+            isOrganizerMode={isOrganizerMode}
+            sessionConfig={sessionConfig}
+            matchHistory={matchHistory}
+            archiveRevision={archiveRevision}
+          />
         )}
 
         {currentTab === 'assessment' && (
@@ -6505,17 +6602,40 @@ onUpdateMemberStatus={(playerId, status) => {
 
         {/* MATCH_REPAIR_TOOLS_MOVED_V64B */}
 
+        {currentTab === 'courtManagement' && isOrganizerMode && (
+          <CourtManagementView
+            config={sessionConfig}
+            activeMatches={activeMatches}
+            matchHistoryCourtNames={matchHistory.map(item => item.courtName)}
+            onChange={handleUpdateSessionCourtsV70B}
+          />
+        )}
+
         {currentTab === 'courts' && (
-          <>
+          <div className="gg-v5104-match-main">
+            {/* GG_MATCH_CONTROL_V571_FIXED: UTF-8 title and summary */}
+            <div className="gg-v57-header">
+              <div className="gg-v57-title">จัดแมตช์วันนี้</div>
+              <div className="gg-v57-subtitle">สถานะสนาม / จัดคู่แข่งขัน / คิว Pre-Match</div>
+            </div>
+            <div className="gg-v57-stats">
+              <div className="gg-v57-stat"><small>คอร์ททั้งหมด</small><strong>{sessionConfig.courtNames.length}</strong></div>
+              <div className="gg-v57-stat"><small>กำลังเล่น</small><strong>{activeMatches.length}</strong></div>
+              <div className="gg-v57-stat"><small>ผู้เล่นรอ</small><strong>{waitingCount}</strong></div>
+              <div className="gg-v57-stat"><small>ยืนยัน Pre-Match</small><strong>{[appState.confirmedPreMatch, appState.confirmedPreMatch2, confirmedPreMatch3].filter(Boolean).length}/3</strong></div>
+            </div>
             {isOrganizerMode && (
-              <SessionCourtsPanel
-                sessionConfig={sessionConfig}
-                activeMatches={activeMatches}
-                onChange={handleUpdateSessionCourtsV70B} /* COURT_NAME_SYNC_TOPLEVEL_V70B */
-              />
+              <details className="gg-v57-booking-details">
+                <summary><span>รายละเอียดคอร์ทและเวลาจองวันนี้</span><span aria-hidden="true">▾</span></summary>
+                <SessionCourtsPanel
+                  sessionConfig={sessionConfig}
+                  activeMatches={activeMatches}
+                  onChange={handleUpdateSessionCourtsV70B} /* COURT_NAME_SYNC_TOPLEVEL_V70B */
+                />
+              </details>
             )}
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-4 items-start">
               <div className="min-w-0">
                 <CourtsView
                   sessionConfig={sessionConfig}
@@ -6533,6 +6653,7 @@ onUpdateMemberStatus={(playerId, status) => {
                   confirmedPreMatch2={appState.confirmedPreMatch2}
                   singleColumnCourts={isOrganizerMode}
                   hideWaitingQueue={isOrganizerMode}
+                  hideMatchHistory={isOrganizerMode}
                   hidePreMatchQuickLoad={isOrganizerMode}
                   onStartMatch={handleStartMatch}
                   onFinishMatch={handleFinishMatch}
@@ -6568,7 +6689,7 @@ onUpdateMemberStatus={(playerId, status) => {
             </div>
 
             {isOrganizerMode && (
-              <div className="mt-6">
+              <div className="gg-v5104-waiting">
                 <OrganizerWaitingQueueV64
                   players={players}
                   activeMatches={activeMatches}
@@ -6587,6 +6708,8 @@ onUpdateMemberStatus={(playerId, status) => {
                 />
               </div>
             )}
+
+            {isOrganizerMode && <GuanMatchHistoryV5104 matchHistory={matchHistory} />}
 
             {/* TABLET_MATCH_REPAIR_TOOLBOX_V64B */}
             {isOrganizerMode && matchHistory.length > 0 && (
@@ -6669,7 +6792,7 @@ onUpdateMemberStatus={(playerId, status) => {
                 </div>
               </details>
             )}
-          </>
+          </div>
         )}
 
         {/* ORGANIZER_TOOLS_PAGE_V68 */}
@@ -7034,6 +7157,7 @@ onUpdateMemberStatus={(playerId, status) => {
         }}
       />
       <MemberCenterModal
+        entryMode={memberCenterEntryV511}
         isOpen={isMemberCenterOpen}
         onClose={() => setIsMemberCenterOpen(false)}
         players={players}
@@ -7170,6 +7294,9 @@ onUpdateMemberStatus={(playerId, status) => {
             confirmedPreMatch: null,
             confirmedPreMatch2: null,
             confirmedPreMatch3: null, // PREMATCH_3_FIFO_V64
+            draftPreMatch1: null,
+            draftPreMatch2: null,
+            draftPreMatch3: null,
             memberLifetimeStats: getMemberStatsMap(prev as any),
             deletedMembers: getDeletedMembers(prev as any),
             promotionRules: getPromotionRules(prev as any),

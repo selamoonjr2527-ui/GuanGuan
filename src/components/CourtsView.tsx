@@ -17,6 +17,7 @@ interface CourtsViewProps {
   confirmedPreMatch2?: ConfirmedPreMatch | null;
   singleColumnCourts?: boolean; // COURTS_TWO_COLUMN_LAYOUT_V64
   hideWaitingQueue?: boolean;
+  hideMatchHistory?: boolean;
   hidePreMatchQuickLoad?: boolean;
   onStartMatch: (courtId: string, courtName: string, teamA: [string, string], teamB: [string, string]) => void;
   onFinishMatch: (
@@ -56,6 +57,7 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
   confirmedPreMatch2,
   singleColumnCourts = false,
   hideWaitingQueue = false,
+  hideMatchHistory = false,
   hidePreMatchQuickLoad = false,
   onStartMatch,
   onFinishMatch,
@@ -157,9 +159,9 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="gg-v57-courts space-y-4">
       {/* Top Banner & Quick Status */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="hidden bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
             <Flame className="w-5 h-5 text-amber-400" />
@@ -179,6 +181,7 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
         </div>
       </div>
 
+      <div className="gg-v57-panel-title"><span>สนามแข่งขัน</span><small>LIVE COURTS</small></div>
       {/* Courts Visual Cards */}
       <div className={singleColumnCourts ? "grid grid-cols-1 gap-5" : "grid grid-cols-1 lg:grid-cols-2 gap-5"}>
         {sessionConfig.courtNames.map((courtName, idx) => {
@@ -190,7 +193,7 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
             return (
               <div
                 key={courtId}
-                className="bg-slate-900 border border-dashed border-slate-700/80 rounded-2xl p-6 flex flex-col items-center justify-center text-center relative overflow-hidden min-h-[360px] hover:border-emerald-500/50 transition group"
+                className="gg-v57-court-card gg-v57-court-card--idle bg-slate-900 border border-slate-700/80 rounded-2xl p-5 flex flex-col items-center justify-center text-center relative overflow-hidden min-h-[240px] hover:border-teal-500/50 transition group"
               >
                 <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 text-2xl mb-3 group-hover:scale-110 transition">
                   🏸
@@ -198,7 +201,8 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
                 <div className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 mb-1">
                   คอร์ทว่าง (Available)
                 </div>
-                <h3 className="text-xl font-bold text-white mb-1">{courtName}</h3>
+                <h3 className="text-2xl font-black text-white mb-1">{courtName}</h3>
+                <p className="gg-v57-booking-time">{sessionConfig.sessionCourts?.[idx] ? `${sessionConfig.sessionCourts[idx].startTime} - ${sessionConfig.sessionCourts[idx].endTime}` : `${sessionConfig.startTime} - ${sessionConfig.endTime}`}</p>
                 <p className="text-xs text-slate-400 max-w-xs mb-4">
                   พร้อมลงจัดคู่ใหม่ มีผู้เล่นรอคิวอยู่ {availablePlayers.length} คน
                 </p>
@@ -285,13 +289,13 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
           return (
             <div
               key={courtId}
-              className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg flex flex-col justify-between"
+              className="gg-v57-court-card gg-v57-court-card--playing bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg flex flex-col justify-between"
             >
               {/* Court Header */}
               <div className="bg-slate-950 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
-                  <span className="font-bold text-white text-sm">{courtName}</span>
+                  <span className="font-black text-white text-lg">{courtName}</span>
                   <span className="text-[11px] px-2 py-0.5 rounded-md bg-amber-950 text-amber-300 border border-amber-800 font-semibold">
                     กำลังแข่งขัน
                   </span>
@@ -660,7 +664,7 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
       )}
 
       {/* Recent Match History */}
-      {matchHistory.length > 0 && (
+      {!hideMatchHistory && matchHistory.length > 0 && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">

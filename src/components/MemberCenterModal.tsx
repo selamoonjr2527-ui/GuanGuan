@@ -44,6 +44,7 @@ import { loadSessionArchives } from '../utils/storage'; // HISTORICAL_MEMBER_COS
 
 interface Props {
   isOpen: boolean;
+  entryMode?: 'members' | 'promotions';
   onClose: () => void;
   players: Player[];
   deletedMembers: DeletedMemberRecord[];
@@ -83,6 +84,7 @@ const formatHistoryDateV67 = (value: string) => {
 
 export const MemberCenterModal: React.FC<Props> = ({
   isOpen,
+  entryMode = 'members',
   onClose,
   players,
   deletedMembers,
@@ -100,6 +102,7 @@ export const MemberCenterModal: React.FC<Props> = ({
   onResetMemberPin,
 }) => {
   const [tab, setTab] = useState<'stats' | 'promotions' | 'trash'>('stats');
+  React.useEffect(() => { if (isOpen) setTab(entryMode === 'promotions' ? 'promotions' : 'stats'); }, [isOpen, entryMode]);
   const [search, setSearch] = useState('');
   const [editingRule, setEditingRule] = useState<PromotionRule | null>(null);
   const [resetPinPlayer, setResetPinPlayer] = useState<Player | null>(null);
@@ -377,30 +380,30 @@ export const MemberCenterModal: React.FC<Props> = ({
           <div className="p-4 sm:p-6 space-y-4">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div className="inline-flex flex-wrap p-1 rounded-xl bg-slate-950 border border-slate-800">
-                <button
+                {entryMode === 'members' && <button
                   onClick={() => setTab('stats')}
                   className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 ${
                     tab === 'stats' ? 'bg-violet-500 text-white' : 'text-slate-400'
                   }`}
                 >
                   <Trophy className="w-4 h-4" /> สมาชิก & สิทธิ์
-                </button>
-                <button
+                </button>}
+                {entryMode === 'promotions' && <button
                   onClick={() => setTab('promotions')}
                   className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 ${
                     tab === 'promotions' ? 'bg-amber-500 text-slate-950' : 'text-slate-400'
                   }`}
                 >
                   <Settings2 className="w-4 h-4" /> ตั้งโปรโมชั่น
-                </button>
-                <button
+                </button>}
+                {entryMode === 'members' && <button
                   onClick={() => setTab('trash')}
                   className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 ${
                     tab === 'trash' ? 'bg-rose-500 text-white' : 'text-slate-400'
                   }`}
                 >
                   <Trash2 className="w-4 h-4" /> ถังขยะ ({deletedMembers.length})
-                </button>
+                </button>}
               </div>
 
               {tab !== 'promotions' && (

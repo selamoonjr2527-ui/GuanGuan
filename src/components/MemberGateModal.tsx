@@ -244,7 +244,7 @@ export const MemberGateModal: React.FC<MemberGateModalProps> = ({
   };
 
   const modal = (
-    <div className="fixed inset-0 z-[10000] bg-slate-950/90 backdrop-blur-md overflow-y-auto">
+    <div className="gg-login-v513 fixed inset-0 z-[10000] bg-slate-950/90 backdrop-blur-md overflow-y-auto"> {/* GUANGUAN_LOGIN_V513 */}
       <div className="min-h-full w-full flex items-center justify-center p-3 sm:p-6">
         <div className="relative w-full max-w-xl overflow-hidden rounded-[28px] border border-slate-700/80 bg-slate-900 shadow-2xl shadow-black/40">
           <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-400 via-cyan-400 to-indigo-400" />
@@ -264,16 +264,16 @@ export const MemberGateModal: React.FC<MemberGateModalProps> = ({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-lg sm:text-xl font-black text-white tracking-tight">
-                    {onClose ? 'สลับชื่อสมาชิก' : 'เข้าสู่ก๊วนกวน'}
+                    {onClose ? 'สลับสมาชิก' : 'เข้าสู่ระบบสมาชิก'}
                   </h2>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 font-bold">
-                    MEMBER ACCESS
+                    GUANGUAN CLUB
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mt-1 leading-relaxed">
                   {onClose
                     ? 'เลือกชื่อใหม่และยืนยันรหัสก่อนสลับ บัญชีเดิมจะยังคงอยู่จนกว่าจะยืนยันสำเร็จ'
-                    : 'เลือกชื่อของคุณเพื่อเข้าใช้งาน หรือสมัคร Walk-in หน้าสนาม'}
+                    : 'เลือกชื่อและยืนยันตัวตนเพื่อใช้งานก๊วนกวน'}
                 </p>
               </div>
 
@@ -306,7 +306,7 @@ export const MemberGateModal: React.FC<MemberGateModalProps> = ({
                 }`}
               >
                 <LogIn className="w-4 h-4" />
-                <span>สมาชิกก๊วน</span>
+                <span>สมาชิก</span>
               </button>
 
               <button
@@ -322,7 +322,7 @@ export const MemberGateModal: React.FC<MemberGateModalProps> = ({
                 }`}
               >
                 <UserPlus className="w-4 h-4" />
-                <span>Walk-in</span>
+                <span>ผู้เล่นทั่วไป</span>
               </button>
             </div>
 
@@ -605,7 +605,7 @@ export const MemberGateModal: React.FC<MemberGateModalProps> = ({
                 onClick={onOpenOrganizerLogin}
                 className="text-xs text-amber-400 hover:text-amber-300 font-bold transition"
               >
-                เข้าสู่ระบบผู้จัดก๊วน 👑
+                เข้าสู่ระบบผู้จัดก๊วน
               </button>
             </div>
           </div>

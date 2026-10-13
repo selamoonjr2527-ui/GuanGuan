@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState } from 'react';
+
 import { getSessionCourtCost } from '../utils/sessionCourts'; // DYNAMIC_SESSION_COURTS_V63A
 import QRCode from 'qrcode';
 import confetti from 'canvas-confetti';
@@ -13,7 +14,8 @@ import { PaymentConfirmModal } from './PaymentConfirmModal';
 import { createPendingPaymentTransaction } from '../payment/paymentTransactions';
 import { MemberPaymentAction } from './MemberPaymentAction';
 import { OrganizerPaymentVerificationPanel } from './OrganizerPaymentVerificationPanel';
-import { OrganizerBillingAdjustments } from './OrganizerBillingAdjustments';
+import { OrganizerBillingAdjustments } from './OrganizerBillingAdjustments';
+
 import { BillingExportView } from './BillingExportView'; // BILLING_EXPORT_V50B
 import {
   PromotionRedemption,
@@ -84,6 +86,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
   // Member-only personal lookup selection
   const [selectedMemberId, setSelectedMemberId] = useState<string>('');
   const [memberSearchQuery, setMemberSearchQuery] = useState<string>('');
+  const [ggBillingFilterV514, setGgBillingFilterV514] = useState<'all'|'checkout'|'unpaid'|'paid'>('all');
 
   // Extra expense state
   const [newExpenseName, setNewExpenseName] = useState('');
@@ -471,9 +474,12 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
 
   // Filtered player list for table
   const filteredPlayers = eligiblePlayers.filter((p) => {
+    if (isOrganizerMode && ggBillingFilterV514 === 'checkout' && (p.paid || !p.isCheckedIn)) return false;
+    if (isOrganizerMode && ggBillingFilterV514 === 'unpaid' && (p.paid || p.isCheckedIn)) return false;
+    if (isOrganizerMode && ggBillingFilterV514 === 'paid' && !p.paid) return false;
     if (!memberSearchQuery.trim()) return true;
     const q = memberSearchQuery.toLowerCase();
-    return p.nickname.toLowerCase().includes(q) || (p.fullName && p.fullName.toLowerCase().includes(q));
+    return p.nickname.toLowerCase().includes(q) || Boolean(p.fullName && p.fullName.toLowerCase().includes(q));
   });
 
   return (
@@ -773,149 +779,332 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
         </div>
       )}
 
-      {/* ORGANIZER-ONLY: Financial Summary & Profit/Loss Shortcut Banner */}
-      {isOrganizerMode && onNavigateToFinance && (
-        <div className="bg-gradient-to-r from-amber-950/60 via-slate-900 to-emerald-950/60 border border-amber-500/40 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0 shadow-inner">
-              <TrendingUp className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-amber-300">📊 สรุปเรื่องเงินสำหรับผู้จัด</span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800 font-semibold">
-                  👑 เฉพาะผู้จัดเท่านั้น
-                </span>
-              </div>
-              <h3 className="text-sm sm:text-base font-extrabold text-white mt-0.5">
-                ดูวิเคราะห์รายรับ-รายจ่ายจริง, ต้นทุนค่าสนาม, กำไร/ขาดทุนสุทธิ & สถิติกองกลาง
-              </h3>
-              <p className="text-xs text-slate-400">
-                ระบบคำนวณส่วนต่างกำไรเข้ากองกลาง และบันทึกประวัติย้อนหลังทุกรอบของก๊วนกวน
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onNavigateToFinance}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow transition shrink-0 self-start sm:self-auto"
-          >
-            <span>เปิดหน้ารายงานการเงิน & สถิติ</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {/* ORGANIZER-ONLY: Top Cost Breakdown Cards */}
+      {/* GG_BILLING_V514: overview values from individual bill, do not modify billing calculation */}
       {isOrganizerMode && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {isClubRate ? (
-            <>
-              {/* Club Court Fee */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
-                <div className="flex items-center justify-between text-slate-400 text-xs">
-                  <span>ค่าคอร์ทสมาชิก</span>
-                  <span className="text-emerald-400 font-semibold">{memberCourtFee}฿ / คน</span>
-                </div>
-                <div className="text-2xl font-extrabold text-white mt-1">
-                  {clubCourtTotal.toLocaleString()} <span className="text-xs font-normal text-slate-400">บาท</span>
-                </div>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  สมาชิกที่เช็คอิน {eligiblePlayers.length} คน x {memberCourtFee}฿
-                </p>
-              </div>
-
-              {/* Club Match Shuttle Fee */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
-                <div className="flex items-center justify-between text-slate-400 text-xs">
-                  <span>ค่าลูกตามแมตช์ (1 แมตช์/ลูก)</span>
-                  <span className="text-amber-400 font-semibold">{shuttlecockFeePerMatch}฿ / คน</span>
-                </div>
-                <div className="text-2xl font-extrabold text-amber-400 mt-1">
-                  {clubShuttleMatchTotal.toLocaleString()} <span className="text-xs font-normal text-slate-400">บาท</span>
-                </div>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  ลงเล่นรวม {totalMatchesPlayed} Match x {shuttlecockFeePerMatch}฿
-                </p>
-              </div>
-
-              {/* Extra Shuttlecocks */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
-                <div className="flex items-center justify-between text-slate-400 text-xs">
-                  <span>ค่าลูกซื้อเพิ่ม</span>
-                  <span className="text-blue-400 font-semibold">{extraShuttlecockPrice}฿ / ลูก</span>
-                </div>
-                <div className="text-2xl font-extrabold text-blue-400 mt-1">
-                  {clubExtraShuttleTotal.toLocaleString()} <span className="text-xs font-normal text-slate-400">บาท</span>
-                </div>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  สมาชิกซื้อเพิ่มรวม {totalExtraShuttlecocks} ลูก
-                </p>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
-                <div className="flex items-center justify-between text-slate-400 text-xs">
-                  <span>ค่าเช่าคอร์ทสนาม</span>
-                  <span className="text-emerald-400 font-semibold">{sessionConfig.courtHourlyRate}฿ / ชม.</span>
-                </div>
-                <div className="text-2xl font-extrabold text-white mt-1">
-                  {venueCourtTotal.toLocaleString()} <span className="text-xs font-normal text-slate-400">บาท</span>
-                </div>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  {sessionConfig.courtCount} คอร์ท x {sessionConfig.totalHours} ชม.
-                </p>
-              </div>
-
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
-                <div className="flex items-center justify-between text-slate-400 text-xs">
-                  <span>ค่าลูกขนไก่</span>
-                  <span className="text-amber-400 font-semibold">{sessionConfig.shuttlecockPrice}฿ / ลูก</span>
-                </div>
-                <div className="text-2xl font-extrabold text-amber-400 mt-1">
-                  {venueShuttleTotal.toLocaleString()} <span className="text-xs font-normal text-slate-400">บาท</span>
-                </div>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  {sessionConfig.shuttlecocksUsedTotal} ลูก ({sessionConfig.shuttlecockBrand})
-                </p>
-              </div>
-
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
-                <div className="flex items-center justify-between text-slate-400 text-xs">
-                  <span>ยอดรวมสนามทั้งหมด</span>
-                  <span className="text-xs bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded">
-                    {eligiblePlayers.length} คน
-                  </span>
-                </div>
-                <div className="text-2xl font-extrabold text-white mt-1">
-                  {venueGrandTotal.toLocaleString()} <span className="text-xs font-normal text-slate-400">บาท</span>
-                </div>
-                <p className="text-[11px] text-emerald-400 font-medium mt-1">
-                  หารเฉลี่ยคนละ ~{defaultCostPerPerson.toLocaleString()} บาท
-                </p>
-              </div>
-            </>
-          )}
-
-          {/* Grand Total & Collection status card */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="flex items-center justify-between text-slate-400 text-xs">
-              <span>ยอดรวมทั้งสิ้น / ค้างชำระ</span>
-              <span className="text-xs text-slate-400">
-                จ่ายแล้ว {eligiblePlayers.filter((p) => p.paid).length}/{eligiblePlayers.length} คน
+        <section className="gg-v514-overview" aria-label="สรุปยอดชำระวันนี้">
+          <div className="gg-v514-heading"><div><h2>คิดเงินวันนี้</h2><p>ตรวจสอบรายการและสถานะการชำระเงินของสมาชิก</p></div><span>PAYMENT WORKSPACE</span></div>
+          <div className="gg-v514-kpis">
+            <div><small>ยอดเรียกเก็บทั้งหมด</small><strong>{eligiblePlayers.reduce((sum,p)=>sum+calculatePlayerCost(p),0).toLocaleString()} <em>บาท</em></strong><span>{eligiblePlayers.length} รายการ</span></div>
+            <div><small>รับชำระแล้ว</small><strong>{totalCollected.toLocaleString()} <em>บาท</em></strong><span>{eligiblePlayers.filter(p=>p.paid).length} คน</span></div>
+            <div><small>ยอดที่ยังไม่ได้รับ</small><strong>{Math.max(0,eligiblePlayers.reduce((sum,p)=>sum+(p.paid?0:calculatePlayerCost(p)),0)).toLocaleString()} <em>บาท</em></strong><span>{eligiblePlayers.filter(p=>!p.paid).length} คน</span></div>
+          </div>
+        </section>
+      )}
+      {/* Players Billing Table */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+        <div className="p-4 sm:p-5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <Users className="w-4 h-4 text-emerald-400" />
+              <span>
+                {isOrganizerMode
+                  ? `รายชื่อยอดชำระของผู้เล่นทั้งหมด (${eligiblePlayers.length} คน)`
+                  : `รายชื่อและยอดชำระของสมาชิกแต่ละคน (${eligiblePlayers.length} คน)`}
               </span>
-            </div>
-            <div className="text-2xl font-extrabold text-emerald-400 mt-1">
-              {totalCollected.toLocaleString()} <span className="text-xs font-normal text-slate-400">/ {grandTotal.toLocaleString()} ฿</span>
-            </div>
-            <p className="text-[11px] text-rose-400 mt-1 font-medium">
-              ค้างชำระ: {Math.max(0, pendingAmount).toLocaleString()} บาท
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {isOrganizerMode
+                ? 'คิดค่าคอร์ท 110฿ + ค่าลูก 25฿/คน/แมตช์ + ลูกซื้อเพิ่ม 25฿/ลูก ผู้จัดสามารถปรับแก้หรือทำเครื่องหมายชำระได้'
+                : 'สมาชิกทุกคนสามารถตรวจสอบยอดที่ตนเองต้องชำระ และคลิกสแกน QR เพื่อโอนเงินได้สะดวก'}
             </p>
           </div>
+
+          <div className="flex items-center gap-2">
+            {/* Search filter in table */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="ค้นหาชื่อ..."
+                value={memberSearchQuery}
+                onChange={(e) => setMemberSearchQuery(e.target.value)}
+                className="text-xs rounded-xl bg-slate-950 border border-slate-800 text-white pl-8 pr-3 py-1.5 w-36 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            {isOrganizerMode && (
+              <button
+                type="button"
+                onClick={handleSafeMarkAllPaid}
+                className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 bg-emerald-950/60 border border-emerald-800 px-3 py-1.5 rounded-xl transition shrink-0"
+              >
+                จ่ายครบเฉพาะคนที่ Check-out
+              </button>
+            )}
+          </div>
         </div>
+
+        {isOrganizerMode && (
+          <div className="gg-v514-filters" role="group" aria-label="กรองสถานะการชำระเงิน">
+            {([
+              ['all','ทั้งหมด'],['checkout','รอ Check-out'],['unpaid','ค้างชำระ'],['paid','ชำระแล้ว']
+            ] as const).map(([id,label]) => (
+              <button type="button" key={id} onClick={()=>setGgBillingFilterV514(id)} className={ggBillingFilterV514===id?'is-active':''} aria-pressed={ggBillingFilterV514===id}>{label}</button>
+            ))}
+            <span>{filteredPlayers.length} รายการ</span>
+          </div>
+        )}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-950 text-slate-400 uppercase font-semibold border-b border-slate-800">
+              <tr>
+                <th className="px-4 py-3">ผู้เล่น</th>
+                {isOrganizerMode && <th className="px-3 py-3 text-center">ระดับมือ</th>}
+                <th className="px-3 py-3 text-center">เล่นไป</th>
+                {isClubRate && isOrganizerMode && (
+                  <>
+                    <th className="px-3 py-3 text-center">ค่าคอร์ท</th>
+                    <th className="px-3 py-3 text-center">ค่าลูกแข่ง</th>
+                    <th className="px-3 py-3 text-center">ซื้อลูกเพิ่ม</th>
+                  </>
+                )}
+                <th className="px-3 py-3 text-right">ยอดที่ต้องชำระ</th>
+                <th className="px-3 py-3 text-center">สถานะ</th>
+                <th className="px-4 py-3 text-right">สแกนจ่าย</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/80">
+              {filteredPlayers.map((player) => {
+                const cost = calculatePlayerCost(player);
+                const extraCount = player.extraShuttlecocks || 0;
+                const matchCount = player.matchesPlayed || 0;
+                const matchShuttleCost = matchCount * shuttlecockFeePerMatch;
+
+                return (
+                  <tr
+                    key={player.id}
+                    className={`hover:bg-slate-800/40 transition ${
+                      player.paid ? 'bg-slate-900' : 'bg-rose-950/10'
+                    }`}
+                  >
+                    {/* Player Name */}
+                    <td className="px-4 py-3.5 flex items-center gap-3">
+                      <div
+                        className={`w-8 h-8 rounded-lg bg-gradient-to-br ${player.avatarColor} text-white font-bold flex items-center justify-center text-xs shrink-0`}
+                      >
+                        {player.nickname.slice(0, 1)}
+                      </div>
+                      <div>
+                        <div className="font-bold text-white text-xs sm:text-sm flex items-center gap-1.5">
+                          <span>{player.nickname}</span>
+                          {isOrganizerMode && onEditPlayer && (
+                            <button
+                              type="button"
+                              onClick={() => onEditPlayer(player)}
+                              title="แก้ไขชื่อเล่น / ข้อมูลสมาชิก"
+                              className="text-slate-500 hover:text-blue-400 p-0.5 rounded hover:bg-slate-800 transition"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                          {isClubRate
+                            ? `คอร์ท ${memberCourtFee}฿ + ลูก ${player.matchesPlayed || 0} Match${extraCount > 0 ? ` + เพิ่ม ${extraCount} ลูก` : ''}`
+                            : player.fullName || player.phone || 'สมาชิก'}
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Skill Level (Organizer only) */}
+                    {isOrganizerMode && (
+                      <td className="px-3 py-3.5 text-center">
+                        <span
+                          className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded border ${SKILL_LEVELS[player.skillLevel].bgColor} ${SKILL_LEVELS[player.skillLevel].color} ${SKILL_LEVELS[player.skillLevel].borderColor}`}
+                        >
+                          มือ {player.skillLevel}
+                        </span>
+                      </td>
+                    )}
+
+                    {/* Games Played */}
+                    <td className="px-3 py-3.5 text-center font-bold text-white">
+                      <div>{player.gamesPlayed || 0} เกม</div>
+                      <div className="text-[10px] text-amber-400 font-medium">
+                        {player.matchesPlayed || 0} Match
+                      </div>
+                    </td>
+
+                    {/* Club Rate breakdown columns (Organizer only) */}
+                    {isClubRate && isOrganizerMode && (
+                      <>
+                        <td className="px-3 py-3.5 text-center text-slate-300 font-medium">
+                          {memberCourtFee}฿
+                        </td>
+                        <td className="px-3 py-3.5 text-center text-amber-400 font-medium">
+                          {matchShuttleCost}฿
+                          <span className="text-[10px] text-slate-500 block">
+                            ({matchCount}x{shuttlecockFeePerMatch}฿)
+                          </span>
+                        </td>
+                        <td className="px-3 py-3.5 text-center">
+                          <div className="inline-flex items-center gap-1.5 bg-slate-950 border border-slate-800 px-2 py-1 rounded-xl">
+                            <button
+                              type="button"
+                              onClick={() => onUpdatePlayerExtraShuttlecocks?.(player.id, -1)}
+                              disabled={extraCount <= 0}
+                              className="w-5 h-5 flex items-center justify-center rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed text-xs transition"
+                              title="ลดจำนวนลูกที่ซื้อเพิ่ม"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <span className="font-bold text-white min-w-[2.5rem] text-center">
+                              {extraCount} ลูก
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => onUpdatePlayerExtraShuttlecocks?.(player.id, 1)}
+                              className="w-5 h-5 flex items-center justify-center rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-xs font-bold transition"
+                              title="ซื้อลูกเพิ่ม (+25฿)"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+                          {extraCount > 0 && (
+                            <span className="text-[10px] text-blue-400 block mt-0.5 font-medium">
+                              +{extraCount * extraShuttlecockPrice}฿
+                            </span>
+                          )}
+                        </td>
+                      </>
+                    )}
+
+                    {/* Cost Due */}
+                    <td className="px-3 py-3.5 text-right font-extrabold text-sm sm:text-base text-white">
+                      {cost.toLocaleString()} <span className="text-xs font-normal text-slate-400">฿</span>
+                    </td>
+
+                    {/* Payment Status */}
+                    <td className="px-3 py-3.5 text-center">
+                      <button
+                        type="button"
+                        disabled={!player.paid && player.isCheckedIn}
+                        onClick={() => handleRequestTogglePayment(player, !player.paid)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition shadow-sm ${
+                          player.paid
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30'
+                            : player.isCheckedIn
+                            ? 'bg-amber-500/10 text-amber-300 border border-amber-700/40 cursor-not-allowed'
+                            : 'bg-rose-500/20 text-rose-400 border border-rose-500/40 hover:bg-rose-500/30'
+                        }`}
+                        title={
+                          isOrganizerMode
+                            ? (player.paid ? 'กดเพื่อยกเลิกการชำระ (โหมดผู้จัด)' : 'กดเพื่อบันทึกการชำระ (โหมดผู้จัด)')
+                            : (player.paid ? 'ชำระแล้ว (กดเพื่อยกเลิก ต้องใช้รหัสยืนยัน)' : 'รอชำระ (กดจ่าย ต้องใช้รหัส 4 หลัก)')
+                        }
+                      >
+                        {player.paid ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>ชำระแล้ว</span>
+                          </>
+                        ) : player.isCheckedIn ? (
+                          <>
+                            <Lock className="w-3.5 h-3.5" />
+                            <span>Check-out ก่อน</span>
+                          </>
+                        ) : (
+                          <span>รอชำระ (กดจ่าย)</span>
+                        )}
+                      </button>
+                    </td>
+
+                    {/* Scan QR */}
+                    <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                      <button
+                        type="button"
+                        disabled={player.isCheckedIn && !player.paid}
+                        onClick={() => handleOpenPlayerQr(player)}
+                        title={
+                          player.isCheckedIn && !player.paid
+                            ? 'ต้อง Check-out ก่อนเปิด QR ชำระเงิน'
+                            : 'เปิด QR พร้อมเพย์สำหรับผู้เล่นคนนี้'
+                        }
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] transition ${
+                          player.isCheckedIn && !player.paid
+                            ? 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
+                        }`}
+                      >
+                        <QrCode className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>QR {cost}฿</span>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Quick Action Tools Bar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <div className="flex items-center gap-2">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+            <QrCode className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="text-xs text-slate-400">พร้อมเพย์รับโอนเงิน:</div>
+            <div className="text-sm font-bold text-white flex items-center gap-2">
+              <span>{formatPromptPayDisplay(sessionConfig.promptPayId)}</span>
+              <span className="text-xs font-normal text-slate-400">({sessionConfig.promptPayName})</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={handleCopyPromptPayNumber}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition"
+          >
+            {copiedPromptPay ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copiedPromptPay ? 'คัดลอกแล้ว!' : 'คัดลอกเบอร์พร้อมเพย์'}</span>
+          </button>
+
+          {/* MEMBER_SHARE_REMOVED_V10 */}
+
+          {isOrganizerMode && (
+            <>
+              <button
+                type="button"
+                onClick={handleOpenGeneralQr}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition shadow-sm"
+              >
+                <QrCode className="w-4 h-4" />
+                <span>แสดง QR เฉลี่ย ({defaultCostPerPerson}฿)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopyLineText}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#06C755] hover:bg-[#05b34c] text-white text-xs font-bold transition shadow-sm"
+              >
+                {copiedLine ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
+                <span>{copiedLine ? 'คัดลอกสำเร็จแล้ว!' : 'คัดลอกส่งเข้า LINE กลุ่ม 📱'}</span>
+              </button>
+
+              {/* BILLING_NO_EXPORT_V68G */}
+            </>
+          )}
+        </div>
+      </div>
+      {/* ORGANIZER_PAYMENT_VERIFY_PANEL_V40 */}
+      {isOrganizerMode && (
+        <OrganizerPaymentVerificationPanel
+          sessionDate={sessionConfig.date}
+          players={players}
+          onMarkPlayerPaid={(playerId, amount) =>
+            onTogglePlayerPayment(playerId, true, amount)
+          }
+        />
       )}
 
+      {/* GG_V5141_FINANCE_BANNER_REMOVED: Finance is available in Sidebar */}
+
+      {/* GG_BILLING_V514: settings collapsed by default */}
+      {isOrganizerMode && <details className="gg-v514-collapse"><summary><span>ตั้งค่าอัตราคิดเงินและสูตรการคำนวณ</span><small>เปิดเมื่อต้องการแก้ราคา</small></summary><div className="gg-v514-collapse-body">
       {/* ORGANIZER-ONLY: Calculator Config & Formula Switcher */}
       {isOrganizerMode && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
@@ -1206,69 +1395,9 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
         </div>
       )}
 
-      {/* Quick Action Tools Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900 border border-slate-800 rounded-2xl p-4">
-        <div className="flex items-center gap-2">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
-            <QrCode className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-xs text-slate-400">พร้อมเพย์รับโอนเงิน:</div>
-            <div className="text-sm font-bold text-white flex items-center gap-2">
-              <span>{formatPromptPayDisplay(sessionConfig.promptPayId)}</span>
-              <span className="text-xs font-normal text-slate-400">({sessionConfig.promptPayName})</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={handleCopyPromptPayNumber}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition"
-          >
-            {copiedPromptPay ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copiedPromptPay ? 'คัดลอกแล้ว!' : 'คัดลอกเบอร์พร้อมเพย์'}</span>
-          </button>
-
-          {/* MEMBER_SHARE_REMOVED_V10 */}
-
-          {isOrganizerMode && (
-            <>
-              <button
-                type="button"
-                onClick={handleOpenGeneralQr}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition shadow-sm"
-              >
-                <QrCode className="w-4 h-4" />
-                <span>แสดง QR เฉลี่ย ({defaultCostPerPerson}฿)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleCopyLineText}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#06C755] hover:bg-[#05b34c] text-white text-xs font-bold transition shadow-sm"
-              >
-                {copiedLine ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
-                <span>{copiedLine ? 'คัดลอกสำเร็จแล้ว!' : 'คัดลอกส่งเข้า LINE กลุ่ม 📱'}</span>
-              </button>
-
-              {/* BILLING_NO_EXPORT_V68G */}
-            </>
-          )}
-        </div>
-      </div>
-      {/* ORGANIZER_PAYMENT_VERIFY_PANEL_V40 */}
-      {isOrganizerMode && (
-        <OrganizerPaymentVerificationPanel
-          sessionDate={sessionConfig.date}
-          players={players}
-          onMarkPlayerPaid={(playerId, amount) =>
-            onTogglePlayerPayment(playerId, true, amount)
-          }
-        />
-      )}
-
+      </div></details>}
+      {/* GG_BILLING_V514: advanced organizer corrections collapsed */}
+      {isOrganizerMode && <details className="gg-v514-collapse"><summary><span>เครื่องมือปรับยอดสมาชิก</span><small>ปรับ Match / ลูกเพิ่ม / ยอดเงิน · ต้องยืนยันก่อนแก้</small></summary><div className="gg-v514-collapse-body">
       {isOrganizerMode && onApplyBillingAdjustment && onUndoBillingAdjustment && (
         <OrganizerBillingAdjustments
           players={eligiblePlayers}
@@ -1282,6 +1411,7 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
 
 
 
+      </div></details>}
       {/* BILLING_EXPORT_TRIGGER_V50B */}
       {isOrganizerMode && (
         <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-cyan-800/50 bg-cyan-950/20 p-4 sm:flex-row sm:items-center sm:justify-between" style={{ display: 'none' }} data-billing-export-hidden="BILLING_EXPORT_HIDDEN_V68K">
@@ -1304,244 +1434,6 @@ ${typeof window !== 'undefined' ? `${window.location.origin}${window.location.pa
           onClose={() => setShowBillingExport(false)}
         />
       )}
-
-      {/* Players Billing Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-        <div className="p-4 sm:p-5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Users className="w-4 h-4 text-emerald-400" />
-              <span>
-                {isOrganizerMode
-                  ? `รายชื่อยอดชำระของผู้เล่นทั้งหมด (${eligiblePlayers.length} คน)`
-                  : `รายชื่อและยอดชำระของสมาชิกแต่ละคน (${eligiblePlayers.length} คน)`}
-              </span>
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {isOrganizerMode
-                ? 'คิดค่าคอร์ท 110฿ + ค่าลูก 25฿/คน/แมตช์ + ลูกซื้อเพิ่ม 25฿/ลูก ผู้จัดสามารถปรับแก้หรือทำเครื่องหมายชำระได้'
-                : 'สมาชิกทุกคนสามารถตรวจสอบยอดที่ตนเองต้องชำระ และคลิกสแกน QR เพื่อโอนเงินได้สะดวก'}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Search filter in table */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="ค้นหาชื่อ..."
-                value={memberSearchQuery}
-                onChange={(e) => setMemberSearchQuery(e.target.value)}
-                className="text-xs rounded-xl bg-slate-950 border border-slate-800 text-white pl-8 pr-3 py-1.5 w-36 focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-
-            {isOrganizerMode && (
-              <button
-                type="button"
-                onClick={handleSafeMarkAllPaid}
-                className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 bg-emerald-950/60 border border-emerald-800 px-3 py-1.5 rounded-xl transition shrink-0"
-              >
-                จ่ายครบเฉพาะคนที่ Check-out
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-950 text-slate-400 uppercase font-semibold border-b border-slate-800">
-              <tr>
-                <th className="px-4 py-3">ผู้เล่น</th>
-                {isOrganizerMode && <th className="px-3 py-3 text-center">ระดับมือ</th>}
-                <th className="px-3 py-3 text-center">เล่นไป</th>
-                {isClubRate && isOrganizerMode && (
-                  <>
-                    <th className="px-3 py-3 text-center">ค่าคอร์ท</th>
-                    <th className="px-3 py-3 text-center">ค่าลูกแข่ง</th>
-                    <th className="px-3 py-3 text-center">ซื้อลูกเพิ่ม</th>
-                  </>
-                )}
-                <th className="px-3 py-3 text-right">ยอดที่ต้องชำระ</th>
-                <th className="px-3 py-3 text-center">สถานะ</th>
-                <th className="px-4 py-3 text-right">สแกนจ่าย</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/80">
-              {filteredPlayers.map((player) => {
-                const cost = calculatePlayerCost(player);
-                const extraCount = player.extraShuttlecocks || 0;
-                const matchCount = player.matchesPlayed || 0;
-                const matchShuttleCost = matchCount * shuttlecockFeePerMatch;
-
-                return (
-                  <tr
-                    key={player.id}
-                    className={`hover:bg-slate-800/40 transition ${
-                      player.paid ? 'bg-slate-900' : 'bg-rose-950/10'
-                    }`}
-                  >
-                    {/* Player Name */}
-                    <td className="px-4 py-3.5 flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-lg bg-gradient-to-br ${player.avatarColor} text-white font-bold flex items-center justify-center text-xs shrink-0`}
-                      >
-                        {player.nickname.slice(0, 1)}
-                      </div>
-                      <div>
-                        <div className="font-bold text-white text-xs sm:text-sm flex items-center gap-1.5">
-                          <span>{player.nickname}</span>
-                          {isOrganizerMode && onEditPlayer && (
-                            <button
-                              type="button"
-                              onClick={() => onEditPlayer(player)}
-                              title="แก้ไขชื่อเล่น / ข้อมูลสมาชิก"
-                              className="text-slate-500 hover:text-blue-400 p-0.5 rounded hover:bg-slate-800 transition"
-                            >
-                              <Edit3 className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-slate-400">
-                          {isClubRate
-                            ? `คอร์ท ${memberCourtFee}฿ + ลูก ${player.matchesPlayed || 0} Match${extraCount > 0 ? ` + เพิ่ม ${extraCount} ลูก` : ''}`
-                            : player.fullName || player.phone || 'สมาชิก'}
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Skill Level (Organizer only) */}
-                    {isOrganizerMode && (
-                      <td className="px-3 py-3.5 text-center">
-                        <span
-                          className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded border ${SKILL_LEVELS[player.skillLevel].bgColor} ${SKILL_LEVELS[player.skillLevel].color} ${SKILL_LEVELS[player.skillLevel].borderColor}`}
-                        >
-                          มือ {player.skillLevel}
-                        </span>
-                      </td>
-                    )}
-
-                    {/* Games Played */}
-                    <td className="px-3 py-3.5 text-center font-bold text-white">
-                      <div>{player.gamesPlayed || 0} เกม</div>
-                      <div className="text-[10px] text-amber-400 font-medium">
-                        {player.matchesPlayed || 0} Match
-                      </div>
-                    </td>
-
-                    {/* Club Rate breakdown columns (Organizer only) */}
-                    {isClubRate && isOrganizerMode && (
-                      <>
-                        <td className="px-3 py-3.5 text-center text-slate-300 font-medium">
-                          {memberCourtFee}฿
-                        </td>
-                        <td className="px-3 py-3.5 text-center text-amber-400 font-medium">
-                          {matchShuttleCost}฿
-                          <span className="text-[10px] text-slate-500 block">
-                            ({matchCount}x{shuttlecockFeePerMatch}฿)
-                          </span>
-                        </td>
-                        <td className="px-3 py-3.5 text-center">
-                          <div className="inline-flex items-center gap-1.5 bg-slate-950 border border-slate-800 px-2 py-1 rounded-xl">
-                            <button
-                              type="button"
-                              onClick={() => onUpdatePlayerExtraShuttlecocks?.(player.id, -1)}
-                              disabled={extraCount <= 0}
-                              className="w-5 h-5 flex items-center justify-center rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed text-xs transition"
-                              title="ลดจำนวนลูกที่ซื้อเพิ่ม"
-                            >
-                              <Minus className="w-3 h-3" />
-                            </button>
-                            <span className="font-bold text-white min-w-[2.5rem] text-center">
-                              {extraCount} ลูก
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => onUpdatePlayerExtraShuttlecocks?.(player.id, 1)}
-                              className="w-5 h-5 flex items-center justify-center rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-xs font-bold transition"
-                              title="ซื้อลูกเพิ่ม (+25฿)"
-                            >
-                              <Plus className="w-3 h-3" />
-                            </button>
-                          </div>
-                          {extraCount > 0 && (
-                            <span className="text-[10px] text-blue-400 block mt-0.5 font-medium">
-                              +{extraCount * extraShuttlecockPrice}฿
-                            </span>
-                          )}
-                        </td>
-                      </>
-                    )}
-
-                    {/* Cost Due */}
-                    <td className="px-3 py-3.5 text-right font-extrabold text-sm sm:text-base text-white">
-                      {cost.toLocaleString()} <span className="text-xs font-normal text-slate-400">฿</span>
-                    </td>
-
-                    {/* Payment Status */}
-                    <td className="px-3 py-3.5 text-center">
-                      <button
-                        type="button"
-                        disabled={!player.paid && player.isCheckedIn}
-                        onClick={() => handleRequestTogglePayment(player, !player.paid)}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition shadow-sm ${
-                          player.paid
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30'
-                            : player.isCheckedIn
-                            ? 'bg-amber-500/10 text-amber-300 border border-amber-700/40 cursor-not-allowed'
-                            : 'bg-rose-500/20 text-rose-400 border border-rose-500/40 hover:bg-rose-500/30'
-                        }`}
-                        title={
-                          isOrganizerMode
-                            ? (player.paid ? 'กดเพื่อยกเลิกการชำระ (โหมดผู้จัด)' : 'กดเพื่อบันทึกการชำระ (โหมดผู้จัด)')
-                            : (player.paid ? 'ชำระแล้ว (กดเพื่อยกเลิก ต้องใช้รหัสยืนยัน)' : 'รอชำระ (กดจ่าย ต้องใช้รหัส 4 หลัก)')
-                        }
-                      >
-                        {player.paid ? (
-                          <>
-                            <Check className="w-3.5 h-3.5" />
-                            <span>ชำระแล้ว</span>
-                          </>
-                        ) : player.isCheckedIn ? (
-                          <>
-                            <Lock className="w-3.5 h-3.5" />
-                            <span>Check-out ก่อน</span>
-                          </>
-                        ) : (
-                          <span>รอชำระ (กดจ่าย)</span>
-                        )}
-                      </button>
-                    </td>
-
-                    {/* Scan QR */}
-                    <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        disabled={player.isCheckedIn && !player.paid}
-                        onClick={() => handleOpenPlayerQr(player)}
-                        title={
-                          player.isCheckedIn && !player.paid
-                            ? 'ต้อง Check-out ก่อนเปิด QR ชำระเงิน'
-                            : 'เปิด QR พร้อมเพย์สำหรับผู้เล่นคนนี้'
-                        }
-                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] transition ${
-                          player.isCheckedIn && !player.paid
-                            ? 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
-                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
-                        }`}
-                      >
-                        <QrCode className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>QR {cost}฿</span>
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
 
       {/* PromptPay QR Modal */}
       {showQrModal && (

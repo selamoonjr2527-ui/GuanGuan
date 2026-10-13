@@ -66,7 +66,7 @@ export const SKILL_LEVELS: Record<SkillLevel, SkillLevelInfo> = {
 
 export type PlayerStatus = 'waiting' | 'playing' | 'resting' | 'left';
 
-export type TabType = 'prematch' | 'checkin' | 'courts' | 'assessment' | 'billing' | 'finance' | 'tools';
+export type TabType = 'prematch' | 'checkin' | 'courts' | 'courtManagement' | 'assessment' | 'billing' | 'finance' | 'organizerStats' | 'memberStats' | 'memberHistory' | 'tools' | 'promotions';
 
 export interface Player {
   id: string;
@@ -156,6 +156,16 @@ export interface ConfirmedPreMatch {
 
 export type SplitMethod = 'club_rate' | 'equal' | 'per_game' | 'fixed';
 
+export interface CourtExtension {
+  id: string;
+  previousEndTime: string;
+  newEndTime: string;
+  minutesAdded: number;
+  hourlyRate: number;
+  addedCost: number;
+  createdAt: number;
+}
+
 export interface SessionCourt {
   id: string;
   name: string;
@@ -163,6 +173,10 @@ export interface SessionCourt {
   endTime: string;
   hourlyRate: number;
   active?: boolean;
+  extensions?: CourtExtension[];
+  bookingStatus?: 'draft' | 'confirmed' | 'cancelled';
+  bookingConfirmedAt?: number;
+  bookingChanges?: Array<{ id: string; kind: 'rename' | 'edit'; note: string; createdAt: number }>;
 }
 
 // DYNAMIC_SESSION_COURTS_V63A
