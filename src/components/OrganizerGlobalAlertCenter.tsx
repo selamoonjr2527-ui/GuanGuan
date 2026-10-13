@@ -389,6 +389,24 @@ export const OrganizerGlobalAlertCenter: React.FC<OrganizerGlobalAlertCenterProp
     );
   }, [isOrganizerMode, sessionDate, players]);
 
+  // GUANGUAN_ALERT_SETTINGS_V4: Settings controls the existing sound state.
+  useEffect(() => {
+    const onSoundChange = (event: Event) => {
+      const enabled = (event as CustomEvent<boolean>).detail;
+      if (typeof enabled !== 'boolean') return;
+      setSoundEnabled(enabled);
+      if (enabled) {
+        void ensureAudioReady();
+        try {
+          if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+            void Notification.requestPermission();
+          }
+        } catch {}
+      }
+    };
+    window.addEventListener('guanguan-alert-sound-change', onSoundChange);
+    return () => window.removeEventListener('guanguan-alert-sound-change', onSoundChange);
+  }, []);
   if (!isOrganizerMode) return null;
 
   return (
@@ -415,7 +433,6 @@ export const OrganizerGlobalAlertCenter: React.FC<OrganizerGlobalAlertCenterProp
         </button>
       )}
 
-      // ORGANIZER_ALERT_TOP_RIGHT_V1
       <div className="fixed top-24 right-4 z-[115] flex w-[min(94vw,390px)] flex-col items-end gap-2">
         <div className="flex items-center gap-2">
           {alerts.length > 0 && (
@@ -428,39 +445,7 @@ export const OrganizerGlobalAlertCenter: React.FC<OrganizerGlobalAlertCenterProp
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={async () => {
-              const next = !soundEnabled;
-              setSoundEnabled(next);
-              localStorage.setItem(SOUND_KEY, next ? '1' : '0');
 
-              if (next) {
-                await ensureAudioReady();
-                void playLoudAlert('checkin');
-
-                try {
-                  if (
-                    typeof Notification !== 'undefined' &&
-                    Notification.permission === 'default'
-                  ) {
-                    await Notification.requestPermission();
-                  }
-                } catch {}
-              }
-            }}
-            className={`rounded-xl border px-3 py-2 text-[11px] font-black shadow-lg transition ${
-              soundEnabled
-                ? 'border-emerald-500/50 bg-slate-900/95 text-emerald-300'
-                : 'border-slate-700 bg-slate-900/95 text-slate-400'
-            }`}
-          >
-            {soundEnabled
-              ? audioReady
-                ? '🔊 Alert: ON / ดัง'
-                : '🔊 Alert: ON / รอ Unlock'
-              : '🔇 Alert: OFF'}
-          </button>
         </div>
 
         {alerts.map((alert) => (
@@ -511,4 +496,3 @@ export const OrganizerGlobalAlertCenter: React.FC<OrganizerGlobalAlertCenterProp
     </>
   );
 };
-

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Settings, ShieldCheck, Plus, Trash2, Database, Download, Upload, Check } from 'lucide-react';
 import { SessionConfig } from '../types';
 
@@ -38,6 +38,20 @@ export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = ({
   const [organizerPin, setOrganizerPin] = useState(config.organizerPin || '1234');
   const [avgMatchDurationMinutes, setAvgMatchDurationMinutes] = useState(config.avgMatchDurationMinutes || 18);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  // GUANGUAN_ALERT_SETTINGS_V4
+  const [alertSoundEnabled, setAlertSoundEnabled] = useState<boolean>(() =>
+    typeof window === 'undefined' || localStorage.getItem('guanguan_global_alert_sound_enabled_v52c') !== '0'
+  );
+  useEffect(() => {
+    if (isOpen) {
+      setAlertSoundEnabled(localStorage.getItem('guanguan_global_alert_sound_enabled_v52c') !== '0');
+    }
+  }, [isOpen]);
+  const updateAlertSound = (enabled: boolean) => {
+    localStorage.setItem('guanguan_global_alert_sound_enabled_v52c', enabled ? '1' : '0');
+    setAlertSoundEnabled(enabled);
+    window.dispatchEvent(new CustomEvent<boolean>('guanguan-alert-sound-change', { detail: enabled }));
+  };
 
   if (!isOpen) return null;
 
@@ -376,6 +390,24 @@ export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = ({
             </div>
           </div>
 
+          {/* GUANGUAN_ALERT_SETTINGS_V4: organizer sound control */}
+          <div className="rounded-xl border border-slate-700 bg-slate-950 p-3.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-white">Organizer Alert Sound</div>
+                <p className="mt-1 text-xs text-slate-400">Enable or disable organizer alert sounds. Notifications will still be displayed.</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={alertSoundEnabled} aria-label="Toggle organizer alert sound"
+                onClick={() => updateAlertSound(!alertSoundEnabled)}
+                className={`shrink-0 rounded-lg border px-3 py-2 text-xs font-bold transition ${alertSoundEnabled ? 'border-emerald-500 bg-emerald-950 text-emerald-300' : 'border-slate-600 bg-slate-800 text-slate-300'}`}
+              >
+                {alertSoundEnabled ? 'ON' : 'OFF'}
+              </button>
+            </div>
+          </div>
           {/* Data Storage & Backup Section */}
           <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800/90 space-y-2.5">
             <div className="flex items-center justify-between">
