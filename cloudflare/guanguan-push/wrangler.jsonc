@@ -1,0 +1,15 @@
+{
+  "name": "guanguan-push",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-14",
+  "vars": {
+    "FIREBASE_PROJECT_ID": "guanguan-cbbe7"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "guanguan-push",
+      "database_id": "bcb95cd8-4522-434e-9738-20f311977f42"
+    }
+  ]
+}

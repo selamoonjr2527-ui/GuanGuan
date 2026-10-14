@@ -24,7 +24,11 @@ export function subscribeVoiceEventsV525(onMessage:(message:VoiceMessage)=>void,
     unsubscribeSnapshot=onSnapshot(events,(snapshot)=>{
       if(!initialized){initialized=true; snapshot.docs.forEach(d=>seen.add(d.id));return;}
       for(const change of snapshot.docChanges()){
-        if(change.type!=='added'||change.doc.metadata.hasPendingWrites)continue;
+        // GG_VOICE_SAME_DEVICE_LOCAL_ECHO_V1
+        // Accept local pending "added" writes too. The server acknowledgement is
+        // not another added event, so this speaks once on the publisher tablet
+        // while remote LIVE devices still receive the same announcement.
+        if(change.type!=='added')continue;
         const d=change.doc;
         if(seen.has(d.id))continue;
         seen.add(d.id);

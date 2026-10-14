@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bell, BellRing, CheckCircle2, Volume2, X } from 'lucide-react';
 import { ActiveMatch, ConfirmedPreMatch, Player } from '../types';
+// GG_MEMBER_FCM_PUSH_V1 - loaded dynamically to keep main PWA bundle below Workbox limit
 
 interface MemberPlayNotificationProps {
   currentMemberId?: string | null;
@@ -280,6 +281,28 @@ export const MemberPlayNotification: React.FC<MemberPlayNotificationProps> = ({
       const result = await Notification.requestPermission();
       setPermission(result);
 
+      let pushReady = false;
+
+      if (result === 'granted' && currentMemberId) {
+        try {
+          const {
+            registerMemberPushV1,
+          } = await import(
+            '../utils/memberPushV1'
+          );
+
+          await registerMemberPushV1(
+            currentMemberId
+          );
+          pushReady = true;
+        } catch (pushError) {
+          console.warn(
+            'GuanGuan FCM registration failed',
+            pushError
+          );
+        }
+      }
+
       setAlert({
         kind: 'prematch',
         key: 'enabled',
@@ -288,9 +311,11 @@ export const MemberPlayNotification: React.FC<MemberPlayNotificationProps> = ({
             ? '✅ เปิดแจ้งเตือนเรียบร้อย'
             : '🔔 เปิดแจ้งเตือนในแอปแล้ว',
         body:
-          result === 'granted'
-            ? 'เมื่อถึง Pre-Match หรือถูกส่งลงสนาม ระบบจะแจ้งเตือนให้ทันที'
-            : 'Browser Notification ยังไม่ได้รับอนุญาต แต่เสียง/สั่น/Popup ในแอปยังทำงาน',
+          pushReady
+            ? 'เปิด Push แล้ว • ย่อแอป สลับแอป หรือล็อกหน้าจอ ยังรับแจ้งเตือน PM / ลงสนามได้'
+            : result === 'granted'
+              ? 'Browser Notification เปิดแล้ว แต่ Background Push ยังไม่พร้อม • เปิดหน้า GuanGuan ไว้เพื่อรับแจ้งเตือน'
+              : 'Browser Notification ยังไม่ได้รับอนุญาต แต่เสียง/สั่น/Popup ในแอปยังทำงาน',
       });
     } catch {
       setAlert({
@@ -301,6 +326,46 @@ export const MemberPlayNotification: React.FC<MemberPlayNotificationProps> = ({
       });
     }
   };
+
+  // GG_MEMBER_FCM_AUTO_REGISTER_V14
+  // Members who enabled notifications before FCM existed have no reason
+  // to see/click the enable button again. Register silently when possible.
+  useEffect(() => {
+    if (
+      isOrganizerMode ||
+      !currentMemberId ||
+      !enabled ||
+      permission !== 'granted'
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void import('../utils/memberPushV1')
+      .then(({ registerMemberPushV1 }) => {
+        if (cancelled) return;
+        return registerMemberPushV1(
+          currentMemberId
+        );
+      })
+      .catch((pushError) => {
+        if (cancelled) return;
+        console.warn(
+          'GuanGuan FCM auto-registration failed',
+          pushError
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isOrganizerMode,
+    currentMemberId,
+    enabled,
+    permission,
+  ]);
 
   if (isOrganizerMode || !currentMemberId || !currentPlayer) return null;
 
@@ -318,17 +383,10 @@ export const MemberPlayNotification: React.FC<MemberPlayNotificationProps> = ({
         </button>
       )}
 
-      {enabled && permission !== 'granted' && (
-        <button
-          type="button"
-          onClick={enableNotifications}
-          className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-900/95 px-3 py-2 text-[11px] font-bold text-amber-300 shadow-xl"
-          title="ระบบเสียง/สั่นในแอปเปิดอยู่ กดเพื่อขอ Browser Notification อีกครั้ง"
-        >
-          <Bell className="w-3.5 h-3.5" />
-          แจ้งเตือนในแอปเปิดอยู่
-        </button>
-      )}
+      {/* GG_MEMBER_NOTIFICATION_TABLET_CLEAN_V1
+          Do not render a permanent floating status button after in-app
+          notifications are enabled. It blocks tablet navigation.
+          Real queue alerts still render via the alert popup below. */}
 
       {alert && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm">

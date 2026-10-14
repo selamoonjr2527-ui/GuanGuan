@@ -1,0 +1,276 @@
+/* GG_VOICE_MENU_CLOSE_V4
+   PC + Tablet:
+   - no floating voice launcher
+   - open Voice Announcer only from More > เสียงประกาศ
+   - popup has its own close button
+*/
+
+@media (min-width: 700px) {
+  .gg-voice-v515 {
+    position: static !important;
+    width: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .gg-voice-v515__bar {
+    display: none !important;
+  }
+
+  .gg-voice-v515__body {
+    position: fixed !important;
+    right: 18px !important;
+    bottom: 18px !important;
+    width: min(390px, calc(100vw - 36px)) !important;
+    max-height: min(78vh, 640px) !important;
+    overflow: auto !important;
+    margin: 0 !important;
+    z-index: 2147483000 !important;
+    box-shadow: 0 18px 46px rgba(0, 0, 0, 0.32) !important;
+  }
+
+  .gg-voice-v515__heading {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+  }
+
+  .gg-voice-v515__heading > span {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 7px !important;
+  }
+
+  .gg-voice-v515__close {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    padding: 0 !important;
+    border-radius: 10px !important;
+    border: 1px solid rgba(148, 163, 184, 0.28) !important;
+    background: rgba(15, 23, 42, 0.9) !important;
+    color: #e2e8f0 !important;
+    cursor: pointer !important;
+    font-size: 16px !important;
+    line-height: 1 !important;
+  }
+
+  .gg-voice-v515__close:hover {
+    background: rgba(51, 65, 85, 0.95) !important;
+  }
+
+  /* Restore navigation labels on PC/Tablet. */
+  .gg-header button > span {
+    display: inline !important;
+  }
+
+  .gg-header__role {
+    display: inline-flex !important;
+  }
+}
+
+@media (min-width: 700px) and (max-width: 900px) {
+  .gg-voice-v515__body {
+    right: 10px !important;
+    bottom: 10px !important;
+    width: min(360px, calc(100vw - 20px)) !important;
+  }
+
+  .gg-header button > span {
+    font-size: 11px !important;
+  }
+
+  .gg-header__context-count {
+    display: none !important;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1180px) {
+  .gg-header button > span {
+    font-size: 12px !important;
+  }
+}
+/* GG_HIDE_VOICE_LAUNCHER_ALL_SCREENS_V1
+   Keep GuanVoiceAnnouncer mounted for LIVE audio, but never show its
+   floating launcher over member navigation. Open settings from
+   Organizer Tools (PC) or More > เสียงประกาศ (Tablet).
+*/
+.gg-voice-v515__bar {
+  display: none !important;
+}
+/* GG_TABLET_LANDSCAPE_SIDEBAR_FIX_V1
+   Tablet landscape only:
+   - reserve the top area for LIVE / Organizer / action buttons
+   - keep MAIN MENU below that area
+   - allow the menu itself to scroll vertically when screen height is short
+   - do not change portrait behavior
+*/
+@media (min-width: 700px) and (max-width: 1180px) and (orientation: landscape) {
+  .gg-header {
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+  }
+
+  .gg-header__top {
+    position: relative !important;
+    inset: auto !important;
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+    padding-top: 10px !important;
+    padding-bottom: 8px !important;
+    z-index: 3 !important;
+  }
+
+  .gg-header__context {
+    position: relative !important;
+    inset: auto !important;
+    flex: 0 0 auto !important;
+    padding-top: 0 !important;
+    padding-bottom: 8px !important;
+    z-index: 3 !important;
+  }
+
+  .gg-sidebar__section-label {
+    position: relative !important;
+    inset: auto !important;
+    flex: 0 0 auto !important;
+    margin-top: 4px !important;
+    padding-top: 8px !important;
+    padding-bottom: 6px !important;
+    z-index: 2 !important;
+  }
+
+  .gg-header__desktop-nav {
+    position: relative !important;
+    inset: auto !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain !important;
+    -webkit-overflow-scrolling: touch !important;
+    z-index: 1 !important;
+    scrollbar-width: thin !important;
+  }
+
+  .gg-header__nav-item {
+    flex: 0 0 auto !important;
+  }
+
+  .gg-sidebar__footer {
+    position: relative !important;
+    inset: auto !important;
+    flex: 0 0 auto !important;
+    margin-top: 0 !important;
+    z-index: 2 !important;
+  }
+
+  /* Keep the action cluster compact so it never pushes into MAIN MENU. */
+  .gg-header__actions {
+    flex-wrap: wrap !important;
+    row-gap: 6px !important;
+  }
+
+  .gg-header__live,
+  .gg-header__role {
+    flex: 0 0 auto !important;
+  }
+}
+
+/* Extra-short landscape tablets: reclaim a little more vertical room. */
+@media (min-width: 700px) and (max-width: 1180px) and (orientation: landscape) and (max-height: 650px) {
+  .gg-header__top {
+    padding-top: 7px !important;
+    padding-bottom: 5px !important;
+  }
+
+  .gg-header__context {
+    padding-bottom: 5px !important;
+  }
+
+  .gg-sidebar__section-label {
+    margin-top: 0 !important;
+    padding-top: 5px !important;
+    padding-bottom: 4px !important;
+  }
+
+  .gg-header__desktop-nav {
+    gap: 2px !important;
+  }
+
+  .gg-header__nav-item {
+    min-height: 42px !important;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+  }
+
+  .gg-sidebar__footer {
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+  }
+}
+/* GG_MOBILE_TOPBAR_CLEAN_CSS_V1
+   Mobile only:
+   - keep member/organizer identity + mode switch usable
+   - hide the bulky court schedule and theme controls from the utility strip
+   - prevent the top strip from wrapping into a tall broken header
+*/
+@media (max-width: 699px) {
+  .gg-account-mode-bar {
+    position: relative !important;
+    z-index: 40 !important;
+  }
+
+  .gg-account-mode-bar__inner {
+    min-height: 52px !important;
+    padding-top: 7px !important;
+    padding-bottom: 7px !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+  }
+
+  .gg-account-mode-bar__inner > :first-child {
+    min-width: 0 !important;
+    max-width: calc(100vw - 145px) !important;
+  }
+
+  .gg-account-mode-bar__inner > :first-child span {
+    min-width: 0 !important;
+  }
+
+  .gg-account-mode-bar__inner > :first-child button,
+  .gg-account-mode-bar__inner > :first-child {
+    overflow: hidden !important;
+  }
+
+  .gg-topbar-session--courts,
+  .gg-topbar-theme {
+    display: none !important;
+  }
+
+  .gg-account-mode-bar__inner > button:last-child {
+    flex: 0 0 auto !important;
+    white-space: nowrap !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+
+  /* The voice engine stays mounted; launcher UI is intentionally absent. */
+  .gg-voice-v515__bar {
+    display: none !important;
+  }
+}

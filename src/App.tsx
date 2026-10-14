@@ -6146,9 +6146,10 @@ export default function App() {
   return (
     <div className="gg-layout-v4 min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
             {/* TOP_ACCOUNT_MODE_BAR_V9 */}
-      <div className="border-b border-slate-800/80 bg-slate-950/95">
+      <div className="gg-account-mode-bar border-b border-slate-800/80 bg-slate-950/95">
+        {/* GG_MOBILE_TOPBAR_CLEAN_V1 */}
         <div
-          className={`max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-2 ${
+          className={`gg-account-mode-bar__inner max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-2 ${
             !isOrganizerMode && currentTab === 'checkin' ? 'pt-14 sm:pt-2' : ''
           }`}
         >
@@ -6191,7 +6192,9 @@ export default function App() {
             ))}
           </div>
           {/* GUANGUAN_PREMIUM_THEME_V1 */}
-          <GuanThemeControl />
+          <div className="gg-topbar-theme">
+            <GuanThemeControl />
+          </div>
           <button
             type="button"
             onClick={handleToggleOrganizerMode}
@@ -6901,6 +6904,27 @@ onUpdateMemberStatus={(playerId, status) => {
                   เปิดส่งออกค่าใช้จ่าย <span aria-hidden="true">→</span>
                 </button>
               </section>
+
+              <section className="gg-tools-v517__card">
+                {/* GG_TOOLS_VOICE_CARD_V1 */}
+                <div className="gg-tools-v517__card-top">
+                  <div className="gg-tools-v517__icon" aria-hidden="true">🔊</div>
+                  <span className="gg-tools-v517__tag">VOICE</span>
+                </div>
+                <h2>เสียงประกาศ</h2>
+                <p>เปิด/ปิด LIVE, ทดสอบเสียงภาษาไทย และตรวจสอบ TTS ของเครื่องนี้</p>
+                <button
+                  type="button"
+                  className="gg-tools-v517__action"
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent('guanguan:open-voice-panel')
+                    )
+                  }
+                >
+                  เปิดตั้งค่าเสียง <span aria-hidden="true">→</span>
+                </button>
+              </section>
             </div>
 
             {showMatchHistoryExport && (
@@ -6956,7 +6980,11 @@ onUpdateMemberStatus={(playerId, status) => {
           <BillingView
             sessionConfig={sessionConfig}
             players={
-              [...players].sort((a, b) => {
+              // GG_MEMBER_BILLING_PRIVATE_V1
+              (isOrganizerMode
+                ? [...players]
+                : players.filter((p) => p.id === currentMemberId)
+              ).sort((a, b) => {
                 // BILLING_PAID_BOTTOM_V1B
                 if (a.paid === b.paid) return 0;
                 return a.paid ? 1 : -1;
@@ -7209,7 +7237,31 @@ onUpdateMemberStatus={(playerId, status) => {
 
       <OrganizerPinModal
         isOpen={isPinModalOpen}
-        onClose={() => setIsPinModalOpen(false)}
+        onClose={() => {
+          // GG_HARD_ACCESS_GATE_V3
+          // X/Cancel from Organizer PIN must return to a locked Member Gate.
+          setIsPinModalOpen(false);
+          setIsOrganizerMode(false);
+          setCurrentMemberId(null);
+          setCurrentTab('prematch');
+          setIsMemberGateOpen(true);
+
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(
+              'guanguan_organizer_ui_locked_v61',
+              'true'
+            );
+            sessionStorage.removeItem('badminton_active_member_id');
+
+            const url = new URL(window.location.href);
+            url.searchParams.delete('mode');
+            window.history.replaceState(
+              {},
+              '',
+              `${url.pathname}${url.search}${url.hash}`
+            );
+          }
+        }}
         onSuccess={() => {
           if (!isOrganizerUid(auth.currentUser?.uid)) {
             window.alert(

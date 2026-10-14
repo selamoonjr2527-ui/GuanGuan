@@ -5,6 +5,7 @@ import {
   Wrench, X, Gift, History,
 } from 'lucide-react';
 import type { SessionConfig, TabType } from '../types';
+import '../tabletCompactV2.css'; // GG_TABLET_COMPACT_UI_V2
 
 interface HeaderProps {
   currentTab: TabType;
@@ -102,6 +103,14 @@ export const Header: React.FC<HeaderProps> = ({
       {moreOpen && moreTabs.length > 0 && <div className="gg-header__more-panel" role="group" aria-label="เมนูเพิ่มเติม">
         <div className="gg-header__more-title">เมนูผู้จัด <ChevronDown size={15}/></div>
         {moreTabs.map(({ id, label, icon: Icon }) => <button type="button" key={id} onClick={() => navigate(id)} className={`gg-header__more-item ${currentTab === id ? 'is-active' : ''}`}><Icon size={18}/>{id === 'memberHistory' ? (isOrganizerMode ? 'ประวัติสมาชิก' : 'ประวัติของฉัน') : label}</button>)}
+<button
+  type="button"
+  className="gg-header__more-item"
+  onClick={() => window.dispatchEvent(new CustomEvent('guanguan:open-voice-panel'))}
+>
+  🔊 เสียงประกาศ
+</button>
+{/* GG_TABLET_VOICE_MORE_MENU_V3 */}
       </div>}
     </header>
   );
