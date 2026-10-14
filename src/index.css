@@ -318,3 +318,601 @@ body { background: #08141b; }
 .gg-app-main #gg-live-courts {
   scroll-margin-top: 120px;
 }
+/* ============================================================
+   GUANGUAN_COURTOS_UI_V4A
+   UI-only redesign inspired by a professional sports control room.
+   Logic, billing, queue, Firestore and data structures are untouched.
+   ============================================================ */
+
+:root {
+  --gg-os-bg: #070b10;
+  --gg-os-bg-soft: #0a1118;
+  --gg-os-panel: #0e1720;
+  --gg-os-panel-2: #111d27;
+  --gg-os-line: #20313e;
+  --gg-os-line-strong: #2c4655;
+  --gg-os-text: #f3f7f8;
+  --gg-os-muted: #8398a5;
+  --gg-os-cyan: #26d9ff;
+  --gg-os-teal: #27e0bd;
+  --gg-os-lime: #8cf37a;
+  --gg-os-amber: #f5b842;
+  --gg-os-red: #ff5263;
+}
+
+html {
+  background: var(--gg-os-bg);
+}
+
+body {
+  min-height: 100vh;
+  color: var(--gg-os-text);
+  background:
+    radial-gradient(circle at 86% 0%, rgba(38, 217, 255, 0.07), transparent 28rem),
+    radial-gradient(circle at 38% 100%, rgba(39, 224, 189, 0.045), transparent 32rem),
+    #070b10;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.16;
+  background-image:
+    linear-gradient(rgba(124, 166, 184, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124, 166, 184, 0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(to bottom, black, transparent 82%);
+}
+
+.gg-courtos-shell {
+  position: relative;
+  isolation: isolate;
+  background: transparent !important;
+}
+
+/* ---------- Header / system identity ---------- */
+
+.gg-courtos-shell .gg-header {
+  background:
+    linear-gradient(180deg, rgba(13, 22, 30, 0.99), rgba(8, 14, 20, 0.99));
+  border-color: var(--gg-os-line);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.26);
+}
+
+.gg-header__monogram {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(38, 217, 255, 0.42);
+  border-radius: 10px;
+  color: #dffaff;
+  background:
+    linear-gradient(145deg, rgba(38, 217, 255, 0.15), rgba(39, 224, 189, 0.04));
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.025),
+    0 0 24px rgba(38, 217, 255, 0.08);
+  font-size: 15px;
+  font-weight: 950;
+  letter-spacing: -0.09em;
+}
+
+.gg-courtos-shell .gg-header__brand-copy strong {
+  font-size: 17px;
+  letter-spacing: .025em;
+}
+
+.gg-courtos-shell .gg-header__brand-copy strong span {
+  color: var(--gg-os-cyan);
+}
+
+.gg-courtos-shell .gg-header__brand-copy small {
+  margin-top: 4px;
+  color: #718896;
+  letter-spacing: .23em;
+}
+
+.gg-courtos-shell .gg-header__live {
+  color: #6af0a7;
+  border-color: rgba(72, 220, 141, .26);
+  background: rgba(26, 101, 67, .18);
+  box-shadow: inset 0 0 18px rgba(63, 231, 145, .025);
+}
+
+.gg-courtos-shell .gg-header__live .gg-dot {
+  box-shadow: 0 0 0 4px rgba(106, 240, 167, .09), 0 0 12px rgba(106, 240, 167, .45);
+}
+
+.gg-courtos-shell .gg-header__icon-button {
+  border-color: var(--gg-os-line);
+  border-radius: 9px;
+  background: #101a23;
+  color: #9db1bd;
+}
+
+.gg-courtos-shell .gg-header__icon-button:hover {
+  border-color: #345366;
+  background: #152532;
+  color: white;
+}
+
+.gg-header__date {
+  color: var(--gg-os-cyan);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.gg-courtos-shell .gg-header__session-title {
+  color: #edf4f6;
+  letter-spacing: .01em;
+}
+
+.gg-courtos-shell .gg-header__context-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #8da3ae;
+}
+
+.gg-courtos-shell .gg-header__context-count b,
+.gg-courtos-shell .gg-header__context-count em,
+.gg-courtos-shell .gg-header__context-count i {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 6px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.gg-courtos-shell .gg-header__context-count b {
+  color: #8cf37a;
+  background: rgba(140, 243, 122, .10);
+}
+
+.gg-courtos-shell .gg-header__context-count em {
+  color: #f5b842;
+  background: rgba(245, 184, 66, .10);
+}
+
+.gg-courtos-shell .gg-header__context-count i {
+  color: #26d9ff;
+  background: rgba(38, 217, 255, .10);
+}
+
+/* ---------- Cards / panels ---------- */
+
+.gg-courtos-shell .gg-app-main .rounded-2xl {
+  border-radius: 13px !important;
+}
+
+.gg-courtos-shell .gg-app-main .rounded-xl {
+  border-radius: 9px !important;
+}
+
+.gg-courtos-shell .gg-app-main .bg-slate-900 {
+  background-color: var(--gg-os-panel) !important;
+}
+
+.gg-courtos-shell .gg-app-main .bg-slate-950 {
+  background-color: #090f15 !important;
+}
+
+.gg-courtos-shell .gg-app-main .border-slate-800 {
+  border-color: var(--gg-os-line) !important;
+}
+
+.gg-courtos-shell .gg-app-main .border-slate-700 {
+  border-color: var(--gg-os-line-strong) !important;
+}
+
+.gg-courtos-shell .gg-app-main .shadow-xl,
+.gg-courtos-shell .gg-app-main .shadow-2xl {
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, .24),
+    inset 0 1px 0 rgba(255,255,255,.018) !important;
+}
+
+.gg-courtos-shell .gg-app-main button {
+  letter-spacing: .01em;
+}
+
+.gg-courtos-shell .gg-app-main button:focus-visible {
+  outline: 2px solid var(--gg-os-cyan);
+  outline-offset: 2px;
+}
+
+.gg-courtos-shell .gg-app-main input,
+.gg-courtos-shell .gg-app-main select,
+.gg-courtos-shell .gg-app-main textarea {
+  border-radius: 8px !important;
+  border-color: #2a3c49 !important;
+  background-color: #091118 !important;
+}
+
+.gg-courtos-shell .gg-app-main table {
+  font-variant-numeric: tabular-nums;
+}
+
+.gg-courtos-shell .gg-app-main thead {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #091018;
+  box-shadow: 0 1px 0 #243542;
+}
+
+.gg-courtos-shell .gg-app-main tbody tr {
+  transition: background .14s ease, transform .14s ease;
+}
+
+.gg-courtos-shell .gg-app-main tbody tr:hover {
+  background: rgba(38, 217, 255, .035);
+}
+
+/* ---------- Existing dashboard becomes control-center style ---------- */
+
+.gg-courtos-shell .gg-dashboard {
+  gap: 10px;
+}
+
+.gg-courtos-shell .gg-dashboard__hero {
+  min-height: 126px;
+  border-radius: 14px;
+  border-color: #1c4650;
+  background:
+    linear-gradient(90deg, rgba(38, 217, 255, .07), transparent 38%),
+    linear-gradient(145deg, #0e1720, #0b131b 58%, #0c1d1e);
+  box-shadow:
+    inset 3px 0 0 rgba(38, 217, 255, .76),
+    inset 0 1px 0 rgba(255,255,255,.02);
+}
+
+.gg-courtos-shell .gg-dashboard__hero::after {
+  border-color: rgba(38, 217, 255, .12);
+  background: transparent;
+}
+
+.gg-courtos-shell .gg-dashboard__eyebrow,
+.gg-courtos-shell .gg-dashboard__metric-top svg {
+  color: var(--gg-os-cyan);
+}
+
+.gg-courtos-shell .gg-pulse {
+  background: var(--gg-os-teal);
+  box-shadow: 0 0 0 5px rgba(39, 224, 189, .08), 0 0 14px rgba(39, 224, 189, .30);
+}
+
+.gg-courtos-shell .gg-dashboard__hero h2 {
+  font-size: clamp(23px, 3vw, 32px);
+  letter-spacing: -.035em;
+}
+
+.gg-courtos-shell .gg-dashboard__metric {
+  border-radius: 11px;
+  border-color: #243745;
+  background: linear-gradient(165deg, #101b24, #0b131a);
+}
+
+.gg-courtos-shell .gg-dashboard__metric strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.gg-courtos-shell .gg-dashboard__status {
+  color: var(--gg-os-teal) !important;
+}
+
+/* ---------- Live courts / scoreboard ---------- */
+
+.gg-courtos-shell .gg-app-main #gg-live-courts {
+  gap: 12px;
+}
+
+.gg-courtos-shell .gg-app-main #gg-live-courts > div {
+  position: relative;
+  overflow: hidden;
+  border-radius: 13px !important;
+  border-color: #24404c !important;
+  background:
+    linear-gradient(180deg, rgba(14, 31, 40, .98), rgba(9, 17, 24, .98)) !important;
+  box-shadow:
+    0 12px 28px rgba(0,0,0,.22),
+    inset 3px 0 0 rgba(39, 224, 189, .72) !important;
+}
+
+.gg-courtos-shell .gg-app-main #gg-live-courts > div::after {
+  content: "";
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  right: -60px;
+  top: -60px;
+  border: 1px solid rgba(38, 217, 255, .11);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+/* ---------- Status surfaces ---------- */
+
+.gg-courtos-shell .bg-emerald-500 {
+  box-shadow: 0 0 18px rgba(39, 224, 189, .09);
+}
+
+.gg-courtos-shell .text-emerald-300,
+.gg-courtos-shell .text-emerald-400 {
+  color: #67edbd !important;
+}
+
+.gg-courtos-shell .text-cyan-300,
+.gg-courtos-shell .text-cyan-400 {
+  color: #5fe7ff !important;
+}
+
+.gg-courtos-shell .text-amber-300,
+.gg-courtos-shell .text-amber-400 {
+  color: #ffc960 !important;
+}
+
+/* ---------- Mode / member bars ---------- */
+
+.gg-courtos-shell .gg-modebar,
+.gg-courtos-shell .gg-memberbar {
+  border-color: #182934 !important;
+  background:
+    linear-gradient(90deg, rgba(10, 17, 24, .98), rgba(9, 15, 21, .98)) !important;
+}
+
+/* ---------- Desktop CourtOS sidebar ---------- */
+
+@media (min-width: 1024px) {
+  .gg-courtos-shell .gg-header {
+    position: fixed;
+    z-index: 60;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 238px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    border-right: 1px solid var(--gg-os-line);
+    border-bottom: 0;
+    box-shadow: 14px 0 38px rgba(0,0,0,.22);
+  }
+
+  .gg-courtos-shell .gg-header__top {
+    min-height: auto;
+    width: 100%;
+    padding: 20px 16px 14px;
+    display: block;
+  }
+
+  .gg-courtos-shell .gg-header__brand {
+    padding: 0 2px 17px;
+    border-bottom: 1px solid #1e303b;
+  }
+
+  .gg-courtos-shell .gg-header__monogram {
+    width: 46px;
+    height: 46px;
+  }
+
+  .gg-courtos-shell .gg-header__actions {
+    margin-top: 14px;
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr repeat(2, 34px);
+    gap: 7px;
+  }
+
+  .gg-courtos-shell .gg-header__live {
+    justify-content: center;
+    min-height: 34px;
+  }
+
+  .gg-courtos-shell .gg-header__role {
+    grid-column: 1 / -1;
+    order: -1;
+    margin-bottom: 2px;
+    color: #8da0ab;
+    font-size: 9px;
+  }
+
+  .gg-courtos-shell .gg-header__context {
+    width: calc(100% - 24px);
+    margin: 0 12px 12px;
+    padding: 13px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    border: 1px solid #20333e;
+    border-radius: 10px;
+    background: #0b141b;
+  }
+
+  .gg-courtos-shell .gg-header__context-separator {
+    width: 100%;
+    height: 1px;
+    background: #1e313c;
+  }
+
+  .gg-courtos-shell .gg-header__location {
+    max-width: 100%;
+    color: #738994;
+  }
+
+  .gg-courtos-shell .gg-header__context-count {
+    margin-left: 0;
+    margin-top: 5px;
+    width: 100%;
+    flex-wrap: wrap;
+    font-size: 9px;
+  }
+
+  .gg-courtos-shell .gg-header__desktop-nav {
+    width: 100%;
+    margin: 0;
+    padding: 4px 10px 18px;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 4px;
+    overflow: visible;
+  }
+
+  .gg-courtos-shell .gg-header__nav-item {
+    position: relative;
+    width: 100%;
+    min-height: 43px;
+    justify-content: flex-start;
+    padding: 0 12px;
+    border: 1px solid transparent;
+    border-bottom: 1px solid transparent;
+    border-radius: 8px;
+    color: #879ba6;
+    background: transparent;
+    font-size: 12px;
+    letter-spacing: .015em;
+  }
+
+  .gg-courtos-shell .gg-header__nav-item:hover {
+    color: #d9e6ea;
+    border-color: #1f3440;
+    background: #0f1c25;
+  }
+
+  .gg-courtos-shell .gg-header__nav-item.is-active {
+    color: #63e8ff;
+    border-color: #214653;
+    border-bottom-color: #214653;
+    background:
+      linear-gradient(90deg, rgba(38,217,255,.12), rgba(38,217,255,.025));
+    box-shadow: inset 3px 0 0 var(--gg-os-cyan);
+  }
+
+  .gg-courtos-shell .gg-header__nav-item.is-active svg {
+    filter: drop-shadow(0 0 6px rgba(38,217,255,.28));
+  }
+
+  .gg-courtos-shell .gg-header__mobile-nav,
+  .gg-courtos-shell .gg-header__more-panel {
+    display: none !important;
+  }
+
+  .gg-courtos-shell .gg-modebar,
+  .gg-courtos-shell .gg-memberbar {
+    margin-left: 238px;
+  }
+
+  .gg-courtos-shell .gg-modebar > div,
+  .gg-courtos-shell .gg-memberbar > div {
+    max-width: none;
+  }
+
+  .gg-courtos-shell .gg-app-main {
+    width: calc(100% - 238px);
+    max-width: none;
+    margin: 0 0 0 238px;
+    padding: 20px 24px 32px;
+  }
+}
+
+/* ---------- Mid-size tablet stays top-nav ---------- */
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .gg-courtos-shell .gg-header__nav-item {
+    border-radius: 8px 8px 0 0;
+  }
+
+  .gg-courtos-shell .gg-app-main {
+    max-width: 100%;
+  }
+}
+
+/* ---------- Mobile ---------- */
+
+@media (max-width: 767px) {
+  .gg-courtos-shell .gg-header__top {
+    min-height: 62px;
+  }
+
+  .gg-courtos-shell .gg-header__brand-copy strong {
+    font-size: 15px;
+  }
+
+  .gg-courtos-shell .gg-header__context {
+    padding-bottom: 9px;
+  }
+
+  .gg-courtos-shell .gg-header__date {
+    width: 100%;
+    margin-bottom: 1px;
+  }
+
+  .gg-courtos-shell .gg-header__context-count {
+    display: none;
+  }
+
+  .gg-courtos-shell .gg-header__mobile-nav {
+    border-top-color: #21343f;
+    background: rgba(6, 12, 18, .985);
+    box-shadow: 0 -12px 30px rgba(0,0,0,.34);
+  }
+
+  .gg-courtos-shell .gg-header__mobile-item {
+    border-radius: 8px;
+  }
+
+  .gg-courtos-shell .gg-header__mobile-item.is-active {
+    color: #5ce5ff;
+    background: rgba(38, 217, 255, .09);
+  }
+
+  .gg-courtos-shell .gg-app-main {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .gg-courtos-shell .gg-dashboard__hero {
+    border-radius: 12px;
+  }
+
+  .gg-courtos-shell .gg-dashboard__metric {
+    border-radius: 10px;
+  }
+}
+
+/* ---------- Scrollbar ---------- */
+
+.gg-courtos-shell * {
+  scrollbar-width: thin;
+  scrollbar-color: #294555 #0a1118;
+}
+
+.gg-courtos-shell *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.gg-courtos-shell *::-webkit-scrollbar-track {
+  background: #0a1118;
+}
+
+.gg-courtos-shell *::-webkit-scrollbar-thumb {
+  border: 2px solid #0a1118;
+  border-radius: 999px;
+  background: #294555;
+}
+
+.gg-courtos-shell *::-webkit-scrollbar-thumb:hover {
+  background: #376073;
+}

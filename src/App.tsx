@@ -6080,9 +6080,9 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
+    <div className="gg-courtos-shell min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
             {/* TOP_ACCOUNT_MODE_BAR_V9 */}
-      <div className="border-b border-slate-800/80 bg-slate-950/95">
+      <div className="gg-modebar border-b border-slate-800/80 bg-slate-950/95">
         <div
           className={`max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-2 ${
             !isOrganizerMode && currentTab === 'checkin' ? 'pt-14 sm:pt-2' : ''
@@ -6156,7 +6156,7 @@ export default function App() {
 
       {/* MEMBER_LOGOUT_ALWAYS_VISIBLE_V60 */}
       {!isOrganizerMode && currentMemberId && (
-        <div className="border-b border-slate-800/80 bg-slate-950/90">
+        <div className="gg-memberbar border-b border-slate-800/80 bg-slate-950/90">
           <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-2.5 sm:px-6 lg:px-8">
             <div className="min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">

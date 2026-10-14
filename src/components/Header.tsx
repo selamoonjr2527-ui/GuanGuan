@@ -47,9 +47,12 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="gg-header">
       <div className="gg-header__top">
-        <div className="gg-header__brand" aria-label="GuanGuan Badminton Club">
-          <img src="/icons/pwa-192x192.png" alt="" className="gg-header__logo" />
-          <div className="gg-header__brand-copy"><strong>Guan<span>Guan</span></strong><small>BADMINTON CLUB</small></div>
+        <div className="gg-header__brand" aria-label="GuanGuan CourtOS">
+          <div className="gg-header__monogram" aria-hidden="true">GG</div>
+          <div className="gg-header__brand-copy">
+            <strong>GUAN<span>GUAN</span></strong>
+            <small>COURT OS</small>
+          </div>
         </div>
         <div className="gg-header__actions">
           <span className="gg-header__live"><span className="gg-dot"/> LIVE</span>
@@ -62,10 +65,17 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
       <div className="gg-header__context">
+        <span className="gg-header__date">{sessionConfig.date}</span>
         <span className="gg-header__session-title">{sessionConfig.sessionTitle}</span>
         <span className="gg-header__context-separator"/>
         <span className="gg-header__location">{sessionConfig.venueName}</span>
-        {isOrganizerMode && <span className="gg-header__context-count">มาแล้ว {checkedInCount}/{totalPlayers} · รอ {waitingCount} · สนาม {activeMatchesCount}</span>}
+        {isOrganizerMode && (
+          <span className="gg-header__context-count">
+            <b>{checkedInCount}</b> / {totalPlayers} สมาชิก
+            <em>{waitingCount}</em> รอ
+            <i>{activeMatchesCount}</i> คอร์ท
+          </span>
+        )}
       </div>
       <nav className="gg-header__desktop-nav" aria-label="เมนูหลัก GuanGuan">
         {allowedTabs.map(({ id, label, icon: Icon }) => (
