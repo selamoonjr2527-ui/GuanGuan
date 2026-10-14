@@ -1,0 +1,40 @@
+/* GuanGuan Premium UI: Light contrast repair (additive, scoped). */
+:root[data-gg-theme='light'] .gg-layout-v4 {
+  --gg-ui-text: #102136;
+  --gg-ui-muted: #40556c;
+}
+/* Main headings, summary labels and secondary metadata: increase contrast. */
+:root[data-gg-theme='light'] .gg-layout-v4 :is(.gg-dashboard__metric-top,.gg-dashboard__metric > span,.gg-v57-subtitle,.gg-v5104-section-heading p,.gg-dashboard__metrics-heading,.gg-dashboard::before,.gg-header__brand-copy small,.gg-sidebar__section-label,.gg-sidebar__footer-note) { color: #475569 !important; }
+:root[data-gg-theme='light'] .gg-layout-v4 :is(.gg-dashboard__metric strong,.gg-v57-title,.gg-v57-stat strong,.gg-v5104-history h2,.gg-v5104-section-heading h2,.gg-header__brand-copy strong) { color: #0f172a !important; }
+:root[data-gg-theme='light'] .gg-layout-v4 :is(.gg-v57-stat small,.gg-v57-booking-time,.gg-v5104-history-meta,.gg-v59-stat-tile span,.gg-v59-stat-tile small) { color: #475569 !important; }
+/* Light surface tokens for remaining explicit dark-panel variants in user-facing areas. */
+:root[data-gg-theme='light'] .gg-layout-v4 .gg-app-main :is([class*='bg-slate-950/'],[class*='bg-slate-900/'],[class*='bg-[#0'],[class*='bg-[#1']) {
+  background-color: #f1f5f9 !important;
+  background-image: none !important;
+  border-color: #d1deeb !important;
+}
+/* The protected/unconfirmed PM placeholders had black backgrounds + dark-gray text. */
+:root[data-gg-theme='light'] .gg-layout-v4 #gg-prematch-cards :is([class*='bg-slate-950'],[class*='bg-slate-900'],[class*='bg-[#0'],[class*='bg-[#1']) {
+  background-color: #edf2f8 !important;
+  background-image: none !important;
+  border-color: #cdd9e6 !important;
+}
+:root[data-gg-theme='light'] .gg-layout-v4 #gg-prematch-cards :is(.text-slate-400,.text-slate-500,.text-slate-600,.text-slate-700) { color: #465a71 !important; }
+:root[data-gg-theme='light'] .gg-layout-v4 #gg-prematch-cards :is(.text-white,.text-slate-100,.text-slate-200,.text-slate-300) { color: #102136 !important; }
+/* Privacy/protected widgets should remain clearly distinct, not a dark patch on a light page. */
+:root[data-gg-theme='light'] .gg-layout-v4 #gg-prematch-cards [class*='border-dashed'] {
+  background: #eff4fa !important;
+  border-color: #a4b5c8 !important;
+}
+/* Generic muted Tailwind colors used in text beyond the phase 1 bridge. */
+:root[data-gg-theme='light'] .gg-layout-v4 .gg-app-main :is(.text-slate-600,.text-slate-700,.text-gray-400,.text-gray-500,.text-zinc-400) { color: #475569 !important; }
+/* Improve states on white without stripping semantic success/warning. */
+:root[data-gg-theme='light'] .gg-layout-v4 .gg-app-main :is(.text-emerald-300,.text-emerald-400) { color: #047857 !important; }
+:root[data-gg-theme='light'] .gg-layout-v4 .gg-app-main :is(.text-cyan-300,.text-cyan-400) { color: #0e7490 !important; }
+:root[data-gg-theme='light'] .gg-layout-v4 .gg-app-main :is(.text-amber-300,.text-amber-400) { color: #92400e !important; }
+/* Do not recolor white text on strongly colored action buttons. */
+:root[data-gg-theme='light'] .gg-layout-v4 :is(button.bg-emerald-500,button.bg-blue-600,button.bg-cyan-500) { color: #07141b !important; }
+:root[data-gg-theme='light'] .gg-layout-v4 .gg-header__nav-item { font-weight: 650; }
+@media (max-width: 640px) {
+  :root[data-gg-theme='light'] .gg-layout-v4 .gg-app-main { overflow-x: clip; }
+}

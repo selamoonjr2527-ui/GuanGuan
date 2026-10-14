@@ -94,7 +94,7 @@ const historicalCourtPlan = (
 
   if (!isSmash) return null;
 
-  if (date === '2026-09-25') {
+  if (date === '2026-09-18') { // GG_ARCHIVE_IMPORTED_DATE_FIX_V519B3
     return {
       label: '2 Court × 4 ชม.',
       totalCourtHours: 8,
@@ -552,111 +552,57 @@ export const CourtProfitabilityV82: React.FC<Props> = ({
         </div>
       </section>
 
+      {/* GG_COURT_PROFIT_BREAKDOWN_V5162: read-only estimation from archived totals */}
       <section className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden">
-        <div className="border-b border-slate-800 p-5">
-          <h3 className="font-black text-white">
-            รายละเอียด Court Plan แต่ละรอบ
-          </h3>
+        <div className="border-b border-slate-800 p-4 sm:p-5">
+          <h3 className="text-base font-bold text-white">แยกกำไรคอร์ทและกำไรลูกแต่ละรอบ</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-400">
+            คำนวณจาก Archive ที่บันทึกไว้ • หากรอบเก่าไม่ได้เก็บอัตราคอร์ทต่อคน ระบบใช้ 110 บาทเป็นตัวประมาณเท่านั้น
+            • ยังไม่แก้ยอดจริงหรือบัญชีกองกลาง
+          </p>
         </div>
-
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] text-xs">
+          <table className="w-full min-w-[880px] text-xs text-left">
             <thead className="bg-slate-950 text-slate-400">
               <tr>
-                <th className="px-4 py-3 text-left">
-                  วันที่
-                </th>
-                <th className="px-3 py-3 text-left">
-                  สนาม
-                </th>
-                <th className="px-3 py-3 text-center">
-                  สมาชิก
-                </th>
-                <th className="px-3 py-3 text-left">
-                  Court Plan
-                </th>
-                <th className="px-3 py-3 text-center">
-                  Court-Hours
-                </th>
-                <th className="px-3 py-3 text-right">
-                  Court Cost
-                </th>
-                <th className="px-4 py-3 text-right">
-                  Net Profit
-                </th>
+                <th className="px-4 py-3">วันที่ / Court Plan</th>
+                <th className="px-3 py-3 text-center">สมาชิก</th>
+                <th className="px-3 py-3 text-right">รายได้คอร์ท (ประมาณ)</th>
+                <th className="px-3 py-3 text-right">ต้นทุนคอร์ท</th>
+                <th className="px-3 py-3 text-right">กำไรคอร์ท (ประมาณ)</th>
+                <th className="px-3 py-3 text-right">กำไรลูก + ส่วนปรับยอด (ประมาณ)</th>
+                <th className="px-4 py-3 text-right">Net Profit ตาม Archive</th>
               </tr>
             </thead>
-
             <tbody className="divide-y divide-slate-800">
-              {[...(archives as AnyRecord[])]
-                .sort((a, b) =>
-                  String(
-                    b.archiveDate
-                  ).localeCompare(
-                    String(a.archiveDate)
-                  )
-                )
-                .map((archive) => {
-                  const plan =
-                    getCourtPlan(archive);
-
-                  const profit =
-                    archiveProfit(archive);
-
-                  return (
-                    <tr key={archive.id}>
-                      <td className="px-4 py-3 text-slate-300">
-                        {
-                          archive.archiveDate
-                        }
-                      </td>
-
-                      <td className="px-3 py-3 font-semibold text-white">
-                        {archive.venueName ||
-                          'ไม่ระบุสนาม'}
-                      </td>
-
-                      <td className="px-3 py-3 text-center text-slate-300">
-                        {n(
-                          archive.totalPlayers
-                        )}
-                      </td>
-
-                      <td className="px-3 py-3 font-semibold text-cyan-200">
-                        {plan.label}
-                      </td>
-
-                      <td className="px-3 py-3 text-center font-black text-violet-300">
-                        {fmt(
-                          plan.totalCourtHours
-                        )}
-                      </td>
-
-                      <td className="px-3 py-3 text-right text-rose-300">
-                        {money(
-                          plan.venueCost
-                        )}{' '}
-                        ฿
-                      </td>
-
-                      <td
-                        className={`px-4 py-3 text-right font-black ${
-                          profit >= 0
-                            ? 'text-emerald-300'
-                            : 'text-rose-300'
-                        }`}
-                      >
-                        {profit >= 0
-                          ? '+'
-                          : ''}
-                        {money(profit)} ฿
-                      </td>
-                    </tr>
-                  );
-                })}
+              {[...archives].sort((a,b) => String(b.archiveDate).localeCompare(String(a.archiveDate))).map(archive => {
+                const plan = getCourtPlan(archive);
+                const archiveData = archive as DailySessionArchive & { memberCourtFee?: number; extraExpensesTotal?: number; shuttleCost?: number };
+                const fee = typeof archiveData.memberCourtFee === 'number' && Number.isFinite(archiveData.memberCourtFee)
+                  ? Math.max(0, archiveData.memberCourtFee) : 110;
+                const members = Math.max(0, n(archive.totalPlayers));
+                const courtIncome = members * fee;
+                const courtProfit = courtIncome - plan.venueCost;
+                const shuttleAndAdjustments = n(archive.totalRevenue) - courtIncome - Math.max(0, n(archiveData.shuttleCost ?? (n(archive.totalExpense)-plan.venueCost-n(archiveData.extraExpensesTotal))));
+                const net = archiveProfit(archive);
+                return <tr key={archive.id} className="hover:bg-slate-800/40">
+                  <td className="px-4 py-3 text-slate-200"><div className="font-bold">{archive.archiveDate}</div><div className="text-[11px] text-slate-400">{plan.label}</div></td>
+                  <td className="px-3 py-3 text-center text-slate-300">{members}</td>
+                  <td className="px-3 py-3 text-right text-slate-300">{money(courtIncome)} ฿</td>
+                  <td className="px-3 py-3 text-right text-slate-300">{money(plan.venueCost)} ฿</td>
+                  <td className={`px-3 py-3 text-right font-bold ${courtProfit >= 0 ? 'text-emerald-300':'text-rose-300'}`}>{courtProfit >= 0 ? '+' : ''}{money(courtProfit)} ฿</td>
+                  <td className={`px-3 py-3 text-right font-bold ${shuttleAndAdjustments >= 0 ? 'text-emerald-300':'text-rose-300'}`}>{shuttleAndAdjustments >= 0 ? '+' : ''}{money(shuttleAndAdjustments)} ฿</td>
+                  <td className={`px-4 py-3 text-right font-black ${net >= 0 ? 'text-emerald-300':'text-rose-300'}`}>{net >= 0 ? '+' : ''}{money(net)} ฿</td>
+                </tr>;
+              })}
+              {archives.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">ยังไม่มีประวัติรอบที่บันทึกแล้ว</td></tr>}
             </tbody>
           </table>
         </div>
+        <p className="px-4 py-3 text-xs text-amber-200/90 border-t border-slate-800">
+          หมายเหตุ: กำไรลูกในตารางเป็นยอดประมาณที่รวมส่วนปรับรายรับอื่น ๆ หากมี และอาจไม่เท่ากับกำไรลูกจริง
+          ต้องตรวจแยกรายรับค่าลูกกับส่วนลด / ค่าใช้จ่ายอื่นจากข้อมูลต้นทางก่อนรับรองยอด
+        </p>
       </section>
     </div>
   );

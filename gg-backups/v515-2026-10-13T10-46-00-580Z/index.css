@@ -1,0 +1,1660 @@
+@import "tailwindcss";
+
+/* GUANGUAN DASHBOARD V1 — UI ONLY. Brand palette: ink, teal-black, electric lime. */
+:root {
+  --gg-ink: #0b181f;
+  --gg-surface: #142831;
+  --gg-line: rgba(189, 218, 219, 0.13);
+  --gg-lime: #b9f56b;
+  --gg-text: #f4faf7;
+  --gg-muted: #a5b9bf;
+}
+body { background: #08141b; }
+.gg-app-main { padding-bottom: 6.5rem; }
+@media(min-width:768px) { .gg-app-main { padding-bottom: 2rem; } }
+
+.gg-header {
+  position: relative;
+  z-index: 35;
+  color: var(--gg-text);
+  background: #0e2029;
+  border-bottom: 1px solid var(--gg-line);
+  box-shadow: 0 6px 28px rgba(2, 14, 19, .13);
+}
+.gg-header__top {
+  max-width: 80rem;
+  margin: 0 auto;
+  min-height: 70px;
+  padding: 12px 16px 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.gg-header__brand { display:flex; gap:10px; align-items:center; min-width:0; }
+.gg-header__logo { width: 39px; height:39px; border-radius:11px; object-fit:cover; }
+.gg-header__brand-copy { display:flex; flex-direction:column; gap:0; line-height:1.04; }
+.gg-header__brand-copy strong { font-size:20px; letter-spacing:-.045em; font-weight:900; white-space:nowrap; }
+.gg-header__brand-copy strong span { color:var(--gg-lime); }
+.gg-header__brand-copy small { font-size:9px; color:#a9c2c1; letter-spacing:.19em; font-weight:700; margin-top:5px; white-space:nowrap; }
+.gg-header__actions { display:flex; gap:8px; align-items:center; }
+.gg-header__live { font-size:10px; letter-spacing:.1em; font-weight:800; color:#bcf88f; display:inline-flex; align-items:center; gap:7px; padding:7px 10px; border:1px solid #2c654d; border-radius:99px; background:#173729; }
+.gg-dot { width:7px; height:7px; display:inline-block; flex:none; border-radius:50%; background:currentColor; }
+.gg-header__role { display:none; align-items:center; gap:5px; font-size:10px; font-weight:800; color:#e0c59d; letter-spacing:.05em; }
+.gg-header__icon-button { width:34px; height:34px; display:grid; place-items:center; color:#d0e3e1; border:1px solid #2e4650; background:#1a303b; border-radius:11px; cursor:pointer; transition: background .2s; }
+.gg-header__icon-button:hover { background:#2b4650; }
+.gg-header__icon-button:focus-visible,.gg-header__nav-item:focus-visible,.gg-header__mobile-item:focus-visible,.gg-header__more-item:focus-visible { outline:3px solid var(--gg-lime); outline-offset:2px; }
+.gg-header__icon-button--danger { color:#f5adb0; }
+.gg-header__context { max-width:80rem; margin:auto; padding:0px 16px 11px; display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; color:#a3b9bf; font-size:11px; }
+.gg-header__session-title { font-weight:800; color:#ebf5ed; }
+.gg-header__context-separator { background:#48606a; width:1px; height:12px; }
+.gg-header__location { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:45vw; }
+.gg-header__context-count { margin-left:auto; color:var(--gg-lime); font-weight:700; white-space:nowrap; }
+.gg-header__desktop-nav { display:none; max-width:80rem; margin:0 auto; padding:0 16px; gap:5px; }
+.gg-header__nav-item { appearance:none; display:inline-flex; align-items:center; gap:8px; border:0; border-bottom:3px solid transparent; border-radius:10px 10px 0 0; background:transparent; color:#a9bac2; font-size:13px; font-weight:700; padding:12px 15px; cursor:pointer; white-space:nowrap; }
+.gg-header__nav-item:hover { background:#1b333e; color:white; }
+.gg-header__nav-item.is-active { color:var(--gg-lime); border-bottom-color:var(--gg-lime); background:#1a343a; }
+.gg-header__mobile-nav { display:flex; position:fixed; z-index:55; bottom:0; left:0; right:0; padding:9px max(10px, env(safe-area-inset-right)) calc(9px + env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); gap:4px; justify-content:space-around; background:rgba(10,29,38,.98); border-top:1px solid #34515a; box-shadow:0 -10px 28px rgba(0,0,0,.22); }
+.gg-header__mobile-item { border:0; appearance:none; background:transparent; color:#9bb1b9; border-radius:11px; padding:8px 5px 6px; min-width:0; flex:1; display:flex; align-items:center; flex-direction:column; gap:4px; font-size:11px; font-weight:750; cursor:pointer; }
+.gg-header__mobile-item.is-active { background:#203c36; color:var(--gg-lime); }
+.gg-header__more-panel { position:fixed; z-index:56; bottom:calc(78px + env(safe-area-inset-bottom)); right:12px; width:min(290px, calc(100vw - 24px)); background:#163039; color:white; border:1px solid #416067; border-radius:18px; padding:12px; box-shadow:0 16px 50px rgba(0,0,0,.65); }
+.gg-header__more-title { color:#b5c7cb; font-size:11px; font-weight:700; padding:6px 8px 10px; display:flex; justify-content:space-between; }
+.gg-header__more-item { display:flex; width:100%; align-items:center; gap:12px; padding:13px 12px; border:0; border-radius:10px; font-weight:700; font-size:13px; text-align:left; background:transparent; color:#f0f7f4; cursor:pointer; }
+.gg-header__more-item:hover,.gg-header__more-item.is-active { background:#2a4647; color:var(--gg-lime); }
+@media (min-width: 768px) {
+  .gg-header__top { padding-left:24px; padding-right:24px; }
+  .gg-header__context { padding-left:24px; padding-right:24px; }
+  .gg-header__role { display:inline-flex; }
+  .gg-header__desktop-nav { display:flex; padding:0 24px; overflow-x:auto; }
+  .gg-header__mobile-nav,.gg-header__more-panel { display:none; }
+}
+
+.gg-dashboard {
+  color: var(--gg-text);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.gg-dashboard__hero {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  min-height: 145px;
+  padding: 18px 18px 16px;
+  border: 1px solid rgba(187, 242, 112, 0.18);
+  border-radius: 22px;
+  background: radial-gradient(circle at top right, rgba(184, 245, 107, 0.16), transparent 38%),
+    linear-gradient(135deg, #122a35 0%, #101f2c 52%, #173d33 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.gg-dashboard__hero::after {
+  content: "";
+  position: absolute;
+  right: -42px;
+  top: -18px;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  border: 1px solid rgba(185, 245, 107, 0.18);
+  background: rgba(185, 245, 107, 0.03);
+}
+
+.gg-dashboard__hero-copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-width: min(76%, 500px);
+}
+
+.gg-dashboard__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--gg-lime);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.gg-pulse {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gg-lime);
+  box-shadow: 0 0 0 5px rgba(185, 245, 107, 0.12);
+}
+
+.gg-dashboard__eyebrow-divider {
+  display: inline-block;
+  width: 1px;
+  height: 10px;
+  background: rgba(185, 245, 107, 0.4);
+}
+
+.gg-dashboard__hero h2 {
+  margin: 10px 0 6px;
+  color: #edf7f3;
+  font-size: clamp(24px, 3.7vw, 34px);
+  line-height: 1.12;
+  letter-spacing: -0.05em;
+  font-weight: 900;
+}
+
+.gg-dashboard__hero p {
+  margin: 0;
+  color: #b7d0d3;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.gg-dashboard__session-details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 12px;
+  color: #c9dfe0;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.gg-dashboard__session-details span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.96;
+}
+
+.gg-dashboard__hero-emblem {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%) rotate(-15deg);
+  display: grid;
+  place-items: center;
+  width: 120px;
+  height: 120px;
+  color: rgba(187, 242, 112, 0.72);
+  opacity: 0.9;
+}
+
+.gg-dashboard__emblem-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(185, 245, 107, 0.2);
+  box-shadow: 0 0 36px rgba(185, 245, 107, 0.08);
+}
+
+.gg-dashboard__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.gg-dashboard__metric {
+  min-width: 0;
+  padding: 12px 14px 11px;
+  border: 1px solid rgba(116, 150, 160, 0.3);
+  border-radius: 16px;
+  background: linear-gradient(160deg, rgba(22, 40, 48, 0.96), rgba(15, 28, 35, 0.98));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+}
+
+.gg-dashboard__metric-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #afc1c6;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.gg-dashboard__metric-top svg {
+  color: var(--gg-lime);
+}
+
+.gg-dashboard__metric strong {
+  display: block;
+  margin-top: 8px;
+  color: #f3f6f4;
+  font-size: clamp(22px, 3vw, 30px);
+  line-height: 1.05;
+  letter-spacing: -0.06em;
+  font-weight: 900;
+}
+
+.gg-dashboard__metric strong small {
+  font-size: 12px;
+  color: #9db7bc;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.gg-dashboard__metric > span {
+  display: block;
+  margin-top: 6px;
+  color: #8ca4ab;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.gg-dashboard__metric--wide {
+  grid-column: span 2;
+}
+
+.gg-dashboard__metric strong.gg-dashboard__status {
+  margin-top: 10px;
+  color: var(--gg-lime);
+  font-size: clamp(18px, 2.4vw, 24px);
+}
+
+@media (max-width: 640px) {
+  .gg-dashboard {
+    gap: 10px;
+  }
+
+  .gg-dashboard__hero {
+    min-height: 155px;
+    padding: 16px 14px 14px;
+  }
+
+  .gg-dashboard__hero-copy {
+    max-width: 78%;
+  }
+
+  .gg-dashboard__hero-emblem {
+    right: -20px;
+    width: 110px;
+    height: 110px;
+    opacity: 0.35;
+  }
+
+  .gg-dashboard__session-details {
+    gap: 5px 10px;
+    margin-top: 10px;
+  }
+
+  .gg-dashboard__metrics {
+    gap: 7px;
+  }
+
+  .gg-dashboard__metric {
+    padding: 11px 10px 10px;
+  }
+
+  .gg-dashboard__metric strong {
+    margin-top: 6px;
+    font-size: 24px;
+  }
+
+  .gg-dashboard__metric > span {
+    font-size: 10px;
+  }
+}
+
+.gg-app-main {
+  margin-top: 5px;
+}
+
+.gg-app-main #gg-live-courts > div {
+  background: linear-gradient(160deg, #162d38 0%, #10232f 100%);
+  border-color: #315052;
+}
+
+.gg-app-main #gg-live-courts > div:hover {
+  border-color: #597f66;
+}
+
+.gg-app-main #gg-live-courts {
+  scroll-margin-top: 120px;
+}
+
+/* GUANGUAN SIDEBAR V4 - Desktop only */
+@media (min-width: 1024px) {
+  .gg-layout-v4 {
+    --gg-sidebar-width: 224px;
+    min-width: 0;
+  }
+
+  .gg-layout-v4 > .gg-header {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: var(--gg-sidebar-width);
+    height: 100dvh;
+    z-index: 45;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border-right: 1px solid #29414b;
+    border-bottom: 0;
+    background: #0b161f;
+    box-shadow: none;
+  }
+
+  .gg-layout-v4 .gg-header__top {
+    width: 100%;
+    min-height: 0;
+    padding: 18px 12px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 18px;
+  }
+
+  .gg-layout-v4 .gg-header__brand {
+    padding-bottom: 8px;
+  }
+
+  .gg-layout-v4 .gg-header__brand-copy small {
+    letter-spacing: .11em;
+  }
+
+  .gg-layout-v4 .gg-header__actions {
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+
+  .gg-layout-v4 .gg-header__context {
+    width: calc(100% - 24px);
+    margin: 0 12px 12px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 7px;
+    border: 1px solid #29414b;
+    border-radius: 12px;
+    background: #0e2029;
+  }
+
+  .gg-layout-v4 .gg-header__context-separator {
+    display: none;
+  }
+
+  .gg-layout-v4 .gg-header__location {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .gg-layout-v4 .gg-header__context-count {
+    margin-left: 0;
+    white-space: normal;
+  }
+
+  .gg-layout-v4 .gg-header__desktop-nav {
+    display: flex;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0 8px 20px;
+    flex-direction: column;
+    gap: 5px;
+    overflow: visible;
+  }
+
+  .gg-layout-v4 .gg-header__nav-item {
+    width: 100%;
+    min-height: 43px;
+    padding: 11px 12px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    text-align: left;
+    font-size: 13px;
+  }
+
+  .gg-layout-v4 .gg-header__nav-item:hover {
+    border-color: #2a5661;
+  }
+
+  .gg-layout-v4 .gg-header__nav-item.is-active {
+    color: #54e0ed;
+    border-color: #19576b;
+    border-left: 3px solid #17c9e6;
+    background: #112a34;
+  }
+
+  .gg-layout-v4 > div:first-child,
+  .gg-layout-v4 > .gg-app-main,
+  .gg-layout-v4 > footer {
+    margin-left: var(--gg-sidebar-width);
+  }
+
+  .gg-layout-v4 > .gg-app-main {
+    width: calc(100% - var(--gg-sidebar-width));
+    max-width: none;
+    margin-right: 0;
+    padding-left: 24px;
+    padding-right: 24px;
+    min-width: 0;
+  }
+
+  .gg-layout-v4 > footer {
+    width: calc(100% - var(--gg-sidebar-width));
+  }
+
+  .gg-layout-v4 .gg-header__mobile-nav {
+    display: none;
+  }
+}
+
+/* GUANGUAN COURT OS / 4.1 — editorial polish, no application logic changes */
+:root {
+  --gg-ink: #0a141b;
+  --gg-surface: #111f28;
+  --gg-line: rgba(158, 189, 197, .14);
+  --gg-lime: #78d9ce;
+  --gg-text: #f0f5f4;
+  --gg-muted: #93a6ad;
+  --gg-accent: #78d9ce;
+  --gg-warm: #d6a87d;
+}
+body { background: #0a131b; }
+.gg-header { background: #0c1820; border-color: #1c3440; box-shadow: none; }
+.gg-header__logo { border-radius: 10px; border: 1px solid #35515b; }
+.gg-header__brand-copy strong { font-size: 19px; letter-spacing: -.055em; }
+.gg-header__brand-copy strong span { color: #79d7ce; }
+.gg-header__brand-copy small { color: #8caaae; letter-spacing: .23em; font-size: 8px; }
+.gg-header__icon-button { color: #c0d4d5; border-color: #2a404b; background: #12232d; border-radius: 9px; }
+.gg-header__icon-button:hover { color: #e9faf8; background: #1d3942; }
+.gg-header__live { color: #99e6be; border-color: #2a604e; background: #112920; font-size: 9px; letter-spacing: .15em; }
+.gg-header__role { color: #dcb896; letter-spacing: .12em; }
+.gg-header__nav-item:focus-visible, .gg-header__icon-button:focus-visible { outline: 2px solid #79d7ce; outline-offset: 3px; }
+.gg-dashboard { gap: 13px; margin-bottom: 22px; }
+.gg-dashboard__hero {
+  min-height: 182px;
+  padding: 26px 28px 24px;
+  border-radius: 16px;
+  border: 1px solid #29424c;
+  background: linear-gradient(112deg, #122b33 0%, #10212d 65%, #152b32 100%);
+  box-shadow: none;
+}
+.gg-dashboard__hero::after { right: -70px; top: -115px; width: 310px; height: 310px; border-color: rgba(133, 195, 194, .08); background: transparent; }
+.gg-dashboard__hero-index { position: absolute; top: 17px; right: 21px; color: #73949c; font: 700 9px/1.3 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .14em; }
+.gg-dashboard__hero-copy { max-width: min(78%, 660px); }
+.gg-dashboard__eyebrow { color: #83d8c8; font-size: 10px; letter-spacing: .16em; }
+.gg-pulse { background: #72d5b9; box-shadow: 0 0 0 4px rgba(114, 213, 185, .09); }
+.gg-dashboard__eyebrow-divider { background: rgba(135, 203, 192, .28); }
+.gg-dashboard__hero h2 { margin: 13px 0 8px; color: #f4faf9; font-size: clamp(25px, 3.0vw, 39px); letter-spacing: -.055em; font-weight: 800; }
+.gg-dashboard__hero p { font-size: 12px; color: #a5bec2; }
+.gg-dashboard__session-details { margin-top: 17px; color: #c7d5d6; gap: 9px 18px; }
+.gg-dashboard__session-details svg { color: #78c5bb; }
+.gg-dashboard__hero-emblem { right: 34px; color: #79c8c0; opacity: .40; transform: translateY(-50%) rotate(-13deg); }
+.gg-dashboard__emblem-ring { border-color: rgba(115, 185, 183, .17); box-shadow: none; }
+.gg-dashboard__metrics-heading { display: flex; align-items: center; gap: 12px; padding: 7px 2px 0; color: #a7c0c3; font-size: 9px; font-weight: 800; letter-spacing: .17em; }
+.gg-dashboard__metrics-heading span:last-child { color: #637e89; font-weight: 650; }
+.gg-dashboard__metrics-heading-rule { height: 1px; min-width: 20px; flex: 1; background: #203841; }
+.gg-dashboard__metrics { gap: 12px; }
+.gg-dashboard__metric { padding: 19px 20px 17px; border: 1px solid #293e48; border-radius: 13px; background: #101f28; box-shadow: none; transition: border-color .2s ease, transform .2s ease; }
+.gg-dashboard__metric:hover { border-color: #3a6570; transform: translateY(-1px); }
+.gg-dashboard__metric-top { color: #a5b9be; font-size: 11px; gap: 9px; }
+.gg-dashboard__metric-top svg { color: #7ed4c7; }
+.gg-dashboard__metric strong { color: #f2f8f6; font-size: clamp(27px, 3.2vw, 37px); margin-top: 12px; letter-spacing: -.07em; font-weight: 780; font-variant-numeric: tabular-nums; }
+.gg-dashboard__metric strong small { color: #94afb3; font-size: 12px; letter-spacing: 0; }
+.gg-dashboard__metric > span { margin-top: 8px; color: #809ca5; }
+.gg-dashboard__metric strong.gg-dashboard__status { color: #87dacc; }
+.gg-app-main #gg-live-courts > div { border-color: #2a434d; border-radius: 14px; background: #11232c; }
+.gg-app-main #gg-live-courts > div:hover { border-color: #4f807e; }
+.gg-sidebar__section-label, .gg-sidebar__footer { display: none; }
+@media (min-width: 1024px) {
+  .gg-layout-v4 { --gg-sidebar-width: 244px; }
+  .gg-layout-v4 > .gg-header { z-index: 45; background: #0c171f; border-color: #20343e; }
+  .gg-layout-v4 .gg-header__top { padding: 25px 20px 15px; gap: 20px; }
+  .gg-layout-v4 .gg-header__brand { padding-bottom: 0; }
+  .gg-layout-v4 .gg-header__actions { gap: 7px; }
+  .gg-layout-v4 .gg-header__context { margin: 16px 14px 14px; width: calc(100% - 28px); border-color: #2a414b; border-radius: 11px; background: #11232c; padding: 14px; }
+  .gg-layout-v4 .gg-header__session-title { color: #f0f5f5; font-size: 12px; }
+  .gg-layout-v4 .gg-header__context-count { color: #84d5c5; font-size: 10px; }
+  .gg-layout-v4 .gg-sidebar__section-label { display: flex; justify-content: space-between; padding: 13px 22px 8px; margin-top: 4px; color: #698791; font: 700 9px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .18em; }
+  .gg-layout-v4 .gg-sidebar__section-label span { color: #54727b; letter-spacing: .07em; }
+  .gg-layout-v4 .gg-header__desktop-nav { padding: 0 12px 10px; gap: 3px; }
+  .gg-layout-v4 .gg-header__nav-item { min-height: 44px; padding: 11px 12px; border: 1px solid transparent; border-radius: 8px; font-size: 12px; font-weight: 650; color: #a5bbc1; transition: color .18s, background .18s, border-color .18s; }
+  .gg-layout-v4 .gg-header__nav-item svg { opacity: .86; }
+  .gg-layout-v4 .gg-header__nav-item:hover { color: #ecf8f7; background: #182d37; border-color: transparent; }
+  .gg-layout-v4 .gg-header__nav-item.is-active { color: #a8f4e6; border-color: #264a53; border-left: 2px solid #73d5c6; background: #173139; }
+  .gg-layout-v4 .gg-sidebar__footer { display: flex; flex-direction: column; margin: auto 18px 20px; gap: 13px; }
+  .gg-layout-v4 .gg-sidebar__footer-line { background: #25404a; height: 1px; }
+  .gg-layout-v4 .gg-sidebar__footer-heading { color: #74949e; letter-spacing: .16em; font-size: 9px; font-weight: 750; }
+  .gg-layout-v4 .gg-sidebar__footer-stats { display: flex; gap: 24px; }
+  .gg-layout-v4 .gg-sidebar__footer-stats > span { display: flex; flex-direction: column; gap: 3px; }
+  .gg-layout-v4 .gg-sidebar__footer-stats b { font-size: 22px; font-variant-numeric: tabular-nums; color: #f1f6f5; line-height: 1; }
+  .gg-layout-v4 .gg-sidebar__footer-stats small { color: #6f8b94; font-size: 9px; letter-spacing: .08em; }
+  .gg-layout-v4 .gg-sidebar__footer-note { color: #46616c; font-size: 9px; letter-spacing: .12em; }
+  .gg-layout-v4 > .gg-app-main { padding-left: clamp(22px, 3vw, 52px); padding-right: clamp(22px, 3vw, 52px); }
+  .gg-layout-v4 .gg-dashboard__hero { min-height: 192px; }
+}
+@media (max-width: 640px) {
+  .gg-dashboard__hero { padding: 19px 17px 18px; min-height: 172px; }
+  .gg-dashboard__hero-index { top: 11px; right: 13px; font-size: 8px; }
+  .gg-dashboard__hero h2 { font-size: clamp(23px, 6vw, 30px); }
+  .gg-dashboard__hero-emblem { right: -25px; opacity: .2; }
+  .gg-dashboard__metrics { gap: 7px; }
+  .gg-dashboard__metric { padding: 14px 11px; }
+  .gg-dashboard__metric strong { font-size: 25px; }
+  .gg-dashboard__metrics-heading { font-size: 8px; gap: 7px; }
+}
+@media (prefers-reduced-motion: reduce) { .gg-dashboard__metric { transition: none; } .gg-dashboard__metric:hover { transform: none; } }
+
+/* GUANGUAN COURT OS v4.2 brand cleanup */
+:root {
+  --gg-ink: #081119;
+  --gg-surface: #0f1c25;
+  --gg-line: rgba(118, 152, 162, 0.18);
+  --gg-lime: #63d4c2;
+  --gg-text: #eef6f5;
+  --gg-muted: #8ea5ae;
+  --gg-accent: #63d4c2;
+  --gg-warm: #9eb7bf;
+}
+
+body {
+  background: linear-gradient(180deg, #071018 0%, #09131a 100%);
+}
+
+.gg-header {
+  background: #0a141c;
+  border-color: #162733;
+}
+
+.gg-header__brand-copy strong {
+  font-size: 20px;
+  letter-spacing: -0.05em;
+}
+
+.gg-header__brand-copy strong span {
+  color: #63d4c2;
+}
+
+.gg-header__brand-copy small {
+  color: #8fb8be;
+  letter-spacing: 0.08em;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.gg-header__live {
+  background: #10251f;
+  border-color: #24463f;
+  color: #9be4c8;
+  letter-spacing: 0.12em;
+}
+
+.gg-header__role {
+  color: #9fc0ca;
+  letter-spacing: 0.1em;
+}
+
+.gg-header__icon-button {
+  background: #12202a;
+  border-color: #243844;
+  color: #d3e3e5;
+}
+
+.gg-header__icon-button:hover {
+  background: #19303a;
+  color: #f4fbfa;
+}
+
+.gg-dashboard__hero {
+  background: linear-gradient(115deg, #10222c 0%, #0e1d28 60%, #14313a 100%);
+  border-color: #25414b;
+  border-radius: 18px;
+  box-shadow: none;
+}
+
+.gg-dashboard__hero::after {
+  border-color: rgba(128, 190, 193, 0.08);
+}
+
+.gg-dashboard__hero-index {
+  color: #87aeb3;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.gg-dashboard__eyebrow {
+  color: #86dbcb;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+}
+
+.gg-pulse {
+  background: #63d4c2;
+  box-shadow: 0 0 0 4px rgba(99, 212, 194, 0.10);
+}
+
+.gg-dashboard__hero h2 {
+  color: #f3fbfa;
+  font-size: clamp(28px, 3.2vw, 42px);
+  font-weight: 850;
+}
+
+.gg-dashboard__hero p {
+  color: #a9c1c6;
+  font-size: 13px;
+}
+
+.gg-dashboard__session-details {
+  color: #c7d6d8;
+}
+
+.gg-dashboard__session-details svg {
+  color: #74cfc0;
+}
+
+.gg-dashboard__hero-emblem {
+  color: #79cfc3;
+  opacity: 0.28;
+}
+
+.gg-dashboard__metrics-heading {
+  padding-top: 2px;
+  color: #92adb2;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+}
+
+.gg-dashboard__metrics-heading span:last-child {
+  color: #63d4c2;
+}
+
+.gg-dashboard__metrics-heading-rule {
+  background: #1f3641;
+}
+
+.gg-dashboard__metric {
+  background: #0f1c24;
+  border-color: #243944;
+  border-radius: 14px;
+}
+
+.gg-dashboard__metric:hover {
+  border-color: #3c6570;
+}
+
+.gg-dashboard__metric-top {
+  color: #a9bec3;
+}
+
+.gg-dashboard__metric-top svg {
+  color: #6fd2c2;
+}
+
+.gg-dashboard__metric strong {
+  color: #f2f8f7;
+}
+
+.gg-dashboard__metric strong small {
+  color: #98b0b5;
+}
+
+.gg-dashboard__metric > span {
+  color: #85a0a8;
+}
+
+.gg-dashboard__metric strong.gg-dashboard__status {
+  color: #7ed8c8;
+}
+
+.gg-app-main #gg-live-courts > div {
+  background: #10202a;
+  border-color: #28404a;
+}
+
+.gg-app-main #gg-live-courts > div:hover {
+  border-color: #45707b;
+}
+
+@media (min-width: 1024px) {
+  .gg-layout-v4 {
+    --gg-sidebar-width: 248px;
+  }
+
+  .gg-layout-v4 > .gg-header {
+    background: #0a141b;
+    border-color: #192b35;
+  }
+
+  .gg-layout-v4 .gg-header__context {
+    background: #0f1b23;
+    border-color: #223640;
+  }
+
+  .gg-layout-v4 .gg-header__session-title {
+    color: #f1f8f7;
+  }
+
+  .gg-layout-v4 .gg-header__context-count {
+    color: #7cd5c7;
+  }
+
+  .gg-layout-v4 .gg-sidebar__section-label {
+    color: #6f8b95;
+    padding: 14px 22px 8px;
+    font-size: 9px;
+    letter-spacing: 0.16em;
+  }
+
+  .gg-layout-v4 .gg-sidebar__section-label span {
+    color: #7fcfc0;
+    letter-spacing: 0.06em;
+  }
+
+  .gg-layout-v4 .gg-header__desktop-nav {
+    padding: 0 14px 12px;
+    gap: 4px;
+  }
+
+  .gg-layout-v4 .gg-header__nav-item {
+    border-radius: 10px;
+    color: #a7bcc1;
+    font-size: 13px;
+  }
+
+  .gg-layout-v4 .gg-header__nav-item:hover {
+    background: #172832;
+    color: #eef8f7;
+  }
+
+  .gg-layout-v4 .gg-header__nav-item.is-active {
+    background: #17313a;
+    border-color: #254851;
+    border-left: 2px solid #63d4c2;
+    color: #a5efe1;
+  }
+
+  .gg-layout-v4 .gg-sidebar__footer {
+    margin: auto 18px 20px;
+    gap: 12px;
+  }
+
+  .gg-layout-v4 .gg-sidebar__footer-heading {
+    color: #76939b;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+  }
+
+  .gg-layout-v4 .gg-sidebar__footer-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .gg-layout-v4 .gg-sidebar__footer-stats b {
+    font-size: 20px;
+    color: #f0f7f6;
+  }
+
+  .gg-layout-v4 .gg-sidebar__footer-stats small {
+    color: #7f9aa3;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+  }
+
+  .gg-layout-v4 .gg-sidebar__footer-note {
+    color: #80aeb5;
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    text-transform: none;
+  }
+}
+
+/* GUANGUAN v4.3 dark refinement */
+:root {
+  --gg-ink: #0a0c0f;
+  --gg-surface: #12161b;
+  --gg-line: rgba(133, 145, 158, 0.16);
+  --gg-lime: #8da3ad;
+  --gg-text: #eef2f4;
+  --gg-muted: #98a5ae;
+  --gg-accent: #8ea7b3;
+  --gg-warm: #b9c0c5;
+}
+
+body {
+  background: linear-gradient(180deg, #08090b 0%, #0b0d10 100%);
+}
+
+.gg-header {
+  background: #0d1014;
+  border-color: #1b2229;
+  box-shadow: none;
+}
+
+.gg-header__brand-copy strong {
+  font-size: 18px;
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+}
+
+.gg-header__brand-copy strong span {
+  color: #c7d3d9;
+}
+
+.gg-header__brand-copy small {
+  color: #8d9aa3;
+  font-size: 8px;
+  letter-spacing: 0.10em;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.gg-header__live {
+  color: #d5dde1;
+  background: #171c21;
+  border-color: #29323a;
+  letter-spacing: 0.14em;
+}
+
+.gg-header__role {
+  color: #aab5bc;
+}
+
+.gg-header__icon-button {
+  background: #171c21;
+  border-color: #2a333b;
+  color: #d7e0e4;
+}
+
+.gg-header__icon-button:hover {
+  background: #20272e;
+  color: #f4f7f8;
+}
+
+.gg-dashboard__hero {
+  background: linear-gradient(120deg, #151a20 0%, #101419 58%, #1a2026 100%);
+  border: 1px solid #28323b;
+  border-radius: 18px;
+  box-shadow: none;
+}
+
+.gg-dashboard__hero::after {
+  border-color: rgba(150, 165, 175, 0.08);
+  background: rgba(255,255,255,0.01);
+}
+
+.gg-dashboard__hero h2 {
+  color: #f2f5f6;
+  font-weight: 820;
+}
+
+.gg-dashboard__hero p {
+  color: #a9b4bb;
+}
+
+.gg-dashboard__eyebrow {
+  color: #b7c3c9;
+}
+
+.gg-pulse {
+  background: #9fb0b8;
+  box-shadow: 0 0 0 4px rgba(159, 176, 184, 0.08);
+}
+
+.gg-dashboard__session-details {
+  color: #c5d0d4;
+}
+
+.gg-dashboard__session-details svg {
+  color: #9aacb5;
+}
+
+.gg-dashboard__hero-emblem {
+  color: rgba(162, 180, 188, 0.32);
+  opacity: 0.55;
+}
+
+.gg-dashboard__metrics-heading {
+  color: #9dabb3;
+}
+
+.gg-dashboard__metrics-heading span:last-child {
+  color: #c3ced3;
+}
+
+.gg-dashboard__metrics-heading-rule {
+  background: #263039;
+}
+
+.gg-dashboard__metric {
+  background: linear-gradient(180deg, #13181d 0%, #101419 100%);
+  border: 1px solid #2b353e;
+  border-radius: 14px;
+  box-shadow: none;
+}
+
+.gg-dashboard__metric:hover {
+  border-color: #44525d;
+}
+
+.gg-dashboard__metric-top {
+  color: #a7b3bb;
+}
+
+.gg-dashboard__metric-top svg {
+  color: #b7c4cb;
+}
+
+.gg-dashboard__metric strong {
+  color: #f2f5f6;
+}
+
+.gg-dashboard__metric strong small {
+  color: #9cabb3;
+}
+
+.gg-dashboard__metric > span {
+  color: #8f9ca4;
+}
+
+.gg-dashboard__metric strong.gg-dashboard__status {
+  color: #cad4d8;
+}
+
+.gg-app-main #gg-live-courts > div {
+  background: linear-gradient(180deg, #14191e 0%, #101419 100%);
+  border-color: #2b353e;
+}
+
+.gg-app-main #gg-live-courts > div:hover {
+  border-color: #47545e;
+}
+
+@media (min-width: 1024px) {
+  .gg-layout-v4 {
+    --gg-sidebar-width: 246px;
+  }
+
+  .gg-layout-v4 > .gg-header {
+    background: #0c1014;
+    border-color: #1d252c;
+  }
+
+  .gg-layout-v4 .gg-header__top {
+    padding: 22px 18px 14px;
+    gap: 16px;
+  }
+
+  .gg-layout-v4 .gg-header__brand {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .gg-layout-v4 .gg-header__brand-copy {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .gg-layout-v4 .gg-header__brand-copy strong {
+    font-size: 17px;
+  }
+
+  .gg-layout-v4 .gg-header__brand-copy small {
+    letter-spacing: 0.08em;
+    font-size: 8px;
+  }
+
+  .gg-layout-v4 .gg-header__context {
+    margin: 14px 14px 14px;
+    width: calc(100% - 28px);
+    padding: 12px 12px 11px;
+    gap: 8px;
+    border: 1px solid #28323a;
+    border-radius: 12px;
+    background: #12171c;
+  }
+
+  .gg-layout-v4 .gg-header__session-title {
+    color: #f1f4f5;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .gg-layout-v4 .gg-header__location {
+    color: #b0bbc1;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .gg-layout-v4 .gg-header__context-count {
+    color: #c7d0d4;
+    font-size: 10px;
+    line-height: 1.4;
+  }
+
+  .gg-layout-v4 .gg-sidebar__section-label {
+    color: #74828b;
+    padding: 16px 22px 8px;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+  }
+
+  .gg-layout-v4 .gg-sidebar__section-label span {
+    color: #aebbc2;
+    letter-spacing: 0.06em;
+  }
+
+  .gg-layout-v4 .gg-header__desktop-nav {
+    padding: 0 12px 10px;
+    gap: 4px;
+  }
+
+  .gg-layout-v4 .gg-header__nav-item {
+    min-height: 44px;
+    padding: 11px 12px;
+    border-radius: 10px;
+    color: #aebac0;
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  .gg-layout-v4 .gg-header__nav-item:hover {
+    background: #171d22;
+    color: #f0f4f5;
+    border-color: transparent;
+  }
+
+  .gg-layout-v4 .gg-header__nav-item.is-active {
+    background: #1c2329;
+    color: #f4f7f8;
+    border-color: #323d46;
+    border-left: 2px solid #95aab4;
+  }
+
+  .gg-layout-v4 .gg-sidebar__footer {
+    margin: auto 18px 20px;
+    gap: 12px;
+  }
+
+  .gg-layout-v4 .gg-sidebar__footer-heading {
+    color: #7e8d96;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+  }
+
+  .gg-layout-v4 .gg-sidebar__footer-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .gg-layout-v4 .gg-sidebar__footer-stats b {
+    font-size: 20px;
+    color: #eef2f4;
+    line-height: 1;
+  }
+
+  .gg-layout-v4 .gg-sidebar__footer-stats small {
+    color: #8c99a2;
+    font-size: 9px;
+    letter-spacing: 0.07em;
+    line-height: 1.35;
+  }
+
+  .gg-layout-v4 .gg-sidebar__footer-note {
+    color: #92a0a8;
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    text-transform: none;
+  }
+}
+
+/* GUANGUAN v4.4 compact court view */
+.gg-dashboard__hero {
+  display: none !important;
+}
+
+.gg-dashboard {
+  gap: 14px;
+}
+
+.gg-dashboard::before {
+  content: "GUANGUAN INTERNAL • COURT & QUEUE VIEW";
+  display: block;
+  margin: 2px 0 2px;
+  color: #9aa7af;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.gg-dashboard__metrics-heading {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+@media (min-width: 1024px) {
+  .gg-dashboard {
+    gap: 16px;
+  }
+
+  .gg-dashboard::before {
+    margin: 0 0 2px;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: #88959d;
+  }
+}
+
+/* GUANGUAN v4.4 compact court view */
+.gg-dashboard__hero {
+  display: none !important;
+}
+
+.gg-dashboard {
+  gap: 12px;
+}
+
+.gg-dashboard::before {
+  content: "ก๊วนกวน | สถานะสนามและคิวรอ";
+  display: block;
+  margin: 0 0 4px;
+  color: #aab4bc;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.gg-dashboard__metrics-heading {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+@media (min-width: 1024px) {
+  .gg-dashboard {
+    gap: 12px;
+  }
+}
+
+/* GUANGUAN_TOPBAR_SIDEBAR_V45 — focused court operations */
+:root {
+  --gg-lime: #65d6c7;
+  --gg-accent: #65d6c7;
+  --gg-text: #eef2f4;
+  --gg-muted: #a0aeb7;
+}
+/* Compact identity on the top account bar, near Organizer Mode */
+.gg-topbar-session {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: min(39vw, 500px);
+  padding: 1px 4px;
+}
+.gg-topbar-session__brand {
+  color: #76cfc7;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .12em;
+}
+.gg-topbar-session__brand span, .gg-topbar-session__meta span { color: #647986; }
+.gg-topbar-session strong {
+  color: #f1f5f6;
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gg-topbar-session__meta {
+  color: #9daeb7;
+  font-size: 10px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+@media (max-width: 767px) {
+  .gg-topbar-session { max-width: 40vw; }
+  .gg-topbar-session__brand, .gg-topbar-session__meta { display: none; }
+  .gg-topbar-session strong { font-size: 11px; }
+}
+/* Realign interior dashboard and avoid duplicate page labels */
+.gg-dashboard__metrics-heading { margin: 0 0 2px; }
+.gg-dashboard__metrics-heading-rule { min-width: 20px; }
+/* Distinct but restrained GuanGuan left rail */
+@media (min-width: 1024px) {
+  .gg-layout-v4 { --gg-sidebar-width: 244px; }
+  .gg-layout-v4 > .gg-header {
+    background: linear-gradient(170deg, #0f1c25 0%, #0c151d 60%, #0b1118 100%);
+    border-right: 1px solid #263d48;
+    scrollbar-width: thin;
+    scrollbar-color: #344953 #0d1820;
+  }
+  .gg-layout-v4 .gg-header__top {
+    padding: 18px 15px 12px;
+    gap: 13px;
+  }
+  .gg-layout-v4 .gg-header__brand { align-items: center; gap: 10px; }
+  .gg-layout-v4 .gg-header__brand-copy { min-width: 0; }
+  .gg-layout-v4 .gg-header__brand-copy strong { font-size: 18px; }
+  .gg-layout-v4 .gg-header__brand-copy small { color: #8fa7af; font-size: 8px; line-height: 1.3; }
+  .gg-layout-v4 .gg-header__actions { gap: 7px; padding-top: 3px; }
+  .gg-layout-v4 .gg-header__live { background: #102b2b; color: #81e3c9; border-color: #236052; }
+  .gg-layout-v4 .gg-header__role { color: #b2c6cc; }
+  .gg-layout-v4 .gg-header__icon-button { background: #15252f; border-color: #2b4350; }
+  .gg-layout-v4 .gg-header__icon-button:hover { background: #203844; border-color: #477783; }
+  /* The session summary lives in the top toolbar, not in the sidebar */
+  .gg-layout-v4 .gg-header__context { display: none; }
+  .gg-layout-v4 .gg-sidebar__section-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 12px 13px 8px;
+    padding: 0 6px;
+    min-width: 0;
+    font-family: inherit;
+    font-size: 10px;
+    line-height: 1.4;
+    letter-spacing: .08em;
+    color: #819da9;
+  }
+  .gg-layout-v4 .gg-sidebar__section-label span {
+    color: #64cfc9;
+    font-size: 9px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .gg-layout-v4 .gg-header__desktop-nav { padding: 0 11px 18px; gap: 5px; }
+  .gg-layout-v4 .gg-header__nav-item {
+    position: relative;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 12px 13px;
+    color: #b2c3ca;
+    background: transparent;
+    font-size: 13px;
+    transition: background-color .18s ease, color .18s ease, border-color .18s ease, transform .18s ease;
+  }
+  .gg-layout-v4 .gg-header__nav-item:hover {
+    transform: translateX(2px);
+    background: #192d37;
+    color: #f2fafa;
+    border-color: #315562;
+  }
+  .gg-layout-v4 .gg-header__nav-item.is-active {
+    color: #ccfff4;
+    border-color: #28616b;
+    border-left: 3px solid #60dfd1;
+    background: linear-gradient(90deg, #17414b 0%, #142c38 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.035), 0 4px 16px rgba(0,0,0,.12);
+  }
+  .gg-layout-v4 .gg-header__nav-item.is-active svg { color: #79e3d3; opacity: 1; }
+  .gg-layout-v4 .gg-sidebar__footer {
+    padding: 14px 3px 0;
+    margin: auto 17px 18px;
+    gap: 10px;
+  }
+  .gg-layout-v4 .gg-sidebar__footer-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .gg-layout-v4 .gg-sidebar__footer-stats > span { min-width: 0; }
+  .gg-layout-v4 .gg-sidebar__footer-stats small { white-space: normal; overflow-wrap: anywhere; }
+  .gg-layout-v4 .gg-sidebar__footer-note { color: #7f9aa5; font-size: 9px; letter-spacing: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gg-layout-v4 .gg-header__nav-item { transition: none; }
+  .gg-layout-v4 .gg-header__nav-item:hover { transform: none; }
+}
+
+/* GUANGUAN_COURT_TIME_V46 : compact graphite court/time badge */
+.gg-topbar-session.gg-topbar-session--courts {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  width: auto;
+  min-height: 40px;
+  padding: 7px 15px;
+  gap: 11px;
+  border: 1px solid #48545e;
+  border-radius: 12px;
+  background: linear-gradient(135deg,#222a32,#151a20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 4px 16px rgba(0,0,0,.12);
+  color: #eaf0f3;
+  max-width: min(100%,780px);
+  white-space: normal;
+  letter-spacing: 0;
+}
+.gg-topbar-session--courts .gg-topbar-session__courts,
+.gg-topbar-session--courts .gg-topbar-session__time {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.3;
+  color: #ecf1f4;
+}
+.gg-topbar-session--courts strong {
+  font-weight: 720;
+  font-size: 13px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: #eef4f6;
+}
+.gg-topbar-session--courts .gg-topbar-session__glyph { font-size: 17px; line-height: 1; color: #9fb8c6; flex: none; }
+.gg-topbar-session--courts .gg-topbar-session__divider { width: 1px; height: 19px; background: #52616d; flex: none; }
+.gg-topbar-session--courts:hover { border-color: #748998; background: linear-gradient(135deg,#29333b,#1b232b); }
+@media (max-width: 760px) {
+  .gg-topbar-session.gg-topbar-session--courts { padding: 8px 11px; gap: 8px; max-width: 100%; }
+  .gg-topbar-session--courts .gg-topbar-session__divider { display: none; }
+  .gg-topbar-session--courts strong { font-size: 12px; }
+}
+
+/* GUANGUAN_COURT_TIME_V47: clear labels, no emoji dependencies */
+.gg-topbar-session.gg-topbar-session--courts {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-height: 42px;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 7px 16px;
+  border: 1px solid #475462;
+  border-radius: 11px;
+  background: linear-gradient(140deg, #252d36, #171d24);
+  color: #f0f3f6;
+  box-shadow: inset 0 1px rgba(255,255,255,.065), 0 4px 12px rgba(0,0,0,.12);
+}
+.gg-topbar-session--courts .gg-topbar-session__courts,
+.gg-topbar-session--courts .gg-topbar-session__time {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  line-height: 1.35;
+}
+.gg-topbar-session--courts .gg-topbar-session__label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  color: #a0bcc9;
+  flex-shrink: 0;
+}
+.gg-topbar-session--courts strong {
+  color: #f2f5f6;
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.gg-topbar-session--courts .gg-topbar-session__divider {
+  width: 1px;
+  height: 19px;
+  background: #455361;
+}
+.gg-topbar-session--courts:hover { border-color: #778a98; }
+@media(max-width: 760px) {
+  .gg-topbar-session.gg-topbar-session--courts { gap: 7px 12px; padding: 8px 11px; }
+  .gg-topbar-session--courts .gg-topbar-session__divider { display:none; }
+  .gg-topbar-session--courts strong { font-size: 12px; }
+}
+/* GUANGUAN V4.8 UNIFIED COURT PREMATCH */
+:root {
+  --gg-play-surface: #171d24;
+  --gg-play-inner: #11171e;
+  --gg-play-line: #34414d;
+  --gg-play-line-hover: #526374;
+}
+
+/* Court and Pre-Match: same card surface, dimensions and hover */
+.gg-app-main #gg-live-courts > div,
+.gg-app-main #gg-prematch-cards > div {
+  background: var(--gg-play-surface) !important;
+  background-image: none !important;
+  border: 1px solid var(--gg-play-line) !important;
+  border-radius: 16px !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.025) !important;
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+.gg-app-main #gg-live-courts > div:hover,
+.gg-app-main #gg-prematch-cards > div:hover {
+  border-color: var(--gg-play-line-hover) !important;
+  box-shadow: 0 8px 20px rgba(0,0,0,.12) !important;
+}
+
+/* Neutral inner panels while keeping meaningful status badge colors intact */
+.gg-app-main #gg-prematch-cards > div > div[class*="bg-slate-950"],
+.gg-app-main #gg-prematch-cards > div > div[class*="bg-slate-900"] {
+  background-color: var(--gg-play-inner);
+  border-color: var(--gg-play-line);
+}
+
+/* Same muted border tone for court separator and Pre-Match separator */
+.gg-app-main #gg-live-courts > div > div[class*="border-b"],
+.gg-app-main #gg-prematch-cards > div > div[class*="border-b"] {
+  border-color: var(--gg-play-line) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gg-app-main #gg-live-courts > div,
+  .gg-app-main #gg-prematch-cards > div { transition: none; }
+}
+/* GUANGUAN_MATCH_CONTROL_V57 */
+.gg-v57-header{background:#101b27;border:1px solid #304454;border-radius:16px;padding:16px 20px;margin-bottom:14px}
+.gg-v57-title{font-size:20px;font-weight:850;color:#f0f7fb;line-height:1.3}
+.gg-v57-subtitle{font-size:11px;color:#92abb9;margin-top:4px}
+.gg-v57-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:18px}
+.gg-v57-stat{background:#171f29;border:1px solid #30404d;border-radius:12px;padding:12px 15px;min-width:0}
+.gg-v57-stat small{display:block;font-size:11px;color:#9db2bf}
+.gg-v57-stat strong{display:block;font-size:23px;line-height:1.3;color:#f0f7fa;margin-top:2px}
+.gg-v57-panel-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px;color:#eaf4f8;font-size:15px;font-weight:800}
+.gg-v57-panel-title small{font-size:10px;letter-spacing:.12em;color:#78bec6;font-weight:700}
+.gg-v57-court-card{background:#171e26!important;border-color:#354550!important;box-shadow:0 3px 20px #00000017;transition:border-color .2s,transform .2s}
+.gg-v57-court-card:hover{border-color:#3d8990!important;transform:translateY(-1px)}
+.gg-v57-booking-time{color:#a9beca;font-size:11px;margin-bottom:12px;font-variant-numeric:tabular-nums}
+.gg-v57-court-card--idle>div:first-child{width:44px!important;height:44px!important;margin-bottom:10px!important}
+.gg-v57-court-card--idle{min-height:240px!important}
+.gg-v57-prematch>.gg-v57-queue-header{background:#171f29!important;border-color:#354550!important}
+.gg-v57-prematch .rounded-2xl{box-shadow:0 4px 14px #00000016}
+.gg-v57-prematch button{transition:filter .2s,transform .2s}
+.gg-v57-prematch button:not(:disabled):hover{filter:brightness(1.08)}
+.gg-v57-booking-details>summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;background:#15212c;border:1px solid #304452;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:12px;font-weight:750;color:#d7e9ee}
+.gg-v57-booking-details>summary::-webkit-details-marker{display:none}
+.gg-v57-booking-details[open]>summary{border-color:#398088}
+@media(max-width:640px){.gg-v57-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.gg-v57-title{font-size:17px}}
+
+/* GUANGUAN V5.9: Scoped member page & separate stats, UTF-8 */
+.gg-v59-member-page {--gg59-bg:#171f28;--gg59-border:#344451}
+.gg-v59-member-page > .grid:first-of-type > div {background:#171f28!important;border-color:#344451!important;border-radius:15px;min-height:90px;transition:border-color .2s,transform .2s}
+.gg-v59-member-page > .grid:first-of-type > div:hover {border-color:#587c88!important;transform:translateY(-1px)}
+.gg-v59-member-page > .grid:first-of-type > div .text-xl {font-size:1.65rem;line-height:1.2}
+.gg-v59-member-page > .bg-slate-900 {background:#141d27!important;border-color:#32424f!important}
+.gg-v59-member-page input[type=text] {background:#090f1b!important;border-color:#344451!important;min-height:41px}
+.gg-v59-member-page .grid.grid-cols-1.md\:grid-cols-2.lg\:grid-cols-3 > div {background:#17212b!important;border-color:#344451!important;box-shadow:none!important;transition:transform .18s,border-color .18s,background .18s}
+.gg-v59-member-page .grid.grid-cols-1.md\:grid-cols-2.lg\:grid-cols-3 > div:hover {background:#1c2933!important;border-color:#4f8792!important;transform:translateY(-2px)}
+.gg-v59-member-page button:focus-visible,.gg-v59-member-page select:focus-visible {outline:2px solid #69c6ca;outline-offset:2px}
+.gg-v59-stats {display:flex;flex-direction:column;gap:18px;color:#eff5f7}
+.gg-v59-stats-hero{display:flex;align-items:center;gap:17px;background:linear-gradient(110deg,#192630,#121b26);padding:23px;border:1px solid #35515d;border-radius:18px}
+.gg-v59-hero-icon,.gg-v59-stat-icon{display:flex;align-items:center;justify-content:center;flex-shrink:0;background:#16353c;border:1px solid #326b75;color:#70d2cc;border-radius:13px;width:49px;height:49px}
+.gg-v59-stats-hero small{display:block;font-size:10px;font-weight:800;letter-spacing:.12em;color:#80aebb}
+.gg-v59-stats-hero h1{font-size:24px;font-weight:850;line-height:1.4;margin:2px 0}
+.gg-v59-stats-hero p,.gg-v59-stats-panel p{font-size:12px;color:#9eafbd}
+.gg-v59-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.gg-v59-stat-tile{display:flex;align-items:center;gap:12px;min-width:0;background:#171f28;border:1px solid #334451;border-radius:15px;padding:18px}
+.gg-v59-stat-tile span{display:block;font-size:11px;color:#9cafbd}
+.gg-v59-stat-tile strong{display:block;font-size:24px;font-weight:850;margin:3px 0;color:#edf7f8;word-wrap:break-word}
+.gg-v59-stat-tile small{display:block;font-size:10px;color:#90a4b1}
+.gg-v59-stats-panel{background:#171f28;border:1px solid #334451;border-radius:18px;padding:20px}
+.gg-v59-stats-panel h2{font-size:16px;font-weight:800;margin-bottom:3px}
+.gg-v59-rank-list{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+.gg-v59-rank-list>div{display:flex;align-items:center;gap:12px;background:#101925;border:1px solid #2e3f4b;padding:12px;border-radius:11px}
+.gg-v59-rank-list b{font-size:12px;flex:1;min-width:0;overflow-wrap:anywhere}
+.gg-v59-rank-list strong{font-size:12px;color:#8bd5cf}
+.gg-v59-rank-list small{font-size:10px;color:#8fa4b2}
+.gg-v59-rank{font-size:12px;font-weight:850;color:#74d3cb;min-width:28px}
+.gg-v59-member-identity{display:flex;align-items:center;gap:13px;background:#171f28;padding:16px;border:1px solid #344451;border-radius:15px}
+.gg-v59-member-avatar{display:flex;align-items:center;justify-content:center;width:48px;height:48px;background:#204951;color:#d5f9fa;border-radius:13px;font-size:20px;font-weight:900}
+.gg-v59-member-identity h2{font-size:16px;font-weight:800}.gg-v59-member-identity p{font-size:12px;color:#95afbb}
+.gg-v59-stats-footer{display:flex;align-items:center;gap:9px;font-size:11px;color:#94aab8;flex-wrap:wrap}
+.gg-v59-none,.gg-v59-stats-empty{border:1px dashed #405260;background:#121b25;border-radius:13px;padding:30px;text-align:center;color:#a8bdc8;font-size:13px;margin-top:12px}
+@media(max-width:1000px){.gg-v59-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.gg-v59-stat-tile{padding:12px;gap:7px}.gg-v59-stat-icon{width:36px;height:36px}.gg-v59-stat-tile strong{font-size:19px}.gg-v59-stats-hero{padding:16px}}
+
+/* GG_MATCH_LAYOUT_CLEANUP_V5104 — scoped court / queue UI */
+.gg-v5104-match-main .gg-v57-header{padding:14px 18px;margin-bottom:10px;background:#111a24;border-color:#2e4150}
+.gg-v5104-match-main .gg-v57-title{font-size:18px}
+.gg-v5104-match-main .gg-v57-stats{margin-bottom:14px}
+.gg-v5104-match-main .gg-v57-stat{padding:10px 14px;background:#151e28;transition:border-color .18s}
+.gg-v5104-match-main .gg-v57-stat:hover{border-color:#467984}
+.gg-v5104-match-main .gg-v57-stat strong{font-size:21px}
+.gg-v5104-match-main .gg-v57-court-card--idle{min-height:196px!important}
+.gg-v5104-match-main .gg-v57-court-card{border-radius:14px!important;transition:border-color .18s}
+.gg-v5104-match-main .gg-v57-prematch .rounded-2xl{border-radius:14px}
+.gg-v5104-match-main .gg-v57-prematch .rounded-2xl button:disabled{opacity:.56;cursor:not-allowed}
+.gg-v5104-waiting{margin-top:18px}
+.gg-v5104-waiting > *{border-color:#354754!important;border-radius:15px!important}
+.gg-v5104-history{margin-top:18px;padding:17px;background:#141d29;border:1px solid #304454;border-radius:16px;color:#eef7fa}
+.gg-v5104-section-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:13px}
+.gg-v5104-section-heading__title{display:flex;align-items:center;gap:11px}
+.gg-v5104-section-heading__title > svg{color:#70d2cb;flex:none}
+.gg-v5104-section-heading h2{font-size:15px;font-weight:800;margin:0}
+.gg-v5104-section-heading p{font-size:11px;color:#96aebb;margin-top:3px}
+.gg-v5104-count{border:1px solid #345763;background:#172c34;color:#92e2da;border-radius:99px;padding:5px 12px;font-size:11px;font-weight:700;white-space:nowrap}
+.gg-v5104-history-list{display:flex;flex-direction:column;gap:8px;max-height:500px;overflow-y:auto;padding-right:2px}
+.gg-v5104-history-row{display:grid;grid-template-columns:minmax(180px,.9fr) minmax(200px,1.5fr) auto;align-items:center;gap:12px;background:#0e1622;border:1px solid #2c3d4b;border-radius:11px;padding:12px 14px;transition:border-color .2s,background .2s}
+.gg-v5104-history-row:hover{border-color:#4e7d87;background:#14212b}
+.gg-v5104-history-meta{display:flex;align-items:center;flex-wrap:wrap;gap:5px 9px;font-size:11px;color:#96aebe}
+.gg-v5104-history-meta strong{color:#f5fafc;font-size:13px}
+.gg-v5104-history-meta span{display:inline-flex;align-items:center;gap:4px}
+.gg-v5104-history-seq{border-radius:7px;background:#1c3540;color:#85d4d0;padding:4px 7px;font-weight:800}
+.gg-v5104-history-teams{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:700;overflow-wrap:anywhere}
+.gg-v5104-history-teams span:first-child{color:#a7ddea}
+.gg-v5104-history-teams span:last-child{color:#e6b6c0}
+.gg-v5104-history-teams em{color:#7892a1;font-size:10px;font-style:normal}
+.gg-v5104-history-scores{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.gg-v5104-history-scores span{font-size:10px;white-space:nowrap;padding:5px 7px;border-radius:7px;background:#1d2936;border:1px solid #334755;color:#d8e9ef}
+@media(max-width:1150px){.gg-v5104-history-row{grid-template-columns:1fr}.gg-v5104-history-scores{justify-content:flex-start}}
+@media(max-width:640px){.gg-v5104-history{padding:12px}.gg-v5104-history-teams{flex-wrap:wrap}.gg-v5104-match-main .gg-v57-court-card--idle{min-height:180px!important}}
+@media(prefers-reduced-motion:reduce){.gg-v5104-history-row,.gg-v5104-match-main .gg-v57-court-card{transition:none}}
+
+/* GUANGUAN PROMOTION HUB V5.11 - scoped UI only */
+.gg-promo-v511__hero{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;border:1px solid #34525c;border-radius:18px;padding:23px;background:linear-gradient(115deg,#152733,#101925)}
+.gg-promo-v511__hero-icon,.gg-promo-v511__idea-icon{display:flex;align-items:center;justify-content:center;color:#85d9d3;border:1px solid #315b65;border-radius:12px;background:#17353d;width:46px;height:46px;flex-shrink:0}
+.gg-promo-v511__manage{display:inline-flex;align-items:center;gap:9px;padding:11px 16px;border-radius:11px;background:#116f66;border:1px solid #269588;color:#f5fffd;font-weight:750;font-size:12px;cursor:pointer;transition:background .2s,transform .2s}
+.gg-promo-v511__manage:hover{background:#18877b;transform:translateY(-1px)}
+.gg-promo-v511__stat,.gg-promo-v511__idea{border:1px solid #344753;border-radius:15px;background:#171f28;padding:18px}
+.gg-promo-v511__stat span{font-size:12px;color:#9db3be;display:block}.gg-promo-v511__stat strong{font-size:28px;color:#f3f7f8;line-height:1.5}
+.gg-promo-v511__idea{transition:transform .2s,border-color .2s}.gg-promo-v511__idea:hover{transform:translateY(-2px);border-color:#4f8590}
+.gg-promo-v511__tag{font-size:10px;color:#c5a978;border:1px solid #61533b;border-radius:99px;padding:4px 8px;background:#2a261f;white-space:nowrap}
+.gg-promo-v511__notice{color:#9db4bf;border:1px dashed #36535f;border-radius:12px;padding:14px 17px;font-size:12px;line-height:1.7;background:#101d26}
+@media(max-width:600px){.gg-promo-v511__hero{padding:17px}.gg-promo-v511__manage{width:100%;justify-content:center}}
+
+/* GuanGuan v5.12 - promotion and announcement UI */
+.gg-v512-panel{background:#151e28;border:1px solid #334755;border-radius:17px;padding:20px}
+.gg-v512-subpanel{background:#0f1722;border:1px solid #30404c;border-radius:14px;padding:17px;min-width:0}
+.gg-v512-heading{display:flex;align-items:center;gap:9px;color:#eaf5f7;font-size:16px;font-weight:800}
+.gg-v512-heading svg{color:#71cfc8}
+.gg-v512-label{display:block;color:#9fb5c0;font-size:12px;margin-bottom:6px}
+.gg-v512-primary{display:inline-flex;align-items:center;gap:8px;border:1px solid #278777;background:#146e63;color:white;padding:10px 16px;border-radius:11px;font-size:12px;font-weight:800;transition:background .2s;cursor:pointer}
+.gg-v512-primary:hover{background:#17887c}
+.gg-v512-rank{display:flex;align-items:center;gap:12px;min-width:0;background:#182530;border:1px solid #334b59;padding:12px;border-radius:11px;font-size:12px}
+.gg-v512-rank b{color:#dff7f4}
+.gg-v512-active,.gg-v512-muted{padding:7px 10px;border-radius:8px;font-size:11px;font-weight:800;background:#143b35;color:#87e8d3;border:1px solid #286b60;cursor:pointer}
+.gg-v512-muted{background:#232e37;border-color:#41505c;color:#bbc6ce}
+.gg-v512-dialog{background:linear-gradient(130deg,#1b3036,#131d28);border:1px solid #49747b;border-radius:20px;padding:26px;box-shadow:0 25px 80px #0009}
+@media(max-width:600px){.gg-v512-panel{padding:14px}.gg-v512-dialog{padding:20px}}
+
+/* GUANGUAN_LOGIN_V513 — restrained editorial member entry; scoped */
+.gg-login-v513{background:#080d16!important;backdrop-filter:blur(5px)}
+.gg-login-v513>div{padding:22px 14px;min-height:100dvh}
+.gg-login-v513>div>div{max-width:450px!important;border-radius:18px!important;background:#131c26!important;border:1px solid #354350!important;box-shadow:0 26px 85px #0007!important}
+.gg-login-v513>div>div>div:first-child{display:none!important}
+.gg-login-v513>div>div>div:nth-child(2){background:#131c26!important;padding:29px 28px 22px!important;border-color:#293846!important}
+.gg-login-v513>div>div>div:nth-child(2)>div{align-items:center!important;gap:14px!important}
+.gg-login-v513>div>div>div:nth-child(2)>div>div:first-child{width:46px!important;height:46px!important;border-radius:12px!important;box-shadow:none!important;--tw-ring-color:#364957!important}
+.gg-login-v513 h2{font-size:21px!important;font-weight:760!important;letter-spacing:-.025em!important}
+.gg-login-v513 h2+span{font-size:9px!important;background:transparent!important;border:0!important;color:#6fbbc0!important;padding:0!important;letter-spacing:.10em}
+.gg-login-v513 h2~p{color:#9bafbb!important;font-size:12px!important;line-height:1.6!important;margin-top:7px!important}
+.gg-login-v513>div>div>div:nth-child(3){padding:23px 28px 26px!important}
+.gg-login-v513>div>div>div:nth-child(3)>div:first-child{background:#0c141f!important;border:1px solid #293744!important;border-radius:11px!important;padding:4px!important}
+.gg-login-v513>div>div>div:nth-child(3)>div:first-child button{border-radius:8px!important;font-size:12px!important;font-weight:650!important;box-shadow:none!important}
+.gg-login-v513>div>div>div:nth-child(3)>div:first-child button[class*="bg-emerald"],.gg-login-v513>div>div>div:nth-child(3)>div:first-child button[class*="bg-amber"]{background:#203d43!important;color:#c5f4ef!important}
+.gg-login-v513 select,.gg-login-v513 input:not([type="checkbox"]){background:#0c1520!important;border:1px solid #354553!important;border-radius:9px!important;color:#e9f4f6!important;box-shadow:none!important}
+.gg-login-v513 select:focus,.gg-login-v513 input:focus{outline:2px solid #419b9a!important;outline-offset:1px!important;border-color:#4d9d9c!important}
+.gg-login-v513 form>div:last-child button[type="submit"]{border-radius:10px!important;background:#54bcb0!important;color:#092421!important;font-weight:750!important;box-shadow:none!important;min-height:45px!important}
+.gg-login-v513 form>div:last-child button[type="submit"]:not(:disabled):hover{background:#72d3c6!important}
+.gg-login-v513 form>div:last-child button[type="submit"]:disabled{background:#27343f!important;color:#8393a0!important}
+.gg-login-v513 form>div:last-child button[type="button"]{border-radius:10px!important;background:#25313d!important}
+.gg-login-v513>div>div>div:nth-child(3)>div:last-child{border-color:#2e3b48!important}
+.gg-login-v513>div>div>div:nth-child(3)>div:last-child>span{font-size:11px!important;color:#8295a2!important}
+.gg-login-v513>div>div>div:nth-child(3)>div:last-child>button{color:#97c5c4!important;font-size:11px!important;font-weight:650!important}
+.gg-login-v513 .animate-fade-in{background:#111d28!important;border-color:#354c57!important;border-radius:12px!important;animation:none!important}
+.gg-login-v513 .animate-fade-in input{background:#0b1621!important}
+.gg-login-v513 button:focus-visible{outline:2px solid #66cdc5!important;outline-offset:3px!important}
+@media(max-width:480px){.gg-login-v513>div{align-items:center!important;padding:12px!important}.gg-login-v513>div>div>div:nth-child(2){padding:23px 19px 18px!important}.gg-login-v513>div>div>div:nth-child(3){padding:20px 19px 22px!important}}
+@media(prefers-reduced-motion:reduce){.gg-login-v513 *, .gg-login-v513 *::before,.gg-login-v513 *::after{transition:none!important;animation:none!important}}
+
+
+/* GG_ORGANIZER_LOGIN_V5131: restrained graphite / teal, scoped to organizer authentication */
+.gg-organizer-login-v5131{background:rgba(4,10,17,.91);backdrop-filter:blur(8px)}
+.gg-organizer-login-v5131 > div{max-width:420px;border-radius:18px;border:1px solid #354753;background:#121c26;box-shadow:0 24px 72px rgba(0,0,0,.52)}
+.gg-organizer-login-v5131 > div > div:first-of-type{background:#121c26;border-bottom:1px solid #2b3c49;padding:19px 22px}
+.gg-organizer-login-v5131 > div > div:first-of-type > div > div:first-child{background:#18333a;border:1px solid #2d6570;color:#85d8d0;border-radius:11px}
+.gg-organizer-login-v5131 > div > div:first-of-type .text-sm.font-black{font-size:16px;letter-spacing:-.02em;font-weight:750}
+.gg-organizer-login-v5131 form{padding:23px 22px 24px}
+.gg-organizer-login-v5131 form > div:first-child{background:#182630;border:1px solid #304b57;color:#bacbd2;border-radius:11px;padding:13px 14px;line-height:1.75}
+.gg-organizer-login-v5131 form label{color:#b7c7cf;font-size:12px}
+.gg-organizer-login-v5131 form input{border-radius:11px;border:1px solid #3a5060;background:#0a121d;color:#f4f7f9;box-shadow:none;min-height:49px;letter-spacing:.18em}
+.gg-organizer-login-v5131 form input:focus{border-color:#69cfc5;outline:2px solid rgba(105,207,197,.18);outline-offset:1px}
+.gg-organizer-login-v5131 form button[type=submit]{border-radius:11px;background:#169b89;color:#f4fffc;font-weight:750;box-shadow:none;min-height:47px}
+.gg-organizer-login-v5131 form button[type=submit]:hover:not(:disabled){background:#21ad99}
+.gg-organizer-login-v5131 form button[type=submit]:disabled{opacity:.5;cursor:not-allowed}
+.gg-organizer-login-v5131 form button[type=button]{border-radius:10px;border:1px solid #344655;background:#101923;color:#a8b9c4}
+.gg-organizer-login-v5131 form button[type=button]:hover{background:#192630;color:#ecf5f7}
+.gg-organizer-login-v5131 form .border-rose-700\/50{border-color:#895052}
+@media(max-width:480px){.gg-organizer-login-v5131 > div{width:100%;max-width:390px}.gg-organizer-login-v5131 form{padding:20px 17px}}
+@media(prefers-reduced-motion:reduce){.gg-organizer-login-v5131 *{transition:none!important}}
+
+/* GG_BILLING_V514: Payment workspace */
+.gg-v514-overview{color:#e9f3f5}
+.gg-v514-heading{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-bottom:13px}
+.gg-v514-heading h2{font-size:20px;font-weight:800;color:#f3f8f9;margin:0}
+.gg-v514-heading p{font-size:12px;color:#95adbb;margin-top:3px}
+.gg-v514-heading>span{font-size:10px;letter-spacing:.12em;color:#7daeb6;font-weight:700}
+.gg-v514-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.gg-v514-kpis>div{min-width:0;border:1px solid #344755;border-radius:14px;background:#16212c;padding:17px 18px}
+.gg-v514-kpis small{display:block;color:#a2b4c0;font-size:11px}
+.gg-v514-kpis strong{display:block;color:#eef6f7;font-size:27px;line-height:1.4;font-weight:800;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.gg-v514-kpis em{font-size:12px;color:#9faeb9;font-style:normal;font-weight:500}
+.gg-v514-kpis span{display:block;font-size:10px;color:#90a7b5}
+.gg-v514-kpis>div:nth-child(2) strong{color:#80d6c6}
+.gg-v514-kpis>div:nth-child(3) strong{color:#e6bd8b}
+.gg-v514-filters{display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding:11px 15px;background:#101927;border-bottom:1px solid #293d4c}
+.gg-v514-filters button{background:#192532;border:1px solid #314452;color:#9db1be;padding:7px 12px;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer;transition:background .15s,border-color .15s}
+.gg-v514-filters button:hover{background:#223440;border-color:#507682;color:#edf7f7}
+.gg-v514-filters button.is-active{background:#17443f;border-color:#418c80;color:#aeefe0}
+.gg-v514-filters span{margin-left:auto;color:#7d9baa;font-size:11px}
+.gg-v514-collapse{border:1px solid #304653;border-radius:14px;background:#151f29;overflow:hidden}
+.gg-v514-collapse>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;cursor:pointer;padding:17px 20px;color:#ecf5f7;font-size:13px;font-weight:800}
+.gg-v514-collapse>summary::-webkit-details-marker{display:none}
+.gg-v514-collapse>summary:after{content:'▾';color:#83c9c4;font-size:15px}
+.gg-v514-collapse[open]>summary:after{content:'▴'}
+.gg-v514-collapse>summary small{font-size:11px;font-weight:500;color:#90a9b7;margin-left:auto}
+.gg-v514-collapse[open]>summary{border-bottom:1px solid #314653}
+.gg-v514-collapse-body{padding:15px}
+.gg-v514-collapse-body>.bg-slate-900{border-color:#304653!important}
+@media(max-width:680px){.gg-v514-kpis{grid-template-columns:1fr}.gg-v514-kpis>div{padding:12px 15px}.gg-v514-kpis strong{font-size:22px}.gg-v514-heading>span{display:none}.gg-v514-collapse>summary{padding:14px}.gg-v514-filters span{width:100%;margin:0}}
+@media(prefers-reduced-motion:reduce){.gg-v514-filters button{transition:none}}

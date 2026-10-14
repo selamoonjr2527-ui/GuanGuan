@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getMemberChargeV519 } from '../utils/financeEngineV519';
 
 import { getSessionCourtCost } from '../utils/sessionCourts'; // DYNAMIC_SESSION_COURTS_V63A
 import QRCode from 'qrcode';
@@ -180,12 +181,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
     let baseCost = 0;
 
     if (sessionConfig.splitMethod === 'club_rate') {
-      baseCost = calculatePlayerFinalCharge(
-        adjustedPlayer,
-        sessionConfig,
-        promotionRedemptions,
-        sessionConfig.date
-      ).finalTotal;
+      baseCost = getMemberChargeV519(player, sessionConfig, promotionRedemptions) - manualAmount;
     } else if (sessionConfig.splitMethod === 'fixed') {
       baseCost = sessionConfig.fixedFeePerPerson;
     } else if (sessionConfig.splitMethod === 'per_game') {

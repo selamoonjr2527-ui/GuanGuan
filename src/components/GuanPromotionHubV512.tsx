@@ -20,7 +20,7 @@ export type GgPromotionSettingsV512 = {
   announcements: GgAnnouncementV512[];
 };
 export const GG_PROMO_DEFAULTS_V512: GgPromotionSettingsV512 = {
-  period: 'month', topMatchReward: 'ฟรีค่าคอร์ท 1 ครั้ง',
+  period: 'year', topMatchReward: 'ฟรีค่าคอร์ท 1 ครั้ง',
   topSpenderReward: 'ส่วนลด 50 บาท', announcements: [],
 };
 
@@ -48,28 +48,51 @@ export const GuanPromotionHubV512: React.FC<Props> = ({ players, archives, setti
   const [endDate, setEndDate] = useState(todayLocal);
   const [notice, setNotice] = useState('');
   const set = (patch: Partial<GgPromotionSettingsV512>) => onChange({...settings,...patch});
+  // Default older saved settings to an annual view when the user explicitly chooses it.
+  const [selectedYear, setSelectedYear] = useState(() => todayLocal().slice(0, 4));
+  const years = useMemo(() => [...new Set([
+    todayLocal().slice(0, 4),
+    ...archives.map(a => String(a.archiveDate || '').slice(0, 4)).filter(y => /^\d{4}$/.test(y))
+  ])].sort((a, b) => b.localeCompare(a)), [archives]);
   const result = useMemo(() => {
     const now = todayLocal();
     const archivedByDate = new Map<string,DailySessionArchive>();
     [...archives].sort((a,b) => (a.savedAt||0)-(b.savedAt||0)).forEach(a => archivedByDate.set(a.archiveDate,a));
     const chosen = [...archivedByDate.values()].filter(a =>
-      settings.period === 'all' || (settings.period === 'month' ? a.archiveDate.slice(0,7) === now.slice(0,7) : a.archiveDate.slice(0,4) === now.slice(0,4))
+      settings.period === 'all' || (settings.period === 'month' ? a.archiveDate.slice(0,7) === now.slice(0,7) : a.archiveDate.slice(0,4) === selectedYear)
     );
-    const table = new Map<string,{id:string;name:string;matches:number;spent:number}>();
+    const missingPlayerDetails = chosen.filter(a => !Array.isArray(a.playersSnapshot) || a.playersSnapshot.length === 0);
+    // GG_TOP_SPENDER_AUDIT_V522: show paid coverage per closed Archive, never estimate cash from charges.
+    const sessionCoverage = chosen.map(a => {
+      const snaps = Array.isArray(a.playersSnapshot) ? a.playersSnapshot : [];
+      const paid = snaps.filter(p => typeof p.paidAmount === 'number' && Number.isFinite(p.paidAmount) && p.paidAmount >= 0);
+      return {
+        id: a.id, day: a.archiveDate, members: a.totalPlayers,
+        snapshots: snaps.length, recorded: paid.length,
+        missing: snaps.length - paid.length,
+        paidTotal: paid.reduce((sum, p) => sum + Math.max(0, p.paidAmount ?? 0), 0),
+        collected: typeof a.totalCollected === 'number' ? a.totalCollected : null,
+      };
+    }).sort((a,b) => a.day.localeCompare(b.day));
+    const table = new Map<string,{id:string;name:string;matches:number;spent:number;perDay:Record<string,number>}>();
     for (const archive of chosen) {
       for (const snapshot of archive.playersSnapshot || []) {
         const id = snapshot.id;
         if (!id) continue;
-        const prior = table.get(id) || {id,name:snapshot.nickname || id,matches:0,spent:0};
+        const prior = table.get(id) || {id,name:snapshot.nickname || id,matches:0,spent:0,perDay:{}};
         prior.matches += Math.max(0,Number(snapshot.matchesPlayed||0));
         // Only confirmed paid amounts are eligible for spender ranking.
-        if(snapshot.paid && typeof snapshot.paidAmount === 'number' && Number.isFinite(snapshot.paidAmount)) prior.spent += Math.max(0,snapshot.paidAmount);
+        if (typeof snapshot.paidAmount === 'number' && Number.isFinite(snapshot.paidAmount) && snapshot.paidAmount > 0) {
+          // Partial payments count; a paid=false flag alone does not erase real payments.
+          prior.spent += snapshot.paidAmount;
+          prior.perDay[archive.archiveDate] = (prior.perDay[archive.archiveDate] || 0) + snapshot.paidAmount;
+        }
         table.set(id,prior);
       }
     }
     const values=[...table.values()];
-    return {topMatch:values.filter(x=>x.matches>0).sort((a,b)=>b.matches-a.matches).slice(0,5),topSpender:values.filter(x=>x.spent>0).sort((a,b)=>b.spent-a.spent).slice(0,5), archivedSessions:chosen.length};
-  },[archives,settings.period]);
+    return {topMatch:values.filter(x=>x.matches>0).sort((a,b)=>b.matches-a.matches).slice(0,5),topSpender:values.filter(x=>x.spent>0).sort((a,b)=>b.spent-a.spent).slice(0,5), archivedSessions:chosen.length, missingPlayerDetails:missingPlayerDetails.map(a => a.archiveDate), sessionCoverage};
+  },[archives,settings.period,selectedYear]);
   const today = todayLocal();
   const birthdaysToday = players.filter(p=>{const date=memberBirthdays[p.id];return date && date.slice(5)===today.slice(5)});
   const add = () => {
@@ -85,8 +108,20 @@ export const GuanPromotionHubV512: React.FC<Props> = ({ players, archives, setti
       <button type="button" onClick={onManageRules} className="gg-v512-primary"><Gift size={16}/> ตั้งค่าโปรโมชั่นเดิม ({ruleCount})</button>
     </div>
     <div className="gg-v512-panel space-y-4">
-      <div className="flex flex-wrap justify-between gap-3 items-center"><h2 className="gg-v512-heading"><Trophy size={18}/> อันดับสมาชิก</h2><select className={inputClass+' !w-auto'} value={settings.period} onChange={e=>set({period:e.target.value as GgRewardPeriodV512})}><option value="month">เดือนนี้</option><option value="year">ปีนี้</option><option value="all">ตลอดกาล</option></select></div>
+      <div className="flex flex-wrap justify-between gap-3 items-center"><h2 className="gg-v512-heading"><Trophy size={18}/> อันดับสมาชิก</h2><select className={inputClass+' !w-auto'} value={settings.period} onChange={e=>set({period:e.target.value as GgRewardPeriodV512})}><option value="month">เดือนนี้</option><option value="year">ปีนี้</option><option value="all">ตลอดกาล</option></select>{settings.period === 'year' && <select aria-label="เลือกปีสำหรับอันดับสมาชิก" className={inputClass+' !w-auto'} value={selectedYear} onChange={e=>setSelectedYear(e.target.value)}>{years.map(year=><option key={year} value={year}>ปี {year}</option>)}</select>}</div>
       <div className="text-xs text-slate-400">ใช้เฉพาะ {result.archivedSessions} รอบที่ Save เป็น Archive แล้ว · Top Spender นับเฉพาะยอด Paid ที่มีตัวเลขจริง</div>
+      {result.missingPlayerDetails.length > 0 && <div className="rounded-xl border border-amber-700/60 bg-amber-950/25 px-3 py-2 text-xs leading-5 text-amber-200" role="status">อันดับ Top Spender อาจไม่ครบ: {result.missingPlayerDetails.length} รอบในช่วงที่เลือกไม่มีข้อมูลชำระเงินรายคนใน Archive ({result.missingPlayerDetails.join(', ')}). ไม่สามารถนำยอดรวมของรอบมาแจกแจงเป็นยอดสมาชิกได้</div>}
+      {/* GG_TOP_SPENDER_AUDIT_V522: ledger coverage explains why an annual total may look like one session. */}
+      <details className="rounded-xl border border-slate-700 bg-slate-950/40 p-3 text-xs text-slate-200">
+        <summary className="cursor-pointer font-bold text-teal-300">ตรวจสอบยอด Top Spender รายรอบ ({result.sessionCoverage.length} รอบ)</summary>
+        <p className="mt-2 text-slate-400">ยอดจ่ายจริงจาก paidAmount ใน Archive เท่านั้น · ไม่ใช้ยอดเรียกเก็บหรือรายรับรวมมาประมาณยอดรายคน</p>
+        <div className="mt-3 overflow-x-auto"><table className="min-w-[550px] w-full text-left"><thead className="text-slate-400"><tr><th className="py-2">วันที่</th><th>สมาชิกใน Archive</th><th>มี Snapshot</th><th>มี paidAmount</th><th>ยอดจ่ายรายคนรวม</th><th>ยอดรับรวม Archive</th></tr></thead><tbody>
+          {result.sessionCoverage.map(r => <tr key={r.id} className="border-t border-slate-800"><td className="py-2">{r.day}</td><td>{r.members}</td><td>{r.snapshots}</td><td className={r.recorded < r.members ? 'text-amber-300' : 'text-emerald-300'}>{r.recorded}/{r.members}</td><td>{r.paidTotal.toLocaleString('th-TH')} ฿</td><td>{r.collected === null ? 'ไม่ระบุ' : `${r.collected.toLocaleString('th-TH')} ฿`}</td></tr>)}
+        </tbody></table></div>
+        {result.sessionCoverage.some(r=> r.recorded < r.members || (r.collected !== null && Math.abs(r.paidTotal-r.collected) > 0.01)) && <p className="mt-2 text-amber-300">ข้อมูลรายคนยังไม่ครบหรือไม่ตรงกับยอดรับรวม: อันดับอาจต่ำกว่าความจริง ต้องแก้ข้อมูลชำระรายคนที่ต้นทาง ไม่ใช่เปลี่ยนสูตรเป็นยอดเรียกเก็บ</p>}
+        <p className="mt-3 font-bold text-slate-200">รายละเอียดผู้จ่าย Top 5 (แยกตามวันที่)</p>
+        {result.topSpender.map(p => <div key={p.id} className="mt-2 rounded-lg border border-slate-800 px-3 py-2"><span className="font-semibold">{p.name} — {p.spent.toLocaleString('th-TH')} ฿</span><div className="mt-1 text-slate-400">{Object.entries(p.perDay).sort(([a],[b])=>a.localeCompare(b)).map(([day,amount])=>`${day}: ${amount.toLocaleString('th-TH')} ฿`).join(' · ') || 'ไม่พบรายการจ่าย'}</div></div>)}
+      </details>
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
         {([{label:'Top Match',icon:Trophy,list:result.topMatch,field:'matches',reward:settings.topMatchReward,key:'topMatchReward'},{label:'Top Spender',icon:Wallet,list:result.topSpender,field:'spent',reward:settings.topSpenderReward,key:'topSpenderReward'}] as const).map(group=><div key={group.label} className="gg-v512-subpanel space-y-3"><h3 className="gg-v512-heading"><group.icon size={17}/>{group.label}</h3>{group.list.length?group.list.map((x,i)=><div key={x.id} className="gg-v512-rank"><span className="text-teal-300 font-bold">#{i+1}</span><span className="flex-1 font-semibold truncate">{x.name}</span><b>{group.field==='matches'?`${x.matches} Match`:`${x.spent.toLocaleString()} ฿`}</b></div>):<p className="text-xs text-slate-500">ยังไม่มีข้อมูลย้อนหลังสำหรับจัดอันดับ</p>}<label className="text-xs text-slate-400 block">รางวัลที่วางแผนไว้ (ยังไม่แจกอัตโนมัติ)</label><input className={inputClass} value={group.reward} onChange={e=>set({[group.key]:e.target.value})}/></div>)}
       </div>

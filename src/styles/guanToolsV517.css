@@ -1,0 +1,39 @@
+/* GuanGuan v5.17 · Organizer Tools · scoped presentation only */
+.gg-tools-v517 {
+  --ggt-bg: var(--gg-ui-panel, #121b2a);
+  --ggt-text: var(--gg-ui-text, #f0f5fa);
+  --ggt-muted: var(--gg-ui-muted, #a7b6c5);
+  --ggt-line: var(--gg-ui-border, #314154);
+  --ggt-hover: var(--gg-ui-hover, #1c2c3b);
+  --ggt-accent: var(--gg-ui-accent, #65d4c7);
+  --ggt-on-accent: var(--gg-ui-accent-text, #072020);
+  max-width: 1220px;
+  margin-inline: auto;
+  color: var(--ggt-text);
+}
+.gg-tools-v517__header { padding: 4px 0 12px; border-bottom: 1px solid var(--ggt-line); }
+.gg-tools-v517__eyebrow { color: var(--ggt-accent); font-size: 11px; font-weight: 750; letter-spacing: .13em; }
+.gg-tools-v517__header h1 { color: var(--ggt-text); margin: 7px 0 5px; font-size: clamp(21px, 2.1vw, 28px); font-weight: 800; letter-spacing: -.035em; }
+.gg-tools-v517__header p, .gg-tools-v517__card p, .gg-tools-v517__workspace-head p { color: var(--ggt-muted); font-size: 13px; line-height: 1.7; }
+.gg-tools-v517__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.gg-tools-v517__card { min-width: 0; min-height: 225px; display: flex; flex-direction: column; padding: 20px; background: var(--ggt-bg); border: 1px solid var(--ggt-line); border-radius: 15px; box-shadow: 0 3px 12px rgba(0,0,0,.035); }
+.gg-tools-v517__card-top { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-bottom: 18px; }
+.gg-tools-v517__icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; background: var(--ggt-hover); color: var(--ggt-accent); border: 1px solid var(--ggt-line); font-size: 19px; font-weight: 750; }
+.gg-tools-v517__tag { font-size: 10px; font-weight: 700; letter-spacing: .09em; color: var(--ggt-muted); }
+.gg-tools-v517__card h2, .gg-tools-v517__workspace-head h2 { color: var(--ggt-text); font-size: 16px; font-weight: 800; line-height: 1.4; margin: 0 0 6px; }
+.gg-tools-v517__card p { margin-bottom: 18px; flex: 1; }
+.gg-tools-v517__action { width: 100%; min-height: 44px; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 11px; border: 1px solid var(--ggt-line); background: var(--ggt-hover); color: var(--ggt-text); text-align: left; font-size: 13px; font-weight: 750; cursor: pointer; transition: background-color .18s ease, border-color .18s ease, transform .18s ease; }
+.gg-tools-v517__action:hover { border-color: var(--ggt-accent); background: var(--ggt-hover); }
+.gg-tools-v517__action:active { transform: scale(.99); }
+.gg-tools-v517__action span { color: var(--ggt-accent); font-size: 19px; }
+.gg-tools-v517__action:focus-visible, .gg-tools-v517__close:focus-visible, .gg-tools-v517__source select:focus-visible { outline: 2px solid var(--ggt-accent); outline-offset: 3px; }
+.gg-tools-v517__workspace { min-width: 0; padding: 20px; border: 1px solid var(--ggt-line); border-radius: 15px; background: var(--ggt-bg); }
+.gg-tools-v517__workspace-head { display:flex; align-items: flex-start; justify-content: space-between; gap: 15px; padding-bottom: 14px; border-bottom: 1px solid var(--ggt-line); }
+.gg-tools-v517__close { border: 1px solid var(--ggt-line); border-radius: 9px; padding: 9px 12px; color: var(--ggt-text); background: var(--ggt-hover); font-size: 12px; cursor: pointer; }
+.gg-tools-v517__source { display: flex; flex-wrap: wrap; gap: 10px 15px; align-items: center; padding: 15px 0; }
+.gg-tools-v517__source label, .gg-tools-v517__source span { font-size: 12px; color: var(--ggt-muted); }
+.gg-tools-v517__source select { max-width: 100%; min-width: min(100%, 260px); flex: 1; min-height: 44px; border: 1px solid var(--ggt-line); background: var(--ggt-hover); color: var(--ggt-text); border-radius: 10px; padding: 9px 12px; font-size: 13px; }
+.gg-tools-v517__footnote { margin: 4px 0; color: var(--ggt-muted); font-size: 12px; }
+@media(max-width: 1080px) { .gg-tools-v517__grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width: 640px) { .gg-tools-v517__grid { grid-template-columns: 1fr; gap: 10px; } .gg-tools-v517__card { min-height: 0; padding: 16px; } .gg-tools-v517__card-top { margin-bottom: 9px; } .gg-tools-v517__card p { margin-bottom: 12px; } .gg-tools-v517__workspace { padding: 13px; } .gg-tools-v517__source { align-items: stretch; flex-direction: column; } }
+@media(prefers-reduced-motion:reduce) { .gg-tools-v517__action { transition: none; } .gg-tools-v517__action:active { transform: none; } }

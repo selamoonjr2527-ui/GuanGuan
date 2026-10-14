@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Volume2, VolumeX, Play, ChevronDown, ChevronUp, Radio } from 'lucide-react';
 import type { ActiveMatch, ConfirmedPreMatch, Player } from '../types';
+import { subscribeVoiceEventsV525, publishVoiceEventV525 } from '../utils/voiceBroadcastV525'; // GG_FIREBASE_VOICE_BROADCAST_V525
 
 type Mode = 'off' | 'test' | 'live';
 type VoiceEvent = { key: string; kind: 'pm' | 'court'; text: string };
@@ -55,24 +56,77 @@ export const GuanVoiceAnnouncerV515: React.FC<Props> = ({
     fingerprint: pm ? `${pm.id}:${Number(pm.confirmedAt || 0)}` : '',
   })), [confirmedPreMatches]);
 
-  const speak = useCallback((text: string) => {
-    if (!('speechSynthesis' in window)) {
-      setStatus('Browser นี้ไม่มี Text-to-Speech');
-      return;
-    }
+  // GG_VOICE_DOUBLE_CALL_V523: serial queue; each announcement plays exactly twice.
+  const speechQueue = useRef<string[]>([]);
+  const speaking = useRef(false);
+  const speakNext = useCallback(() => {
+    if (speaking.current) return;
+    const text = speechQueue.current.shift();
+    if (!text) { setStatus('พร้อมประกาศ'); return; }
+    if (!('speechSynthesis' in window)) { setStatus('Browser นี้ไม่มี Text-to-Speech'); return; }
+    speaking.current = true;
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'th-TH';
     utterance.rate = rate;
     utterance.pitch = 1;
-    const thaiVoice = window.speechSynthesis.getVoices().find((voice) =>
-      voice.lang.toLowerCase().startsWith('th'));
+    const thaiVoice = window.speechSynthesis.getVoices().find((voice) => voice.lang.toLowerCase().startsWith('th'));
     if (thaiVoice) utterance.voice = thaiVoice;
-    utterance.onerror = () => setStatus('ไม่สามารถอ่านเสียงได้ ตรวจสอบ TTS ภาษาไทยในอุปกรณ์');
-    utterance.onstart = () => setStatus('กำลังประกาศเสียง');
-    utterance.onend = () => setStatus('พร้อมประกาศ');
-    window.speechSynthesis.cancel();
+    utterance.onstart = () => setStatus('กำลังประกาศเสียง (2 รอบ)');
+    const next = () => { speaking.current = false; speakNext(); };
+    utterance.onend = next;
+    utterance.onerror = () => { setStatus('เสียงมีปัญหา ตรวจสอบ TTS'); next(); };
     window.speechSynthesis.speak(utterance);
   }, [rate]);
+  const speak = useCallback((text: string) => {
+    if (!('speechSynthesis' in window)) { setStatus('Browser นี้ไม่มี Text-to-Speech'); return; }
+    speechQueue.current.push(text, text);
+    speakNext();
+  }, [speakNext]);
+  // GG_FIREBASE_VOICE_BROADCAST_V525: only newly published events are spoken, never a backfill.
+  useEffect(() => {
+    return subscribeVoiceEventsV525((event) => {
+      if (event.sessionDate !== sessionDate) return;
+      if (modeRef.current !== 'live' || !armed.current) return;
+      setHistory(prev => [{key:event.id,kind:event.kind,text:event.text}, ...prev.filter(p=>p.key!==event.id)].slice(0,6));
+      speak(event.text);
+    }, (error) => setStatus('Firebase Voice: '+error.message));
+  }, [sessionDate, speak]);
+  const publish = useCallback((kind:'pm'|'court', text:string, uniqueKey:string) => {
+    void publishVoiceEventV525({sessionDate,kind,text,uniqueKey}).catch((error:Error) => setStatus('ส่งประกาศไม่สำเร็จ: '+error.message));
+  }, [sessionDate]);
+  const matchesRef = useRef(activeMatches);
+  const playersRef = useRef(players);
+  matchesRef.current = activeMatches;
+  playersRef.current = players;
+  // GG_VOICE_PREMATCH_CALL_V524
+  const pmRef = useRef(confirmedPreMatches);
+  pmRef.current = confirmedPreMatches;
+  useEffect(() => {
+    const onRecall = (event: Event) => {
+      const matchId = (event as CustomEvent<{matchId:string}>).detail?.matchId;
+      const match = matchesRef.current.find(m => m.id === matchId);
+      if (!match) return;
+      const names = [...match.teamA, ...match.teamB].map(id => playersRef.current.find(p => p.id === id)?.nickname?.trim() || '');
+      if (names.some(n => !n)) { setStatus('รายชื่อผู้เล่นไม่ครบ'); return; }
+      // Manual calls are explicit gestures, permitted in TEST or LIVE on this device.
+      if (modeRef.current === 'off') { setStatus('กรุณาเปิดโหมด TEST หรือ LIVE บนอุปกรณ์นี้ก่อน'); return; }
+      armed.current = true;
+      publish('court', `ขอเชิญ ${listNames(names)} ลงสนาม ${speakable(match.courtName)} ได้เลยค่ะ`, `call-court-${match.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    };
+    const onRecallPm = (event: Event) => {
+      const slot = (event as CustomEvent<{slot:number}>).detail?.slot;
+      const pm = pmRef.current[Number(slot) - 1];
+      if (!pm) { setStatus('ไม่พบ Pre-Match ที่ยืนยันแล้ว'); return; }
+      if (modeRef.current === 'off') { setStatus('กรุณาเปิด TEST หรือ LIVE บนอุปกรณ์นี้ก่อน'); return; }
+      const names = [...pm.teamA, ...pm.teamB].map(id => playersRef.current.find(p => p.id === id)?.nickname?.trim() || '');
+      if (names.some(name => !name)) { setStatus('รายชื่อ Pre-Match ไม่ครบ'); return; }
+      armed.current = true;
+      publish('pm', `ขอเชิญ ${listNames(names)} เตรียมตัว พร้อมลงสนามในลำดับถัดไปค่ะ`, `call-pm-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    };
+    window.addEventListener('guanguan:recall-prematch', onRecallPm);
+    window.addEventListener('guanguan:recall-court', onRecall);
+    return () => { window.removeEventListener('guanguan:recall-court', onRecall); window.removeEventListener('guanguan:recall-prematch', onRecallPm); };
+  }, [publish]);
 
   useEffect(() => {
     const pmMap: Record<string, string> = {};
@@ -90,7 +144,7 @@ export const GuanVoiceAnnouncerV515: React.FC<Props> = ({
     const newEvents: VoiceEvent[] = [];
     snapshotPm.forEach(({ slot, pm, fingerprint }) => {
       if (!pm || !fingerprint || oldPm.current[String(slot)] === fingerprint) return;
-      if (Number(pm.confirmedAt || 0) <= 0) return;
+      // Confirmed Pre-Match without confirmedAt is supported; initial hydration remains ignored.
       // Editing a confirmed lineup with the same ID/timestamp isn't a fresh confirmation.
       if ((oldPm.current[String(slot)] || '').length > 0 &&
           oldPm.current[String(slot)] === fingerprint) return;
@@ -117,15 +171,15 @@ export const GuanVoiceAnnouncerV515: React.FC<Props> = ({
     setHistory((old) => [...fresh, ...old].slice(0, 6));
     const nextSeen = [...alreadySeen, ...fresh.map((ev) => ev.key)].slice(-80);
     safeWrite(SEEN_KEY, nextSeen.join('|'));
-    if (modeRef.current === 'live' && armed.current) {
-      // Speech synthesis has a device-local queue. Only this explicitly armed tab speaks.
-      speak(fresh[fresh.length - 1].text);
-    }
-  }, [activeMatches, snapshotPm, sessionDate, playerName, speak]);
+    // Organizer-only Firestore writes. Other clients receive but cannot publish.
+    fresh.forEach(ev => publish(ev.kind, ev.text, ev.key));
+  }, [activeMatches, snapshotPm, sessionDate, playerName, publish]);
 
   const activate = (next: Mode) => {
     if (next === 'off') {
       armed.current = false;
+      speechQueue.current = [];
+      speaking.current = false;
       window.speechSynthesis?.cancel();
       setStatus('ปิดเสียงแล้ว');
     } else {

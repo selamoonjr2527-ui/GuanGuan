@@ -201,8 +201,12 @@ export const MonthlyShuttleReportV76: React.FC<Props> = ({
     availableMonths[0] ||
     '2026-10';
 
-  const [selectedMonth, setSelectedMonth] =
-    useState(initialMonth);
+  // GG_SHUTTLE_AUDIT_V518: display-only period selection
+  const [selectedMonth, setSelectedMonth] = useState(initialMonth);
+  const [periodMode, setPeriodMode] = useState<'month' | 'year' | 'all'>('month');
+  const availableYears = useMemo(() => Array.from(new Set(availableMonths.map(key => key.slice(0, 4)))).sort((a, b) => b.localeCompare(a)), [availableMonths]);
+  const [selectedYear, setSelectedYear] = useState(initialMonth.slice(0, 4));
+
 
   useEffect(() => {
     if (
@@ -212,6 +216,10 @@ export const MonthlyShuttleReportV76: React.FC<Props> = ({
       setSelectedMonth(availableMonths[0]);
     }
   }, [availableMonths, selectedMonth]);
+
+  useEffect(() => {
+    if (availableYears.length > 0 && !availableYears.includes(selectedYear)) setSelectedYear(availableYears[0]);
+  }, [availableYears, selectedYear]);
 
   // Hide the old Monthly Shuttle Report if it still exists.
   // This is presentation-only and does not touch data.
@@ -264,18 +272,16 @@ export const MonthlyShuttleReportV76: React.FC<Props> = ({
     };
   }, []);
 
-  const summary = useMemo(() => {
-    const monthPurchases = purchases.filter(
-      (item) =>
-        monthKey(purchaseDate(item)) ===
-        selectedMonth
-    );
+  const matchesPeriod = (date: string): boolean => {
+    const key = monthKey(date);
+    if (!key) return false;
+    if (periodMode === 'all') return true;
+    return periodMode === 'year' ? key.startsWith(selectedYear + '-') : key === selectedMonth;
+  };
 
-    const monthUsages = usages.filter(
-      (item) =>
-        monthKey(usageDate(item)) ===
-        selectedMonth
-    );
+  const summary = useMemo(() => {
+    const monthPurchases = purchases.filter(item => matchesPeriod(purchaseDate(item)));
+    const monthUsages = usages.filter(item => matchesPeriod(usageDate(item)));
 
     const purchasePieces = monthPurchases.reduce(
       (sum, item) =>
@@ -387,9 +393,38 @@ export const MonthlyShuttleReportV76: React.FC<Props> = ({
   }, [
     purchases,
     usages,
-    selectedMonth,
+    selectedMonth, selectedYear, periodMode,
     defaultPiecesPerTube,
   ]);
+
+  // Separate ledger rollup by calendar month. Values may differ from closed Finance
+  // Archive, as this component receives neither Archive nor stock adjustments.
+  const auditRows = useMemo(() => {
+    const keys = new Set<string>();
+    purchases.forEach(p => { const k = monthKey(purchaseDate(p)); if (k) keys.add(k); });
+    usages.forEach(u => { const k = monthKey(usageDate(u)); if (k) keys.add(k); });
+    const months = [...keys].sort((a, b) => a.localeCompare(b));
+    let cumulative = 0;
+    return months.map(key => {
+      const ps = purchases.filter(p => monthKey(purchaseDate(p)) === key);
+      const us = usages.filter(u => monthKey(usageDate(u)) === key);
+      const bought = ps.reduce((sum, p) => sum + Math.max(0, num(p.quantity)), 0);
+      const used = us.reduce((sum, u) => sum + Math.max(0, num(u.quantity)), 0);
+      const purchaseAmount = ps.reduce((sum, p) => sum + purchaseTotal(p), 0);
+      const cost = us.reduce((sum, u) => sum + usageTotalCost(u), 0);
+      const revenue = us.reduce((sum, u) => sum + Math.max(0, num(u.baseMemberRevenue)), 0);
+      cumulative += bought - used;
+      const missingCost = us.filter(u => num(u.quantity) > 0 && usageTotalCost(u) <= 0).length;
+      const missingRevenue = us.filter(u => num(u.quantity) > 0 && !Object.prototype.hasOwnProperty.call(u, 'baseMemberRevenue')).length;
+      return { key, bought, used, remainingDelta: bought - used, cumulative, purchaseAmount, cost, revenue, profit: revenue - cost, missingCost, missingRevenue };
+    });
+  }, [purchases, usages]);
+
+  const visibleAuditRows = auditRows.filter(row =>
+    periodMode === 'all' || (periodMode === 'year' ? row.key.startsWith(selectedYear + '-') : row.key === selectedMonth)
+  );
+  const missingPurchaseDates = purchases.filter(p => !monthKey(purchaseDate(p))).length;
+  const missingUsageDates = usages.filter(u => !monthKey(usageDate(u))).length;
 
   const Metric = ({
     label,
@@ -434,28 +469,31 @@ export const MonthlyShuttleReportV76: React.FC<Props> = ({
           </h3>
 
           <p className="mt-1 text-[10px] text-slate-500">
-            เงินซื้อ Stock • จำนวนที่ใช้ • รายรับค่าลูกฐาน • กำไร/ขาดทุนค่าลูก
+            รายเดือน / ทั้งปี / ทุกปี • ตรวจยอดซื้อ-ใช้และรายรับฐานจาก Ledger
           </p>
         </div>
 
-        <select
-          value={selectedMonth}
-          onChange={(event) =>
-            setSelectedMonth(event.target.value)
-          }
-          className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-bold text-white outline-none"
-        >
-          {availableMonths.map((key) => (
-            <option key={key} value={key}>
-              {monthLabel(key)}
-            </option>
-          ))}
-        </select>
+        <div className="flex flex-col gap-2 sm:items-end">
+          <div className="grid grid-cols-3 gap-1 rounded-xl border border-slate-700 bg-slate-950 p-1" role="group" aria-label="ช่วงเวลารายงานลูกแบด">
+            {([{ id: 'month', label: 'รายเดือน' }, { id: 'year', label: 'ทั้งปี' }, { id: 'all', label: 'ทุกปี' }] as const).map(option => (
+              <button key={option.id} type="button" onClick={() => setPeriodMode(option.id)} aria-pressed={periodMode === option.id}
+                className={`min-h-10 rounded-lg px-3 py-2 text-xs font-bold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-300 ${periodMode === option.id ? 'bg-teal-500 text-slate-950' : 'text-slate-300 hover:bg-slate-800'}`}>
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {periodMode === 'month' && <select aria-label="เลือกเดือน" value={selectedMonth} onChange={event => setSelectedMonth(event.target.value)} className="min-h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-white sm:w-auto">
+            {availableMonths.map(key => <option key={key} value={key}>{monthLabel(key)}</option>)}
+          </select>}
+          {periodMode === 'year' && <select aria-label="เลือกปี" value={selectedYear} onChange={event => setSelectedYear(event.target.value)} className="min-h-10 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-semibold text-white sm:w-auto">
+            {availableYears.map(year => <option key={year} value={year}>{year}</option>)}
+          </select>}
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Metric
-          label="ซื้อ Stock เดือนนี้"
+          label={periodMode === 'month' ? "ซื้อ Stock เดือนนี้" : "ซื้อ Stock ตามช่วงเวลา"}
           value={`${money(summary.purchaseValue)}฿`}
           sub={`${money(
             summary.purchaseTubesTotal
@@ -463,7 +501,7 @@ export const MonthlyShuttleReportV76: React.FC<Props> = ({
         />
 
         <Metric
-          label="ใช้จริงเดือนนี้"
+          label={periodMode === 'month' ? "ใช้จริงเดือนนี้" : "ใช้จริงตามช่วงเวลา"}
           value={`${summary.usedPieces} ลูก`}
           sub={`${summary.matches} Matches`}
           valueClass="text-amber-300"
@@ -528,6 +566,33 @@ export const MonthlyShuttleReportV76: React.FC<Props> = ({
           valueClass="text-cyan-300"
         />
       </div>
+
+      {/* GG_SHUTTLE_AUDIT_V518: ledger reconciliation, display only */}
+      <section className="mt-4 rounded-xl border border-slate-700 bg-slate-950/50 p-3 sm:p-4">
+        <div className="text-sm font-bold text-white">ตรวจสอบยอดรายเดือนจาก Ledger</div>
+        <p className="mt-1 text-xs leading-5 text-slate-400">ยอดคงเหลือสะสมด้านล่าง = จำนวนซื้อ − จำนวนใช้ ตั้งแต่ต้นข้อมูลที่มี (ยังไม่รวม Stock Adjustment หรือยอดยกมา) จึงไม่ใช่ยอด Stock จริง</p>
+        <div className="mt-3 overflow-x-auto rounded-lg border border-slate-700">
+          <table className="w-full min-w-[850px] text-left text-xs">
+            <thead className="bg-slate-900 text-slate-300"><tr>
+              <th className="px-3 py-3">เดือน</th><th className="px-3 py-3 text-right">ซื้อ (ลูก)</th><th className="px-3 py-3 text-right">ใช้ (ลูก)</th><th className="px-3 py-3 text-right">ส่วนต่างสะสม*</th><th className="px-3 py-3 text-right">เงินซื้อ Stock</th><th className="px-3 py-3 text-right">ต้นทุนใช้</th><th className="px-3 py-3 text-right">รายรับฐาน</th><th className="px-3 py-3 text-right">กำไรฐาน</th><th className="px-3 py-3">ตรวจสอบ</th>
+            </tr></thead>
+            <tbody className="divide-y divide-slate-800">
+              {visibleAuditRows.map(row => <tr key={row.key} className="text-slate-200">
+                <td className="px-3 py-3 font-bold whitespace-nowrap">{row.key}</td>
+                <td className="px-3 py-3 text-right">{row.bought}</td><td className="px-3 py-3 text-right">{row.used}</td>
+                <td className={`px-3 py-3 text-right ${row.cumulative < 0 ? 'text-rose-300' : ''}`}>{row.cumulative}</td>
+                <td className="px-3 py-3 text-right">{money(row.purchaseAmount)} ฿</td><td className="px-3 py-3 text-right">{money(row.cost)} ฿</td>
+                <td className="px-3 py-3 text-right">{money(row.revenue)} ฿</td>
+                <td className="px-3 py-3 text-right font-bold">{money(row.profit)} ฿</td>
+                <td className="px-3 py-3 text-amber-200">{row.missingCost || row.missingRevenue ? `ขาดต้นทุน ${row.missingCost} / รายรับ ${row.missingRevenue} รายการ` : row.cumulative < 0 ? 'ซื้อ-ใช้อาจไม่ครบ' : '—'}</td>
+              </tr>)}
+              {visibleAuditRows.length === 0 && <tr><td colSpan={9} className="px-3 py-5 text-center text-slate-400">ไม่พบ Ledger ในช่วงเวลาที่เลือก</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        {(missingPurchaseDates > 0 || missingUsageDates > 0) && <p className="mt-2 text-xs text-amber-300">มีรายการที่ไม่มีวันที่ถูกต้อง: ซื้อ {missingPurchaseDates} / ใช้ {missingUsageDates} รายการ (ไม่รวมในยอดตามช่วงเวลา)</p>}
+        <p className="mt-2 text-xs leading-5 text-slate-400">* ส่วนต่างสะสมคิดจากข้อมูลทุกเดือนก่อนหน้าด้วย • รายรับฐานอ่านจาก baseMemberRevenue เท่านั้น ไม่รวม Extra, Promotion, ยอดปรับมือ หรือเงินรับจริง • ยังไม่ได้เทียบกับ Archive เพราะรายงานนี้ไม่ได้รับข้อมูล Archive</p>
+      </section>
 
       <div className="mt-3 rounded-xl border border-indigo-800/60 bg-indigo-950/20 px-3 py-2 text-[10px] text-indigo-200">
         อ้างอิง 25฿/คน/Match × 4 คน = 100฿ รายรับฐานต่อ Match

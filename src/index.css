@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "./styles/guanFinanceMobileV5161.css";
+@import "./styles/guanFinanceV516.css";
 
 /* GUANGUAN DASHBOARD V1 — UI ONLY. Brand palette: ink, teal-black, electric lime. */
 :root {

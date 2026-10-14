@@ -1,0 +1,98 @@
+/* GUANGUAN PREMIUM UI - additive presentation layer only. */
+:root {
+  --gg-radius: 14px;
+  --gg-ease: cubic-bezier(.2,.65,.2,1);
+  --gg-speed: 180ms;
+  --gg-space: 8px;
+}
+:root, :root[data-gg-theme="dark"] {
+  --gg-ui-bg: #0b1220;
+  --gg-ui-panel: #172333;
+  --gg-ui-subtle: #101b2a;
+  --gg-ui-border: #334356;
+  --gg-ui-text: #edf3fa;
+  --gg-ui-muted: #a9b7c9;
+  --gg-ui-accent: #67d5c9;
+  --gg-ui-accent-text: #06191b;
+  --gg-ui-hover: #223449;
+  --gg-ui-ring: #76d8d0;
+  --gg-ui-shadow: 0 12px 28px rgb(0 0 0 / .14);
+}
+:root[data-gg-theme="light"] {
+  --gg-ui-bg: #f8fafc;
+  --gg-ui-panel: #ffffff;
+  --gg-ui-subtle: #f1f5f9;
+  --gg-ui-border: #d8e2eb;
+  --gg-ui-text: #0f172a;
+  --gg-ui-muted: #475569;
+  --gg-ui-accent: #2563eb;
+  --gg-ui-accent-text: #ffffff;
+  --gg-ui-hover: #e9f0fa;
+  --gg-ui-ring: #2563eb;
+  --gg-ui-shadow: 0 8px 24px rgb(15 23 42 / .06);
+  --gg-text: var(--gg-ui-text);
+  --gg-muted: var(--gg-ui-muted);
+  --gg-ink: var(--gg-ui-bg);
+  --gg-surface: var(--gg-ui-panel);
+  --gg-line: var(--gg-ui-border);
+  --gg-lime: var(--gg-ui-accent);
+}
+html, body { min-width: 320px; }
+body { background: var(--gg-ui-bg) !important; }
+.gg-layout-v4 { color: var(--gg-ui-text); background: var(--gg-ui-bg) !important; }
+.gg-layout-v4 .gg-app-main { min-width: 0; }
+.gg-theme-control {
+  display: inline-flex; gap: 2px; padding: 3px; flex-shrink: 0;
+  border: 1px solid var(--gg-ui-border); border-radius: 12px;
+  background: var(--gg-ui-subtle);
+}
+.gg-theme-control button { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 9px; color: var(--gg-ui-muted); cursor: pointer; transition: background-color var(--gg-speed) var(--gg-ease), color var(--gg-speed) var(--gg-ease), transform var(--gg-speed) var(--gg-ease); }
+.gg-theme-control button:hover { background: var(--gg-ui-hover); color: var(--gg-ui-text); }
+.gg-theme-control button[aria-pressed="true"] { background: var(--gg-ui-panel); color: var(--gg-ui-accent); box-shadow: 0 1px 4px rgb(0 0 0 / .09); }
+.gg-theme-control button:active { transform: scale(.96); }
+.gg-theme-control button:focus-visible, .gg-layout-v4 :is(button, a, input, select, textarea, summary):focus-visible { outline: 2px solid var(--gg-ui-ring) !important; outline-offset: 2px; }
+.gg-layout-v4 button:not(:disabled) { transition-property: background-color, border-color, color, opacity, transform; transition-duration: var(--gg-speed); transition-timing-function: var(--gg-ease); }
+.gg-layout-v4 button:disabled { cursor: not-allowed; }
+.gg-layout-v4 :is(input, select, textarea) { min-width: 0; }
+.gg-layout-v4 :is(h1,h2,h3,h4,p,span,button,td,th) { overflow-wrap: break-word; }
+@media (max-width: 400px) { .gg-theme-control button { width: 28px; height: 30px; } }
+@media (prefers-reduced-motion: reduce) {
+  .gg-theme-control button, .gg-layout-v4 button:not(:disabled) { transition: none !important; animation: none !important; }
+}
+/* Light-mode bridge for legacy Tailwind surface classes, including portals. */
+:root[data-gg-theme="light"] .gg-layout-v4 :is(.gg-header, .gg-header__more-panel, .gg-header__mobile-nav, .gg-v57-header, .gg-v57-stat, .gg-v5104-history, .gg-v59-stats-panel, .gg-v59-stat-tile, .gg-v512-panel, .gg-v512-subpanel),
+:root[data-gg-theme="light"] .gg-layout-v4 [class~="bg-slate-900"],
+:root[data-gg-theme="light"] .gg-layout-v4 [class~="bg-slate-900/70"],
+:root[data-gg-theme="light"] .gg-layout-v4 [class~="bg-slate-900/80"],
+:root[data-gg-theme="light"] .gg-layout-v4 [class~="bg-slate-900/90"],
+:root[data-gg-theme="light"] .gg-layout-v4 [class~="bg-slate-900/60"],
+:root[data-gg-theme="light"] body > [class~="bg-slate-900"] {
+  background: var(--gg-ui-panel) !important;
+  background-image: none !important;
+  border-color: var(--gg-ui-border) !important;
+  color: var(--gg-ui-text);
+}
+:root[data-gg-theme="light"] .gg-layout-v4 [class~="bg-slate-950"],
+:root[data-gg-theme="light"] .gg-layout-v4 [class~="bg-slate-950/80"],
+:root[data-gg-theme="light"] .gg-layout-v4 [class~="bg-slate-950/70"],
+:root[data-gg-theme="light"] .gg-layout-v4 [class~="bg-slate-950/50"] { background-color: var(--gg-ui-subtle) !important; border-color: var(--gg-ui-border) !important; }
+:root[data-gg-theme="light"] .gg-layout-v4 :is(.text-white,.text-slate-100,.text-slate-200,.text-slate-300,.text-slate-950) { color: var(--gg-ui-text) !important; }
+:root[data-gg-theme="light"] .gg-layout-v4 :is(.text-slate-400,.text-slate-500,.text-slate-600) { color: var(--gg-ui-muted) !important; }
+:root[data-gg-theme="light"] .gg-layout-v4 :is(.border-slate-700,.border-slate-800) { border-color: var(--gg-ui-border) !important; }
+:root[data-gg-theme="light"] .gg-layout-v4 :is(input,select,textarea) { background: var(--gg-ui-panel) !important; color: var(--gg-ui-text) !important; border-color: var(--gg-ui-border) !important; }
+:root[data-gg-theme="light"] .gg-layout-v4 :is(input,textarea)::placeholder { color: #64748b; }
+:root[data-gg-theme="light"] .gg-layout-v4 :is(.gg-header__nav-item,.gg-header__mobile-item,.gg-header__icon-button,.gg-header__more-item) { color: var(--gg-ui-muted); }
+:root[data-gg-theme="light"] .gg-layout-v4 :is(.gg-header__nav-item.is-active,.gg-header__mobile-item.is-active,.gg-header__more-item.is-active) { color: #1d4ed8; background: #eaf1ff; border-color: #c5d8ff; }
+:root[data-gg-theme="light"] .gg-layout-v4 .gg-dashboard__metric,
+:root[data-gg-theme="light"] .gg-layout-v4 .gg-app-main #gg-live-courts > div,
+:root[data-gg-theme="light"] .gg-layout-v4 .gg-app-main #gg-prematch-cards > div { background: var(--gg-ui-panel) !important; background-image: none !important; border-color: var(--gg-ui-border) !important; box-shadow: var(--gg-ui-shadow) !important; }
+:root[data-gg-theme="light"] .gg-layout-v4 .gg-dashboard__metric :is(strong,span,small),
+:root[data-gg-theme="light"] .gg-layout-v4 :is(.gg-v57-title,.gg-v57-stat strong,.gg-v59-stat-tile strong,.gg-v5104-history h2) { color: var(--gg-ui-text); }
+:root[data-gg-theme="light"] .gg-layout-v4 .gg-topbar-session--courts { background: var(--gg-ui-panel) !important; border-color: var(--gg-ui-border); color: var(--gg-ui-text); }
+:root[data-gg-theme="light"] .gg-layout-v4 .gg-topbar-session--courts strong { color: var(--gg-ui-accent) !important; }
+:root[data-gg-theme="light"] .gg-layout-v4 table { color: var(--gg-ui-text); }
+:root[data-gg-theme="light"] .gg-layout-v4 :is(thead,tbody,tr,td,th) { border-color: var(--gg-ui-border); }
+/* Overlay backdrops need to stay translucent; modals are handled by scoped portal bridge below. */
+:root[data-gg-theme="light"] body > div:not(#root) [class~="bg-slate-900"] { background: var(--gg-ui-panel) !important; color: var(--gg-ui-text); }
+:root[data-gg-theme="light"] body > div:not(#root) [class~="bg-slate-950"] { background: var(--gg-ui-subtle) !important; }
+:root[data-gg-theme="light"] body > div:not(#root) :is(.text-white,.text-slate-200,.text-slate-300) { color: var(--gg-ui-text) !important; }

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import './styles/guanToolsV517.css'; // GUANGUAN_TOOLS_UI_V517
+import { GuanThemeControl } from './components/GuanThemeControl';
 import confetti from 'canvas-confetti';
 import {
   onAuthStateChanged,
@@ -900,6 +902,42 @@ export default function App() {
 
   const shuttlePurchases: ShuttlePurchase[] = getShuttlePurchases(appState as any);
   const shuttleUsageLedger: ShuttleUsageRecord[] = getShuttleUsageLedger(appState as any);
+  // GG_SHUTTLE_DEFAULT_OVERRIDE_V520A: session default and optional per-match override.
+  const [matchShuttleOverrides, setMatchShuttleOverrides] = useState<Record<string, string>>({});
+  const shuttleModelOptions = (() => {
+    const grouped = new Map<string, { key: string; brand: string; model: string; unitCost: number; purchased: number; used: number }>();
+    for (const purchase of shuttlePurchases) {
+      const brand = String(purchase.brand || '').trim();
+      const model = String(purchase.model || '').trim();
+      if (!brand && !model) continue;
+      const key = [brand, model].map(v => v.toLocaleLowerCase()).join('::');
+      const quantity = Math.max(0, Number(purchase.quantity || 0));
+      const value = Math.max(0, Number(purchase.totalCost || (quantity * Number(purchase.unitCost || 0))));
+      const old = grouped.get(key) || { key, brand, model, unitCost: 0, purchased: 0, used: 0 };
+      // Purchase weighted-average cost for THIS model only, not all stock.
+      const previousCost = old.unitCost * old.purchased;
+      old.purchased += quantity;
+      old.unitCost = old.purchased > 0 ? (previousCost + value) / old.purchased : 0;
+      grouped.set(key, old);
+    }
+    for (const usage of shuttleUsageLedger) {
+      const key = [String(usage.brand || '').trim(), String(usage.model || '').trim()].map(v => v.toLocaleLowerCase()).join('::');
+      const group = grouped.get(key);
+      if (group) group.used += Math.max(0, Number(usage.quantity || 0));
+    }
+    return Array.from(grouped.values()).sort((a,b) => (a.brand+' '+a.model).localeCompare(b.brand+' '+b.model));
+  })();
+  const shuttleDefaultKey = [String((appState as any).activeShuttleModel?.brand || '').trim(), String((appState as any).activeShuttleModel?.model || '').trim()].map(v => v.toLocaleLowerCase()).join('::');
+  const currentShuttleDefault = shuttleModelOptions.find(o => o.key === shuttleDefaultKey);
+  const chooseShuttleDefault = (key: string) => {
+    const option = shuttleModelOptions.find(o => o.key === key);
+    if (!option || option.unitCost <= 0) return window.alert('รุ่นนี้ยังไม่มีต้นทุนซื้อที่ถูกต้องใน Stock');
+    setAppState(prev => ({ ...prev, activeShuttleModel: {
+      brand: option.brand, model: option.model, shuttleName: [option.brand, option.model].filter(Boolean).join(' '), unitCost: option.unitCost, selectedAt: Date.now()
+    } } as any));
+  };
+
+
   const shuttleStockAdjustments: ShuttleStockAdjustment[] =
     getShuttleStockAdjustments(appState as any);
   const shuttleLowStockThreshold = Math.max(
@@ -3015,6 +3053,16 @@ export default function App() {
   ) => {
     const targetMatch = activeMatches.find((m) => m.id === matchId);
     if (!targetMatch) return;
+    const selectedShuttleKey = matchShuttleOverrides[matchId] || shuttleDefaultKey;
+    const finishShuttleOption = shuttleModelOptions.find(o => o.key === selectedShuttleKey);
+    if (shuttlecocksCount > 0 && (!finishShuttleOption || finishShuttleOption.unitCost <= 0)) {
+      window.alert('โปรดเลือกรุ่นลูกหลักจาก Stock ก่อนจบ Match เพื่อป้องกันการคิดต้นทุนผิด');
+      return;
+    }
+    if (finishShuttleOption && shuttlecocksCount > Math.max(0, finishShuttleOption.purchased - finishShuttleOption.used)) {
+      window.alert('Stock '+[finishShuttleOption.brand,finishShuttleOption.model].join(' ')+' ไม่เพียงพอ: เหลือ '+Math.max(0,finishShuttleOption.purchased-finishShuttleOption.used)+' ลูก');
+      return;
+    }
     // FINISH_MATCH_CONFIRM_V53
     const confirmFinish = window.confirm(
       `ยืนยันจบ Match "${targetMatch.courtName}" ?\n\n` +
@@ -3143,21 +3191,9 @@ export default function App() {
         getShuttleStockAdjustments(prev as any)
       );
 
-      // SHUTTLE_USAGE_MODEL_REPAIR_V1
-      // After Organizer identifies the actual model, future Usage rows
-      // inherit that model and its model-specific cost.
-      const activeShuttleModel =
-        (prev as any).activeShuttleModel || null;
-
-      const activeModelCost = Math.max(
-        0,
-        Number(activeShuttleModel?.unitCost || 0)
-      );
-
-      const resolvedUsageUnitCost =
-        activeShuttleModel?.model && activeModelCost > 0
-          ? activeModelCost
-          : usageUnitCost;
+      // GG_SHUTTLE_DEFAULT_OVERRIDE_V520A: freeze selected model and model-specific cost on each Usage row.
+      const activeShuttleModel = finishShuttleOption || null;
+      const resolvedUsageUnitCost = finishShuttleOption?.unitCost || usageUnitCost;
 
       const newUsage: ShuttleUsageRecord | null =
         shuttlecocksCount > 0
@@ -6154,6 +6190,8 @@ export default function App() {
               </span>
             ))}
           </div>
+          {/* GUANGUAN_PREMIUM_THEME_V1 */}
+          <GuanThemeControl />
           <button
             type="button"
             onClick={handleToggleOrganizerMode}
@@ -6412,7 +6450,30 @@ onUpdateMemberStatus={(playerId, status) => {
 
 
 
-        {currentTab === 'prematch' && (
+        {currentTab === 'prematch' && isOrganizerMode && (
+                <div className="mb-2 rounded-xl border border-teal-700/40 bg-slate-900 px-3 py-2 text-slate-100">
+                  <div className="mb-1 text-xs font-semibold text-teal-200">🏸 ลูกหลักของก๊วน <span className="font-normal text-slate-400">• เปลี่ยนด่วน</span></div>
+                  <select aria-label="เลือกรุ่นลูกหลัก" value={currentShuttleDefault?.key || ''} onChange={e => chooseShuttleDefault(e.target.value)} className="w-full rounded-lg border border-slate-600 bg-slate-950 p-2 text-sm">
+                    <option value="">เลือกรุ่นจาก Stock ก่อนเริ่มใช้งาน</option>
+                    {shuttleModelOptions.map(o => <option key={o.key} value={o.key}>{o.brand} {o.model} • เหลือ {Math.max(0,o.purchased-o.used)} ลูก • ต้นทุน {o.unitCost.toFixed(2)} ฿/ลูก</option>)}
+                  </select>
+                  <p className="mt-1 text-[11px] text-slate-400">ใช้รุ่นนี้อัตโนมัติเมื่อ Finish Match</p>
+                  <details className="mt-2 rounded-lg border border-slate-700/70 px-2 py-2">
+                    <summary className="cursor-pointer text-xs text-slate-300">ตัวเลือกเพิ่มเติม: ใช้รุ่นอื่นเฉพาะ Match</summary>
+                  {activeMatches.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {activeMatches.map(match => <label key={match.id} className="flex items-center gap-2 text-xs">
+                      <span className="min-w-24 truncate">{match.courtName}</span>
+                      <select aria-label={`รุ่นลูกของ ` + match.courtName} value={matchShuttleOverrides[match.id] || ''} onChange={e => setMatchShuttleOverrides(prev => ({...prev,[match.id]:e.target.value}))} className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 p-2">
+                        <option value="">รุ่นหลัก (อัตโนมัติ)</option>
+                        {shuttleModelOptions.map(o => <option key={o.key} value={o.key}>{o.brand} {o.model}</option>)}
+                      </select>
+                    </label>)}
+                  </div>}
+                  <p className="mt-2 text-xs text-amber-200">รุ่นเฉพาะ Match ใช้กับลูกทั้งหมดใน Match นั้น หากหนึ่ง Match ใช้หลายรุ่นต้องรอระบบ Split Usage ก่อน</p>
+                  </details>
+                </div>
+              )}
+              {currentTab === 'prematch' && (
           <GuanDashboard
             sessionConfig={sessionConfig}
             players={players}
@@ -6797,174 +6858,98 @@ onUpdateMemberStatus={(playerId, status) => {
 
         {/* ORGANIZER_TOOLS_PAGE_V68 */}
         {currentTab === 'tools' && isOrganizerMode && (
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-violet-800/50 bg-gradient-to-r from-violet-950/35 to-slate-900 p-4 sm:p-5">
-              <div className="flex items-start gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-violet-500/30 bg-violet-500/10 text-xl">
-                  🧰
-                </div>
-                <div>
-                  <div className="text-lg font-black text-white">
-                    7. Tools
-                  </div>
-                  <div className="mt-1 text-xs text-slate-400">
-                    Data • Backup • Export • Repair
-                  </div>
-                </div>
-              </div>
-            </div>
+          <div className="gg-tools-v517 space-y-4">
+            <header className="gg-tools-v517__header">
+              <div className="gg-tools-v517__eyebrow">GUANGUAN / ORGANIZER</div>
+              <h1>เครื่องมือจัดการ</h1>
+              <p>ส่งออกข้อมูล สำรองข้อมูล และตรวจสอบสถิติของก๊วนจากที่เดียว</p>
+            </header>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <section className="rounded-2xl border border-cyan-800/45 bg-cyan-950/15 p-4 sm:p-5">
-                <div className="text-sm font-black text-white">
-                  🏸 Export Match History
+            <div className="gg-tools-v517__grid" aria-label="เครื่องมือผู้จัดก๊วน">
+              <section className="gg-tools-v517__card">
+                <div className="gg-tools-v517__card-top">
+                  <div className="gg-tools-v517__icon" aria-hidden="true">↗</div>
+                  <span className="gg-tools-v517__tag">EXPORT</span>
                 </div>
-                <div className="mt-1 text-xs leading-relaxed text-slate-400">
-                  Export Court, Team A/B, Score, เวลาแข่งขัน และจำนวนลูกแบด
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowMatchHistoryExport(true)}
-                  className="mt-4 w-full rounded-xl bg-cyan-500 px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-cyan-400"
-                >
-                  เปิด Export Match History
+                <h2>ประวัติการแข่งขัน</h2>
+                <p>ส่งออกคู่แข่งขัน สนาม คะแนน เวลา และจำนวนลูกแบดของแต่ละแมตช์</p>
+                <button type="button" className="gg-tools-v517__action" onClick={() => setShowMatchHistoryExport(true)}>
+                  เปิดส่งออก Match History <span aria-hidden="true">→</span>
                 </button>
               </section>
 
-              <section className="rounded-2xl border border-violet-800/45 bg-violet-950/15 p-4 sm:p-5">
-                <div className="text-sm font-black text-white">
-                  📦 Data / Backup / Stat Repair
+              <section className="gg-tools-v517__card">
+                <div className="gg-tools-v517__card-top">
+                  <div className="gg-tools-v517__icon" aria-hidden="true">▤</div>
+                  <span className="gg-tools-v517__tag">DATA MANAGEMENT</span>
                 </div>
-                <div className="mt-1 text-xs leading-relaxed text-slate-400">
-                  Full Day Backup • Import / Replace • Archive Export • Rebuild / Reset Lifetime Stats
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsDataStatsManagerOpen(true)}
-                  className="mt-4 w-full rounded-xl bg-violet-500 px-4 py-2.5 text-xs font-black text-white hover:bg-violet-400"
-                >
-                  เปิด Data / Backup / Stat Repair
+                <h2>สำรองและซ่อมแซมข้อมูล</h2>
+                <p>Backup, Import, Archive และเครื่องมือซ่อมสถิติสมาชิก</p>
+                <button type="button" className="gg-tools-v517__action" onClick={() => setIsDataStatsManagerOpen(true)}>
+                  เปิดจัดการข้อมูล <span aria-hidden="true">→</span>
                 </button>
               </section>
-              {/* TOOLS_MEMBER_COST_CARD_V68B */}
-              <section className="rounded-2xl border border-emerald-800/45 bg-emerald-950/15 p-4 sm:p-5">
-                <div className="text-sm font-black text-white">
-                  📋 Export รายชื่อ / ค่าใช้จ่าย
+
+              <section className="gg-tools-v517__card">
+                <div className="gg-tools-v517__card-top">
+                  <div className="gg-tools-v517__icon" aria-hidden="true">฿</div>
+                  <span className="gg-tools-v517__tag">MEMBER BILLING</span>
                 </div>
-                <div className="mt-1 text-xs leading-relaxed text-slate-400">
-                  รายชื่อ • Match • ค่าคอร์ท • ค่าลูก • Extra • ส่วนลด • ยอดสุทธิ • สถานะชำระ
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowMemberCostExportV68D(true)}
-                  className="mt-4 w-full rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-emerald-400"
-                >
-                  เปิด Export รายชื่อ / ค่าใช้จ่าย
+                <h2>รายชื่อและค่าใช้จ่าย</h2>
+                <p>ส่งออกรายชื่อ Match ค่าคอร์ท ค่าลูก ส่วนลด และสถานะชำระเงิน</p>
+                <button type="button" className="gg-tools-v517__action" onClick={() => setShowMemberCostExportV68D(true)}>
+                  เปิดส่งออกค่าใช้จ่าย <span aria-hidden="true">→</span>
                 </button>
               </section>
             </div>
 
             {showMatchHistoryExport && (
-              <div className="space-y-3">
-                {/* MATCH_HISTORY_EXPORT_DATE_V1 */}
-                <div className="rounded-2xl border border-cyan-800/45 bg-cyan-950/15 p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-black text-white">
-                        📅 วันที่สำหรับ Match History
-                      </div>
-                      <div className="mt-1 text-[11px] text-slate-400">
-                        เลือก Session ปัจจุบัน หรือประวัติวันที่เคย Archive ไว้
-                      </div>
-
-                      <select
-                        value={matchHistoryExportSourceKey}
-                        onChange={(event) =>
-                          setMatchHistoryExportSourceKey(
-                            event.target.value
-                          )
-                        }
-                        className="mt-3 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs font-semibold text-white outline-none focus:border-cyan-500"
-                      >
-                        <option value="current">
-                          {formatMatchHistoryExportDate(
-                            sessionConfig.date
-                          )} • Session ปัจจุบัน
-                        </option>
-
-                        {matchHistoryExportArchives
-                          .filter(
-                            (archive: any) =>
-                              String(
-                                archive?.archiveDate || ''
-                              ) !== sessionConfig.date
-                          )
-                          .map((archive: any) => (
-                            <option
-                              key={archive.id}
-                              value={`archive:${archive.id}`}
-                            >
-                              {formatMatchHistoryExportDate(
-                                String(
-                                  archive.archiveDate || ''
-                                )
-                              )} • Archive
-                              {archive.venueName
-                                ? ` • ${archive.venueName}`
-                                : ''}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-
-                    <div className="shrink-0 rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-right">
-                      <div className="text-[10px] text-slate-500">
-                        วันที่กำลังดู
-                      </div>
-                      <div className="mt-1 text-sm font-black text-cyan-300">
-                        {formatMatchHistoryExportDate(
-                          selectedMatchHistoryDate
-                        )}
-                      </div>
-                      <div className="mt-1 text-[10px] text-slate-500">
-                        {selectedMatchHistory.length} Match
-                      </div>
-                    </div>
+              <section className="gg-tools-v517__workspace" aria-label="ส่งออกประวัติการแข่งขัน">
+                <div className="gg-tools-v517__workspace-head">
+                  <div>
+                    <h2>ส่งออกประวัติการแข่งขัน</h2>
+                    <p>เลือกวันที่หรือประวัติที่บันทึกไว้ก่อนส่งออก</p>
                   </div>
-
-                  {selectedMatchHistoryArchive && (
-                    <div className="mt-3 rounded-xl border border-violet-800/40 bg-violet-950/20 px-3 py-2 text-[10px] text-violet-300">
-                      📦 กำลังดู Match History จาก Archive วันที่{' '}
-                      {formatMatchHistoryExportDate(
-                        selectedMatchHistoryDate
-                      )}
-                    </div>
-                  )}
+                  <button type="button" className="gg-tools-v517__close" onClick={() => setShowMatchHistoryExport(false)} aria-label="ปิดการส่งออกประวัติการแข่งขัน">ปิด</button>
                 </div>
-
+                <div className="gg-tools-v517__source">
+                  <label htmlFor="gg-tools-match-source">เลือก Session</label>
+                  <select
+                    id="gg-tools-match-source"
+                    value={matchHistoryExportSourceKey}
+                    onChange={(event) => setMatchHistoryExportSourceKey(event.target.value)}
+                  >
+                    <option value="current">{formatMatchHistoryExportDate(sessionConfig.date)} • Session ปัจจุบัน</option>
+                    {matchHistoryExportArchives
+                      .filter((archive: any) => String(archive?.archiveDate || '') !== sessionConfig.date)
+                      .map((archive: any) => (
+                        <option key={archive.id} value={`archive:${archive.id}`}>
+                          {formatMatchHistoryExportDate(String(archive.archiveDate || ''))} • Archive
+                          {archive.venueName ? ` • ${archive.venueName}` : ''}
+                        </option>
+                      ))}
+                  </select>
+                  <span>{formatMatchHistoryExportDate(selectedMatchHistoryDate)} · {selectedMatchHistory.length} Match</span>
+                </div>
                 <MatchHistoryExportView
                   sessionDate={selectedMatchHistoryDate}
                   matchHistory={selectedMatchHistory}
-                  onClose={() =>
-                    setShowMatchHistoryExport(false)
-                  }
+                  onClose={() => setShowMatchHistoryExport(false)}
                 />
-              </div>
+              </section>
             )}
 
-
-            {/* MEMBER_COST_EXPORT_RENDER_V68D */}
             {showMemberCostExportV68D && (
-              <MemberCostExportToolV68D
-                sessionConfig={sessionConfig}
-                players={players}
-                promotionRedemptions={promotionRedemptions}
-                onClose={() => setShowMemberCostExportV68D(false)}
-              />
+              <section className="gg-tools-v517__workspace" aria-label="ส่งออกรายชื่อและค่าใช้จ่าย">
+                <MemberCostExportToolV68D
+                  sessionConfig={sessionConfig}
+                  players={players}
+                  promotionRedemptions={promotionRedemptions}
+                  onClose={() => setShowMemberCostExportV68D(false)}
+                />
+              </section>
             )}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/65 px-4 py-3 text-[11px] leading-relaxed text-slate-500">
-              Tools เป็น Organizer-only • สมาชิกทั่วไปจะไม่เห็นเมนูนี้
-            </div>
+            <p className="gg-tools-v517__footnote">เครื่องมือเหล่านี้แสดงเฉพาะโหมดผู้จัดก๊วน · การส่งออกและสำรองข้อมูลทำงานตามระบบเดิม</p>
           </div>
         )}
         {currentTab === 'billing' && (
@@ -7196,6 +7181,9 @@ onUpdateMemberStatus={(playerId, status) => {
         onClose={() => setIsSettingsOpen(false)}
         config={sessionConfig}
         onSaveConfig={handleUpdateSessionConfig}
+        shuttleModels={shuttleModelOptions}
+        selectedShuttleKey={currentShuttleDefault?.key || ''}
+        onSelectShuttle={chooseShuttleDefault} // GG_SHUTTLE_SETTINGS_CLEAN_QUEUE_V520B
         onExportBackup={handleExportBackup}
         onImportBackup={handleImportBackup}
       />

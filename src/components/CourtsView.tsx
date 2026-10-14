@@ -302,6 +302,13 @@ export const CourtsView: React.FC<CourtsViewProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2 text-xs">
+                  {isOrganizerMode && (
+                    <button type="button" title="เรียกผู้เล่นบนคอร์ทซ้ำ 2 รอบ (เครื่องนี้)"
+                      onClick={() => window.dispatchEvent(new CustomEvent('guanguan:recall-court', {detail:{matchId:activeMatch.id}}))}
+                      className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-teal-600/60 bg-teal-950/50 px-2.5 py-1.5 text-xs font-bold text-teal-200 hover:bg-teal-900/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-400">
+                      <span aria-hidden="true">🔊</span><span>Call</span>
+                    </button>
+                  )}
                   <span className="text-slate-400 flex items-center gap-1">
                     <Clock className="w-3.5 h-3.5 text-amber-400" />
                     <span className="font-mono font-bold text-white text-sm">

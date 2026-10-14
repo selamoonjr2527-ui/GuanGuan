@@ -815,6 +815,12 @@ export const PreMatchManagerV64: React.FC<PreMatchManagerV64Props> = ({
                 </div>
 
                 <div className="flex shrink-0 gap-1">
+                  {/* GG_PM_RECALL_SAFE_V524 */}
+                  <button type="button" title="เรียก Pre-Match ซ้ำ (2 รอบ)" aria-label={`Call Pre-Match ${slot}`}
+                    onClick={() => window.dispatchEvent(new CustomEvent('guanguan:recall-prematch', { detail: { slot } }))}
+                    className="rounded-xl border border-cyan-700/70 bg-cyan-950/40 px-2.5 py-2 text-[10px] font-black text-cyan-200 hover:bg-cyan-900/50">
+                    🔊 Call
+                  </button>
                   {hasPendingDraft(slot) && (
                     <button
                       type="button"
@@ -1169,12 +1175,12 @@ export const OrganizerWaitingQueueV64: React.FC<
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4 sm:p-5">
-      <div className="mb-4 space-y-3">
+      <div className="mb-3 space-y-2">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4 text-emerald-400" />
             <h3 className="text-sm font-black text-white">
-              ตารางคิวรอลงเล่นทั้งหมด ({queue.length} คน)
+คิวรอลงเล่น ({queue.length} คน)
             </h3>
           </div>
           <span className="text-[10px] font-bold text-amber-300">
@@ -1190,7 +1196,7 @@ export const OrganizerWaitingQueueV64: React.FC<
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {queue.map((player, index) => {
           const pmSlot = pmByPlayer.get(player.id) as PreMatchSlot | undefined;
           const draftSlot = draftByPlayer.get(player.id) as PreMatchSlot | undefined;

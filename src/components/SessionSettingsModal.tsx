@@ -7,6 +7,10 @@ interface SessionSettingsModalProps {
   onClose: () => void;
   config: SessionConfig;
   onSaveConfig: (updated: SessionConfig) => void;
+  // GG_SHUTTLE_SETTINGS_CLEAN_QUEUE_V520B: same model state as the quick selector in organizer view
+  shuttleModels?: Array<{key:string;brand:string;model:string;unitCost:number;purchased:number;used:number}>;
+  selectedShuttleKey?: string;
+  onSelectShuttle?: (key:string)=>void;
   onExportBackup?: () => void;
   onImportBackup?: (importedData: any) => void;
 }
@@ -16,6 +20,9 @@ export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = ({
   onClose,
   config,
   onSaveConfig,
+  shuttleModels = [],
+  selectedShuttleKey = '',
+  onSelectShuttle,
   onExportBackup,
   onImportBackup,
 }) => {
@@ -228,32 +235,19 @@ export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Shuttlecock Brand & Rate */}
-          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 space-y-3">
-            <span className="text-amber-400 font-bold block">🏸 ข้อมูลลูกขนไก่:</span>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-slate-400 mb-1">ยี่ห้อ / รุ่นลูก:</label>
-                <input
-                  type="text"
-                  value={shuttlecockBrand}
-                  onChange={(e) => setShuttlecockBrand(e.target.value)}
-                  className="w-full rounded-lg bg-slate-900 border border-slate-700 text-white px-2 py-1.5 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-400 mb-1">ราคาต่อลูก (บาท):</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={shuttlecockPrice}
-                  onChange={(e) => setShuttlecockPrice(parseInt(e.target.value) || 0)}
-                  className="w-full rounded-lg bg-slate-900 border border-slate-700 text-white px-2 py-1.5 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-            </div>
+          {/* GG_SHUTTLE_SETTINGS_CLEAN_QUEUE_V520B: Settings and quick selector share active model */}
+          <div className="rounded-xl border border-teal-700/50 bg-slate-950 p-3 space-y-2">
+            <label htmlFor="settings-default-shuttle" className="block text-sm font-semibold text-teal-200">🏸 รุ่นลูกหลักสำหรับ Finish Match</label>
+            <select id="settings-default-shuttle" value={selectedShuttleKey} onChange={e => onSelectShuttle?.(e.target.value)} className="w-full rounded-xl border border-slate-600 bg-slate-900 px-3 py-3 text-sm text-white">
+              <option value="">เลือกรุ่นจาก Stock</option>
+              {shuttleModels.map(item => <option key={item.key} value={item.key}>{item.brand} {item.model} • เหลือ {Math.max(0,item.purchased-item.used)} ลูก • {item.unitCost.toFixed(2)} ฿/ลูก</option>)}
+            </select>
+            <p className="text-xs text-slate-400">เลือกแล้วมีผลกับ Match ที่จบหลังจากนี้ทันที (ไม่ต้องกด Save Settings) และเปลี่ยนด่วนจากหน้าจัดก๊วนได้</p>
           </div>
-
+          {/* GG_SHUTTLE_SETTINGS_SINGLE_SOURCE_V520C — legacy fields retained in session data, not manually edited here */}
+          <p className="rounded-xl border border-slate-700/60 bg-slate-950/60 px-3 py-2 text-xs leading-5 text-slate-400">
+            ต้นทุนลูกแบดอ้างอิงรุ่นที่เลือกจาก Stock ด้านบน ส่วนอัตราที่เรียกเก็บสมาชิกตั้งค่าใน Club Rate ด้านล่าง
+          </p>
           {/* PromptPay Settings */}
           <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 space-y-3">
             <span className="text-blue-400 font-bold block">📱 ข้อมูลพร้อมเพย์สำหรับรับโอนเงิน:</span>

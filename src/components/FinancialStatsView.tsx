@@ -1,4 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import { ArchiveReconciliationV519C } from './ArchiveReconciliationV519C';
+
+
 import { MonthlyShuttleReportV76 } from './MonthlyShuttleReportV76'; // SHUTTLE_REPORT_MENU4_V78
 import { ShuttleLedgerHistoryV76 } from './ShuttleLedgerHistoryV76';
 import { getSessionCourtCost } from '../utils/sessionCourts'; // DYNAMIC_SESSION_COURTS_V63A
@@ -19,6 +22,7 @@ import {
   deleteFundTransaction
 } from '../utils/storage';
 import confetti from 'canvas-confetti';
+import { calculateSessionFinanceV519 } from '../utils/financeEngineV519';
 import { CourtProfitabilityV82 } from './CourtProfitabilityV82'; // COURT_PROFITABILITY_V82
 import { TreasuryViewV79 } from './TreasuryViewV79'; // TREASURY_ACCOUNTING_V79C
 import {
@@ -100,7 +104,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
     // KEEP_FINANCE_SUBTAB_V80
   // FinancialStatsView may be remounted by key={finance-\}.
   // Remember the selected Finance menu so Save/Update stays on the same page.
-  const [activeSubTab, setActiveSubTab] = useState<'today' | 'history' | 'treasury' | 'shuttles' | 'shuttle_report' | 'court_report'>(() => {
+  const [activeSubTab, setActiveSubTab] = useState<'today' | 'history' | 'treasury' | 'shuttles' | 'shuttle_report' | 'court_report' | 'reconciliation'>(() => {
     if (typeof window === 'undefined') {
       return 'today';
     }
@@ -109,7 +113,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
       'guanguan_finance_active_subtab'
     );
 
-    const allowed = ['today', 'history', 'treasury', 'shuttles', 'shuttle_report', 'court_report'];
+    const allowed = ['today', 'history', 'treasury', 'shuttles', 'shuttle_report', 'court_report', 'reconciliation'];
 
     if (saved && allowed.includes(saved)) {
       return saved as 'today' | 'history' | 'treasury' | 'shuttles' | 'shuttle_report';
@@ -233,29 +237,11 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
     return sum + charge.promotionDiscount;
   }, 0);
 
-  const totalExpectedRevenue = Math.max(
-    0,
-    grossExpectedRevenue - promotionDiscountTotal
-  );
-
-  // Actual Collected = paidAmountจริง ถ้ามี ไม่คำนวณยอดเก่าซ้ำอีก
-  const actualCollectedRevenue = eligiblePlayers
-    .filter((p) => p.paid)
-    .reduce((acc, p) => {
-      if (typeof p.paidAmount === 'number' && Number.isFinite(p.paidAmount)) {
-        return acc + p.paidAmount;
-      }
-
-      return (
-        acc +
-        calculatePlayerFinalCharge(
-          p,
-          sessionConfig,
-          promotionRedemptions,
-          sessionConfig.date
-        ).finalTotal
-      );
-    }, 0);
+  // GG_UNIFIED_FINANCE_V519A_SAFE: shared, read-only calculation.
+  const unifiedFinanceV519 = calculateSessionFinanceV519(players, sessionConfig, promotionRedemptions);
+  const legacyExpectedRevenueV519 = Math.max(0, grossExpectedRevenue - promotionDiscountTotal);
+  const totalExpectedRevenue = unifiedFinanceV519.expected;
+  const actualCollectedRevenue = unifiedFinanceV519.collected;
 
   const pendingRevenue = Math.max(0, totalExpectedRevenue - actualCollectedRevenue);
   const paidCount = eligiblePlayers.filter((p) => p.paid).length;
@@ -576,11 +562,13 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
     );
 
     setEditArchiveReason('');
+    setUseVerifiedArchiveV519B2(false);
   };
 
   const closeArchiveEditor = () => {
     setEditingArchive(null);
     setEditArchiveReason('');
+    setUseVerifiedArchiveV519B2(false);
   };
   // FINANCE_ARCHIVE_AUTO_CALC_V2B
   // FINANCE_ARCHIVE_AUTO_CALC_V2D
@@ -693,7 +681,6 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
       Math.max(
         0,
         originalExpense +
-          playerDelta * courtFeePerPlayer +
           shuttleDelta * shuttleUnitCost
       );
 
@@ -757,6 +744,90 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
     return numberValue;
   };
 
+  // GG_VERIFIED_ARCHIVE_3_DAYS_V519B2
+  // Reference figures explicitly confirmed by the organizer.
+  // No transaction or stock ledger is changed by this correction.
+  const verifiedArchiveDataV519B2: Record<string, {
+    players: number; matches: number; shuttles: number;
+    courtFee: number; courtHours: number; courtHourlyRate: number;
+    shuttleUnitCost: number; revenue: number;
+  }> = {
+    '2026-09-18': { players: 23, matches: 21, shuttles: 21, courtFee: 110, courtHours: 8, courtHourlyRate: 250, shuttleUnitCost: 83, revenue: 4630 },
+    '2026-10-09': { players: 24, matches: 23, shuttles: 23, courtFee: 110, courtHours: 9, courtHourlyRate: 250, shuttleUnitCost: 70, revenue: 4940 },
+    '2026-10-11': { players: 19, matches: 17, shuttles: 17, courtFee: 110, courtHours: 6, courtHourlyRate: 250, shuttleUnitCost: 70, revenue: 3790 },
+  };
+  const [useVerifiedArchiveV519B2, setUseVerifiedArchiveV519B2] = useState(false);
+  const verifiedArchiveV519B2 = editingArchive ? verifiedArchiveDataV519B2[editingArchive.archiveDate] : undefined;
+  const verifiedArchiveTotalsV519B2 = verifiedArchiveV519B2 ? {
+    venue: verifiedArchiveV519B2.courtHours * verifiedArchiveV519B2.courtHourlyRate,
+    shuttle: verifiedArchiveV519B2.shuttles * verifiedArchiveV519B2.shuttleUnitCost,
+  } : null;
+  const applyVerifiedArchiveV519B2 = () => {
+    if (!verifiedArchiveV519B2 || !verifiedArchiveTotalsV519B2) return;
+    setEditArchivePlayers(String(verifiedArchiveV519B2.players));
+    setEditArchiveShuttles(String(verifiedArchiveV519B2.shuttles));
+    setEditArchiveRevenue(String(verifiedArchiveV519B2.revenue));
+    setEditArchiveExpense(String(verifiedArchiveTotalsV519B2.venue + verifiedArchiveTotalsV519B2.shuttle));
+    setEditArchiveReason('แก้ไขตามตารางข้อมูลจริงที่ผู้จัดยืนยัน: จำนวนสมาชิก, Match, ลูกที่ใช้, ต้นทุนสนามและต้นทุนลูก; ตรวจสอบ Ledger แยกต่างหาก');
+    setUseVerifiedArchiveV519B2(true);
+  };
+
+  // GG_ARCHIVE_IMPORTED_DATE_FIX_V519B3: correct a misdated historical import only after explicit confirmation.
+  const isMisdatedImportedSep18 = Boolean(
+    editingArchive?.archiveDate === '2026-09-25' &&
+    /Imported by GuanGuan v66/i.test(String(editingArchive.notes || '')) &&
+    /25 Sep 2026/i.test(String(editingArchive.notes || '')) &&
+    String(editingArchive.venueName || '').toLowerCase().includes('smash')
+  );
+
+  const correctMisdatedSep18Archive = () => {
+    if (!editingArchive || !isMisdatedImportedSep18) return;
+    const existing = loadSessionArchives();
+    const collision = existing.find((item) =>
+      item.id !== editingArchive.id && item.archiveDate === '2026-09-18'
+    );
+    if (collision) {
+      window.alert('พบ Archive วันที่ 18 ก.ย. อยู่แล้ว กรุณาตรวจสอบรายการซ้ำก่อน ไม่ได้บันทึกการเปลี่ยนแปลง');
+      return;
+    }
+    const matchHistoryCount = editingArchive.matchHistorySnapshot?.length ?? 0;
+    const message =
+      'แก้วันที่จริงของ Archive นำเข้า 25 ก.ย. → 18 ก.ย. 2026\n\n' +
+      'สมาชิก: 23 คน | Match: 21 | ลูก: 21\n' +
+      'รายรับ: 4,630 บาท\nสนาม: 8 ชม. × 250 = 2,000 บาท\n' +
+      'ต้นทุนลูก: 21 × 83 = 1,743 บาท\nกำไร: 887 บาท\n\n' +
+      'เก็บ ID เดิมและยอดชำระจริงเดิม ไม่แก้ Stock หรือ Usage Ledger\n' +
+      (matchHistoryCount ? 'หมายเหตุ: Match History Snapshot มี ' + matchHistoryCount + ' รายการ กรุณาตรวจสอบกับยอด 21 Match ภายหลัง\n' : '') +
+      'ยืนยันให้บันทึก Archive จริงหรือไม่?';
+    if (!window.confirm(message)) return;
+    const audit = '[แก้ไขวันที่นำเข้าย้อนหลัง ' + new Date().toLocaleString('th-TH') +
+      '] ข้อมูลวันที่ 25 ก.ย. เป็นการ import; วันที่จัดจริง 18 ก.ย. 2026 ตามผู้จัดยืนยัน';
+    const corrected: DailySessionArchive = {
+      ...editingArchive,
+      archiveDate: '2026-09-18',
+      totalPlayers: 23,
+      totalMatches: 21,
+      totalShuttlecocks: 21,
+      totalCourtFee: 23 * 110,
+      totalRevenue: 4630,
+      venueCost: 2000,
+      shuttleCost: 1743,
+      extraExpensesTotal: 0,
+      totalExpense: 3743,
+      netProfit: 887,
+      totalCourtHours: 8,
+      courtHourlyRate: 250,
+      // Do not change collected payment or source snapshots without evidence.
+      pendingAmount: Math.max(0, 4630 - (editingArchive.totalCollected ?? 0)),
+      notes: String(editingArchive.notes || '').trim() + '\n' + audit,
+    };
+    saveSessionArchive(corrected);
+    setArchives(loadSessionArchives());
+    setSelectedArchive((current) => current?.id === corrected.id ? corrected : current);
+    closeArchiveEditor();
+    window.alert('บันทึก Archive วันที่ 18 ก.ย. แล้ว (ID เดิม) — โปรดตรวจสอบรายงานและ Usage Ledger เพิ่ม');
+  };
+
   const handleSaveArchiveEdit = () => {
     if (!editingArchive) return;
 
@@ -802,6 +873,20 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
       return;
     }
 
+    // Verified preset is used only if the operator explicitly opted in.
+    // Reject altered totals rather than silently saving inconsistent components.
+    const verified = useVerifiedArchiveV519B2 && verifiedArchiveV519B2 && verifiedArchiveTotalsV519B2
+      ? { ...verifiedArchiveV519B2, ...verifiedArchiveTotalsV519B2 }
+      : null;
+    if (verified && (
+      totalPlayers !== verified.players ||
+      totalShuttlecocks !== verified.shuttles ||
+      totalRevenue !== verified.revenue ||
+      totalExpense !== verified.venue + verified.shuttle
+    )) {
+      window.alert('ตัวเลขถูกเปลี่ยนหลังใช้ยอดที่ยืนยันแล้ว กรุณากดใช้ยอดที่ยืนยันอีกครั้ง หรือปิดหน้าต่างแล้วแก้แบบปกติ');
+      return;
+    }
     const netProfit =
       totalRevenue - totalExpense;
 
@@ -826,6 +911,16 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
       totalRevenue,
       totalExpense,
       netProfit,
+      ...(verified ? {
+        totalMatches: verified.matches,
+        totalCourtFee: verified.players * verified.courtFee,
+        venueCost: verified.venue,
+        shuttleCost: verified.shuttle,
+        extraExpensesTotal: 0,
+        totalCourtHours: verified.courtHours,
+        courtHourlyRate: verified.courtHourlyRate,
+        // Keep historical court plan snapshots intact for provenance.
+      } : {}),
 
       totalCollected,
       pendingAmount,
@@ -994,8 +1089,9 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
   // --- ORGANIZER AUTHORIZED VIEW ---
   return (
     <div className="space-y-6">
+      {/* GG_FINANCE_CLARITY_V516 — clearer hierarchy, unchanged handlers */}
       {/* Top Banner & Mode Selector */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="gg-finance-v516__header bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800 text-[11px] font-bold flex items-center gap-1">
@@ -1007,10 +1103,10 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
           </div>
           <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
             <TrendingUp className="w-6 h-6 text-emerald-400" />
-            <span>สรุปบัญชีรายรับ-รายจ่าย & สถิติกำไรขาดทุน</span>
+            <span>สรุปเงิน</span>
           </h2>
           <p className="text-xs text-slate-400">
-            วิเคราะห์ผลประกอบการแบบ Real-time เปรียบเทียบรายรับจากสมาชิกกับต้นทุนค่าสนามจริง พร้อมสถิติสะสมย้อนหลัง
+            ดูรายรับ ต้นทุน และส่วนต่างของก๊วนรอบปัจจุบัน พร้อมเปิดดูประวัติและกองกลางย้อนหลังได้จากเมนูด้านล่าง
           </p>
         </div>
 
@@ -1038,87 +1134,58 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('today')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-            activeSubTab === 'today'
-              ? 'bg-emerald-500 text-slate-950 shadow'
-              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
-          }`}
-        >
-          <Receipt className="w-4 h-4" />
-          <span>1. ก๊วนรอบปัจจุบัน (Today's Financials)</span>
-          <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-            expectedNetProfit >= 0 ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'
-          }`}>
-            {expectedNetProfit >= 0 ? `+${expectedNetProfit.toLocaleString()}฿` : `${expectedNetProfit.toLocaleString()}฿`}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('history')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-            activeSubTab === 'history'
-              ? 'bg-emerald-500 text-slate-950 shadow'
-              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
-          }`}
-        >
-          <BarChart2 className="w-4 h-4" />
-          <span>2. สถิติสะสมย้อนหลัง (All-Time Statistics)</span>
-          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300">
-            {archives.length} รอบ
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('treasury')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-            activeSubTab === 'treasury'
-              ? 'bg-emerald-500 text-slate-950 shadow'
-              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
-          }`}
-        >
-          <Wallet className="w-4 h-4" />
-          <span>3. บัญชีกองกลางก๊วน (Club Treasury)</span>
-          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300">
-            {totalCentralFundReserve.toLocaleString()}฿
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('shuttle_report')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-            activeSubTab === 'shuttle_report'
-              ? 'bg-cyan-500 text-slate-950 shadow'
-              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
-          }`}
-        >
-          <span>🪶</span>
-          <span>4. คลังลูกแบด Report</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('court_report')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-            activeSubTab === 'court_report'
-              ? 'bg-violet-500 text-white shadow'
-              : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
-          }`}
-        >
-          <span>🏸</span>
-          <span>5. สนาม & Court Profitability</span>
-        </button>
-
-        {/* REMOVE_DUPLICATE_SHUTTLE_MENU_V78B
-    Stock management is available from the top "คลังลูกแบด" tab.
-    Reports remain in "4. คลังลูกแบด Report".
-*/}
-      </div>
+      {/* GG_FINANCE_MOBILE_NAV_V5161: touch-friendly navigation; existing state/handlers retained */}
+      <nav className="gg-finance-v5161" aria-label="เมนูสรุปเงิน">
+        <div className="gg-finance-v5161__mobile">
+          <div className="gg-finance-v5161__eyebrow">เลือกหมวดรายงาน</div>
+          <div className="gg-finance-v5161__grid" role="group" aria-label="หมวดรายงานการเงิน">
+            {([
+              { id: 'today', label: 'วันนี้', detail: 'รอบปัจจุบัน', Icon: Receipt },
+              { id: 'history', label: 'ย้อนหลัง', detail: `${archives.length} รอบ`, Icon: BarChart2 },
+              { id: 'treasury', label: 'กองกลาง', detail: 'รายการเงินกองกลาง', Icon: Wallet },
+              { id: 'shuttle_report', label: 'ลูกแบด', detail: 'รายงานการใช้งาน', Icon: Package },
+              { id: 'court_report', label: 'สนาม', detail: 'ต้นทุนและกำไร', Icon: Calendar },
+              { id: 'reconciliation', label: 'ตรวจสอบ', detail: 'ยอด Archive / Ledger', Icon: BarChart2 },
+            ] as const).map(({ id, label, detail, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setActiveSubTab(id)}
+                className={`gg-finance-v5161__button ${activeSubTab === id ? 'is-active' : ''}`}
+                aria-pressed={activeSubTab === id}
+              >
+                <Icon className="gg-finance-v5161__icon" aria-hidden="true" />
+                <span className="gg-finance-v5161__button-copy">
+                  <strong>{label}</strong>
+                  <small>{detail}</small>
+                </span>
+                {activeSubTab === id && <CheckCircle2 className="gg-finance-v5161__check" aria-hidden="true" />}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="gg-finance-v5161__desktop">
+          {([
+            { id: 'today', label: 'รอบปัจจุบัน', Icon: Receipt },
+            { id: 'history', label: 'ประวัติย้อนหลัง', Icon: BarChart2 },
+            { id: 'treasury', label: 'บัญชีกองกลาง', Icon: Wallet },
+            { id: 'shuttle_report', label: 'รายงานลูกแบด', Icon: Package },
+            { id: 'court_report', label: 'วิเคราะห์สนาม', Icon: Calendar },
+            { id: 'reconciliation', label: 'ตรวจสอบยอดเงิน', Icon: BarChart2 },
+          ] as const).map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              className={`gg-finance-v5161__desktop-button ${activeSubTab === id ? 'is-active' : ''}`}
+              aria-pressed={activeSubTab === id}
+              onClick={() => setActiveSubTab(id)}
+            >
+              <Icon className="gg-finance-v5161__icon" aria-hidden="true" />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
 
       {/* ============================================================ */}
       {/* SUB-TAB 1: TODAY'S FINANCIAL ANALYSIS */}
@@ -1291,7 +1358,12 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
           </div>
 
           {/* Visual Margin Visualizer & Source of Profit */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-5">
+          <details className="gg-finance-v516__details rounded-2xl border border-slate-800 bg-slate-900">
+            <summary className="gg-finance-v516__summary flex cursor-pointer items-center justify-between gap-3 p-4 sm:p-5 text-sm font-bold text-white">
+              <span className="flex items-center gap-2"><Layers className="h-4 w-4 text-emerald-400" /> รายละเอียดวิเคราะห์กำไรและต้นทุน</span>
+              <span className="text-xs font-medium text-slate-400">กดเพื่อดูรายละเอียด ▾</span>
+            </summary>
+            <div className="gg-finance-v516__detail-body p-4 sm:p-5 pt-0 space-y-5">
             <div>
               <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
                 <Layers className="w-4 h-4 text-emerald-400" />
@@ -1420,7 +1492,8 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                 </p>
               </div>
             </div>
-          </div>
+            </div>
+          </details>
 
           {/* Player Breakdown Snapshot Table */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
@@ -1711,7 +1784,6 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
               Monthly Report • ต้นทุน • รายรับค่าลูก • กำไร/ขาดทุน • ประวัติการใช้ลูก
             </p>
           </div>
-
           <MonthlyShuttleReportV76
             purchases={shuttlePurchases as any[]}
             usages={shuttleUsageLedger as any[]}
@@ -1767,6 +1839,35 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                 แก้เฉพาะข้อมูล Archive ที่บันทึกไปแล้ว ไม่ย้อนกลับไปเปลี่ยน Match History
                 หรือสถานะสมาชิกของ Session ปัจจุบัน
               </div>
+
+              {verifiedArchiveV519B2 && verifiedArchiveTotalsV519B2 && (
+                <div className="mb-4 rounded-2xl border border-teal-700/60 bg-teal-950/25 p-3 text-xs text-teal-100">
+                  <div className="font-black">ข้อมูลที่ผู้จัดยืนยัน • {editingArchive.archiveDate}</div>
+                  <div className="mt-1 leading-5">
+                    สมาชิก {verifiedArchiveV519B2.players} คน • Match {verifiedArchiveV519B2.matches} • ลูกใช้ {verifiedArchiveV519B2.shuttles} • รายรับ {verifiedArchiveV519B2.revenue.toLocaleString()}฿
+                    {' • '}สนาม {verifiedArchiveV519B2.courtHours} ชม. × {verifiedArchiveV519B2.courtHourlyRate}฿ = {verifiedArchiveTotalsV519B2.venue.toLocaleString()}฿
+                    {' • '}ลูก {verifiedArchiveV519B2.shuttles} × {verifiedArchiveV519B2.shuttleUnitCost}฿ = {verifiedArchiveTotalsV519B2.shuttle.toLocaleString()}฿
+                    {' • '}กำไร {(verifiedArchiveV519B2.revenue - verifiedArchiveTotalsV519B2.venue - verifiedArchiveTotalsV519B2.shuttle).toLocaleString()}฿
+                  </div>
+                  <button type="button" onClick={applyVerifiedArchiveV519B2}
+                    className="mt-3 rounded-xl bg-teal-600 px-4 py-2 font-black text-white hover:bg-teal-500">
+                    ใช้ยอดที่ยืนยันสำหรับวันนี้ (ยังไม่บันทึก)
+                  </button>
+                  <p className="mt-2 leading-5 text-amber-200">ต้องกดบันทึกด้านล่างอีกครั้งจึงจะเปลี่ยน Archive จริง • ไม่แก้ยอดเงินที่รับจริง, รายชื่อสมาชิก, Match History หรือ Stock/Usage Ledger • รายงานที่อ่าน Ledger อาจยังไม่ตรง ต้องกระทบยอดแยกก่อน</p>
+                </div>
+              )}
+
+              {isMisdatedImportedSep18 && (
+                <div className="mb-4 rounded-2xl border border-amber-600/60 bg-amber-950/30 p-4 text-sm text-amber-100">
+                  <div className="font-black">⚠️ พบ Archive ที่ลงวันที่นำเข้าผิด (25 ก.ย.)</div>
+                  <p className="mt-2 text-xs leading-5">ข้อมูลรอบนี้จัดจริง 18 ก.ย. 2026 ไม่ใช่รอบวันที่ 25 ก.ย. ระบบจะปรับเป็น 23 คน, 21 Match, 21 ลูก, รายรับ 4,630฿, ต้นทุนสนาม 2,000฿, ต้นทุนลูก 1,743฿ และกำไร 887฿ โดยใช้ Archive ID เดิม</p>
+                  <button type="button" onClick={correctMisdatedSep18Archive}
+                    className="mt-3 rounded-xl bg-amber-500 px-4 py-2 font-black text-slate-950 hover:bg-amber-400">
+                    ยืนยันแก้วันที่และยอด Archive เป็น 18 ก.ย.
+                  </button>
+                  <p className="mt-2 text-xs text-amber-200">ไม่แก้ยอดชำระจริง, รายชื่อ, Match History, Stock หรือ Usage Ledger • ตรวจรายการซ้ำก่อนบันทึก</p>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="space-y-1">
@@ -2009,6 +2110,10 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
       {/* ============================================================ */}
             {/* TREASURY_ACCOUNTING_V79C */}
       {/* COURT_PROFITABILITY_V82 */}
+      {/* GG_FINANCE_RECONCILIATION_TAB_V519C1 */}
+      {activeSubTab === 'reconciliation' && (
+        <ArchiveReconciliationV519C archives={archives} usages={shuttleUsageLedger} />
+      )}
       {activeSubTab === 'court_report' && (
         <CourtProfitabilityV82
           archives={archives}
@@ -2017,7 +2122,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
           matchHistory={matchHistory}
         />
       )}
-      {activeSubTab === 'treasury' && (
+            {activeSubTab === 'treasury' && (
         <TreasuryViewV79
           archives={archives}
           transactions={transactions}
