@@ -2,13 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ShieldCheck,
-  UserPlus,
-  LogIn,
-  Lock,
   AlertCircle,
   Sparkles,
   Check,
-  Phone,
   KeyRound,
   X,
   ArrowLeftRight,
@@ -20,10 +16,6 @@ import {
   getMaskedCodeHint,
   verifyMemberPinOrPhoneLast4,
 } from '../utils/security';
-import {
-  isNicknameDuplicate,
-  generateNicknameSuggestions,
-} from '../utils/nameValidation';
 
 interface MemberGateModalProps {
   isOpen: boolean;
@@ -47,12 +39,10 @@ export const MemberGateModal: React.FC<MemberGateModalProps> = ({
   organizerPin = '1234',
   onClose,
   onSelectAndVerifyMember,
-  onQuickAddWalkIn,
   onOpenOrganizerLogin,
 }) => {
   // ORGANIZER_PIN_NOT_MEMBER_AUTH_V33
   void organizerPin;
-  const [mode, setMode] = useState<'select_member' | 'walk_in'>('select_member');
 
   const [selectedPlayerId, setSelectedPlayerId] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
@@ -60,21 +50,14 @@ export const MemberGateModal: React.FC<MemberGateModalProps> = ({
   const [isSelfConfirmed, setIsSelfConfirmed] = useState(false);
   const [memberError, setMemberError] = useState('');
 
-  const [walkInName, setWalkInName] = useState('');
-  const [walkInPhone, setWalkInPhone] = useState('');
-  const [walkInPin, setWalkInPin] = useState('');
-  const [walkInSkill, setWalkInSkill] = useState<SkillLevel>('B');
-  const [walkInError, setWalkInError] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
 
-    setMode('select_member');
     setVerificationCode('');
     setNewPinSetup('');
     setIsSelfConfirmed(false);
     setMemberError('');
-    setWalkInError('');
   }, [isOpen]);
 
   if (!isOpen || typeof document === 'undefined') return null;
@@ -211,37 +194,6 @@ export const MemberGateModal: React.FC<MemberGateModalProps> = ({
     );
   };
 
-  const handleWalkInSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setWalkInError('');
-
-    const trimmedName = walkInName.trim();
-    if (!trimmedName) {
-      setWalkInError('กรุณาระบุชื่อเล่น');
-      return;
-    }
-
-    if (isNicknameDuplicate(trimmedName, players)) {
-      const suggestions = generateNicknameSuggestions(trimmedName, players);
-      const suggestStr =
-        suggestions.length > 0 ? ` เช่น "${suggestions[0]}"` : '';
-      setWalkInError(`ชื่อ "${trimmedName}" มีอยู่แล้ว กรุณาใช้ชื่ออื่น${suggestStr}`);
-      return;
-    }
-
-    if (walkInPin.trim() && !/^\d{4}$/.test(walkInPin.trim())) {
-      setWalkInError('PIN ต้องเป็นตัวเลข 4 หลัก');
-      return;
-    }
-
-    onQuickAddWalkIn(
-      trimmedName,
-      walkInSkill,
-      'walkin',
-      walkInPhone.trim() || undefined,
-      walkInPin.trim() || undefined
-    );
-  };
 
   const modal = (
     <div className="gg-login-v513 fixed inset-0 z-[10000] bg-slate-950/90 backdrop-blur-md overflow-y-auto"> {/* GUANGUAN_LOGIN_V513 */}
@@ -291,42 +243,7 @@ export const MemberGateModal: React.FC<MemberGateModalProps> = ({
           </div>
 
           <div className="p-4 sm:p-6 space-y-5">
-            {/* Segmented tabs */}
-            <div className="grid grid-cols-2 gap-1 p-1 rounded-2xl bg-slate-950 border border-slate-800">
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('select_member');
-                  setMemberError('');
-                }}
-                className={`min-h-[44px] rounded-xl px-3 py-2.5 text-xs font-extrabold transition flex items-center justify-center gap-2 ${
-                  mode === 'select_member'
-                    ? 'bg-emerald-500 text-slate-950 shadow-md'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
-                }`}
-              >
-                <LogIn className="w-4 h-4" />
-                <span>สมาชิก</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('walk_in');
-                  setWalkInError('');
-                }}
-                className={`min-h-[44px] rounded-xl px-3 py-2.5 text-xs font-extrabold transition flex items-center justify-center gap-2 ${
-                  mode === 'walk_in'
-                    ? 'bg-amber-400 text-slate-950 shadow-md'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
-                }`}
-              >
-                <UserPlus className="w-4 h-4" />
-                <span>ผู้เล่นทั่วไป</span>
-              </button>
-            </div>
-
-            {mode === 'select_member' ? (
+            {/* Member login only. Walk-in entry is managed elsewhere. */}
               <form onSubmit={handleMemberSubmit} className="space-y-4">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
@@ -496,105 +413,6 @@ export const MemberGateModal: React.FC<MemberGateModalProps> = ({
                   </button>
                 </div>
               </form>
-            ) : (
-              <form onSubmit={handleWalkInSubmit} className="space-y-4">
-                <div className="rounded-2xl bg-amber-950/20 border border-amber-700/30 p-3 text-xs text-amber-200">
-                  🚶 สำหรับผู้เล่นที่ไม่มีชื่อในรายชื่อก๊วนวันนี้
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300">
-                    ชื่อเล่น <span className="text-rose-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="เช่น บาส, บอล, ต้อม"
-                    value={walkInName}
-                    onChange={(e) => setWalkInName(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <label className="text-xs text-slate-400 flex items-center gap-1.5">
-                      <Phone className="w-3.5 h-3.5" />
-                      เบอร์โทร
-                    </label>
-                    <input
-                      type="tel"
-                      placeholder="08x-xxx-xxxx"
-                      value={walkInPhone}
-                      onChange={(e) => setWalkInPhone(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs text-slate-400 flex items-center gap-1.5">
-                      <Lock className="w-3.5 h-3.5" />
-                      PIN 4 หลัก
-                    </label>
-                    <input
-                      type="password"
-                      inputMode="numeric"
-                      maxLength={4}
-                      placeholder="••••"
-                      value={walkInPin}
-                      onChange={(e) =>
-                        setWalkInPin(e.target.value.replace(/\D/g, '').slice(0, 4))
-                      }
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-center text-sm font-mono tracking-widest text-white focus:outline-none focus:border-amber-400"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">
-                    ระดับมือโดยประมาณ
-                  </label>
-                  <select
-                    value={walkInSkill}
-                    onChange={(e) => setWalkInSkill(e.target.value as SkillLevel)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-amber-400"
-                  >
-                    <option value="Newbie">Newbie — มือใหม่</option>
-                    <option value="C">C — เริ่มต้นพัฒนา</option>
-                    <option value="B">B — มือกลาง</option>
-                    <option value="A">A — มือแน่น</option>
-                    <option value="PRO">PRO — ระดับแข่งขัน</option>
-                  </select>
-                </div>
-
-                {walkInError && (
-                  <div className="rounded-xl bg-rose-950/70 border border-rose-700/60 p-3 text-xs text-rose-200 flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                    <span>{walkInError}</span>
-                  </div>
-                )}
-
-                <div className="flex gap-2">
-                  {onClose && (
-                    <button
-                      type="button"
-                      onClick={onClose}
-                      className="px-4 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition"
-                    >
-                      ยกเลิก
-                    </button>
-                  )}
-
-                  <button
-                    type="submit"
-                    className="flex-1 py-3 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-sm transition shadow-lg flex items-center justify-center gap-2"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    <span>ลงทะเบียน Walk-in</span>
-                  </button>
-                </div>
-              </form>
-            )}
 
             <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-3">
               <span className="text-[11px] text-slate-500">

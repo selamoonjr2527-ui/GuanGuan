@@ -1,19 +1,19 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+
 import { getSessionCourtCost } from '../utils/sessionCourts'; // DYNAMIC_SESSION_COURTS_V63A
-import { 
-  X, Calendar, Archive, RefreshCw, CheckCircle2, 
+import {
+  X, Calendar, Archive, RefreshCw, CheckCircle2,
   AlertTriangle, Download, Trash2, ChevronRight, FileText,
   Users, Flame, Award, Clock
 } from 'lucide-react';
 import { SessionConfig, Player, DailySessionArchive, MatchHistoryItem } from '../types';
-import { 
-  AppState, 
-  loadSessionArchives, 
-  saveSessionArchive, 
-  deleteSessionArchive, 
-  createNewDaySessionState 
+import {
+  AppState,
+  loadSessionArchives,
+  deleteSessionArchive,
+  createNewDaySessionState
 } from '../utils/storage';
-import { deleteSessionArchiveFromFirestore } from '../utils/firestoreCollectionsSync'; // ARCHIVE_DELETE_SYNC_V66A
+import { deleteSessionArchiveFromFirestore, createClosedSessionArchiveSafely } from '../utils/firestoreCollectionsSync'; // ARCHIVE_DELETE_SYNC_V66A
 import confetti from 'canvas-confetti';
 
 interface DailyArchiveModalProps {
@@ -28,7 +28,8 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   isOpen,
   onClose,
   currentState,
-  onResetSession,
+  onResetSession,
+
   onDiscardSession,
 }) => {
   const [activeTab, setActiveTab] = useState<'reset' | 'history'>('reset');
@@ -36,6 +37,11 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   const [notes, setNotes] = useState('');
   const [selectedArchive, setSelectedArchive] = useState<DailySessionArchive | null>(null);
   const [archives, setArchives] = useState<DailySessionArchive[]>(() => loadSessionArchives());
+  const [closeDate, setCloseDate] = useState('');
+  const [actualCourtCost, setActualCourtCost] = useState('');
+  const [closeConfirmed, setCloseConfirmed] = useState(false);
+  const [closeBusy, setCloseBusy] = useState(false);
+  const closeBusyRef = useRef(false);
 
   // DISCARD_SESSION_HANDLER_V72B
   const handleDiscardWithoutArchive = async () => {
@@ -70,7 +76,6 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
       onClose();
     }
   };
-  if (!isOpen) return null;
 
   const { sessionConfig, players, activeMatches, matchHistory } = currentState;
   // RESET_MODAL_WHITE_SCREEN_FIX_V45
@@ -89,6 +94,14 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
 
   const totalMatches = matchHistory.length;
   const totalShuttles = sessionConfig.shuttlecocksUsedTotal;
+
+  // V3.1.1: an empty session must not be archived, even if a venue cost is configured.
+  // This checks actual participants / games / shuttle usage, not configured roster size.
+  const hasSessionActivity =
+    billingPlayers.length > 0 ||
+    totalMatches > 0 ||
+    activeMatches.length > 0 ||
+    (Number.isFinite(Number(totalShuttles)) && Number(totalShuttles) > 0);
 
   const unpaidPlayers = billingPlayers.filter(
     (p) => !p.paid
@@ -289,13 +302,69 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   const netProfit =
     totalRevenue - totalExpense;
 
+  // V3.1: actual venue payment is reviewed separately from the court plan.
+  const reviewedVenueCost = actualCourtCost.trim() === '' ? NaN : Number(actualCourtCost);
+  const reviewedExpense = reviewedVenueCost + shuttleCost + extraExpensesTotal;
+  const reviewedProfit = totalRevenue - reviewedExpense;
+
   const pendingAmount =
     Math.max(
       0,
       totalRevenue - totalCollected
     );
 
-  const handleArchiveAndReset = () => {
+  // Populate the review once when the close modal is opened.
+  useEffect(() => {
+    if (!isOpen) return;
+    setCloseDate(sessionConfig.date);
+    setActualCourtCost(String(venueCost));
+    setCloseConfirmed(false);
+  }, [isOpen]);
+
+  // Use a local calendar day, never UTC conversion for the next session date.
+  const nextLocalDay = (day: string): string => {
+    const parsed = new Date(`${day}T12:00:00`);
+    if (!Number.isFinite(parsed.getTime())) throw new Error('วันที่ไม่ถูกต้อง');
+    parsed.setDate(parsed.getDate() + 1);
+    const yy = parsed.getFullYear();
+    const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+    const dd = String(parsed.getDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  };
+
+  const handleArchiveAndReset = async () => {
+    if (closeBusyRef.current) return;
+    // Defense in depth: block direct handler invocation even if the button is bypassed.
+    if (!hasSessionActivity) {
+      window.alert('ไม่สามารถปิดรอบว่างได้: ยังไม่มีสมาชิกที่ร่วมเล่น แมตช์ หรือลูกแบดที่ใช้จริง\nหากต้องการล้างรอบทดลอง ให้ใช้ Reset ทิ้ง / ไม่บันทึก');
+      return;
+    }
+    const dateParts = closeDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const parsedCloseDate = new Date(`${closeDate}T12:00:00`);
+    if (!dateParts || !Number.isFinite(parsedCloseDate.getTime()) ||
+        parsedCloseDate.getFullYear() !== Number(dateParts[1]) ||
+        parsedCloseDate.getMonth() + 1 !== Number(dateParts[2]) ||
+        parsedCloseDate.getDate() !== Number(dateParts[3])) {
+      window.alert('กรุณาตรวจวันที่จัดก๊วนจริง');
+      return;
+    }
+    if (!Number.isFinite(reviewedVenueCost) || reviewedVenueCost < 0 ||
+        !Number.isFinite(reviewedExpense)) {
+      window.alert('ค่าคอร์ทจริงต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป');
+      return;
+    }
+    if (!closeConfirmed) {
+      window.alert('กรุณายืนยันข้อมูลวันที่ ค่าคอร์ทและยอดเงินก่อนปิดรอบ');
+      return;
+    }
+    if (!window.confirm(
+      `ยืนยันปิดรอบ ${closeDate}\nค่าคอร์ทจ่ายจริง ${reviewedVenueCost.toLocaleString('th-TH')} บาท\n` +
+      `รายรับ ${totalRevenue.toLocaleString('th-TH')} บาท / รายจ่าย ${reviewedExpense.toLocaleString('th-TH')} บาท\n` +
+      'บันทึก Archive ไป Firestore ก่อนรีเซ็ตข้อมูลรอบปัจจุบันหรือไม่?'
+    )) return;
+    closeBusyRef.current = true;
+    setCloseBusy(true);
+    try {
     if (activeMatches.length > 0) {
       if (!window.confirm('ยังมีแมตช์ที่กำลังแข่งขันอยู่ คุณแน่ใจหรือไม่ว่าต้องการจบคอร์ทและบันทึกประวัติ?')) {
         return;
@@ -303,21 +372,21 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
     }
 
     const archiveRecord: DailySessionArchive = {
-      id: `archive-${Date.now()}`,
-      archiveDate: sessionConfig.date,
+      id: `archive-session-${closeDate}`,
+      archiveDate: closeDate,
       sessionTitle: sessionConfig.sessionTitle,
       venueName: sessionConfig.venueName,
       savedAt: Date.now(),
       totalPlayers: billingPlayers.length,
       totalMatches,
       totalShuttlecocks: totalShuttles,
-      totalCourtFee: venueCost,
+      totalCourtFee: reviewedVenueCost,
       totalRevenue,
-      totalExpense,
-      netProfit,
+      totalExpense: reviewedExpense,
+      netProfit: reviewedProfit,
       totalCollected,
       pendingAmount,
-      venueCost,
+      venueCost: reviewedVenueCost,
       // COURT_HOURS_ARCHIVE_SNAPSHOT_V82B
       courtCount:
         archiveSessionCourts.length > 0
@@ -349,23 +418,29 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
       notes: notes.trim() || undefined,
     };
 
-    // Save into archives list
-    saveSessionArchive(archiveRecord);
-    setArchives(loadSessionArchives());
-
-    // Generate reset state for tomorrow
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    // Firestore is the authority. A transaction guards this date-specific ID.
+    // Existing archive dates are checked against the server before the write.
+    await createClosedSessionArchiveSafely(archiveRecord);
+    // Update local cache only after Firestore confirmed the write.
+    setArchives(loadSessionArchives().some(a => a.id === archiveRecord.id)
+      ? loadSessionArchives()
+      : [archiveRecord, ...loadSessionArchives()]);
 
     const newState = createNewDaySessionState(currentState, {
       keepRoster,
-      newDate: tomorrowStr,
+      newDate: nextLocalDay(closeDate),
     });
-
     onResetSession(newState);
     confetti({ particleCount: 70, spread: 80, origin: { y: 0.5 } });
     onClose();
+    } catch (error) {
+      console.error('V3 safe close failed', error);
+      window.alert('ปิดรอบไม่สำเร็จ / ยังไม่รีเซ็ต: ' +
+        (error instanceof Error ? error.message : String(error)));
+    } finally {
+      closeBusyRef.current = false;
+      setCloseBusy(false);
+    }
   };
 
   const handleDeleteArchive = async (id: string) => {
@@ -397,6 +472,8 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
     downloadAnchor.click();
     downloadAnchor.remove();
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
@@ -543,15 +620,50 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                 </div>
               </div>
 
+              {/* V3_SAFE_CLOSE_REVIEW */}
+              <div className="rounded-xl border border-amber-700/60 bg-amber-950/20 p-4 space-y-3">
+                <h4 className="text-sm font-bold text-amber-200">ตรวจสอบข้อมูลก่อนปิดรอบ (V3)</h4>
+                <label className="block text-xs text-slate-200">วันที่จัดก๊วนจริง
+                  <input type="date" value={closeDate} disabled={closeBusy}
+                    onChange={(e) => { setCloseDate(e.target.value); setCloseConfirmed(false); }}
+                    className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-900 p-2 text-white" />
+                </label>
+                <label className="block text-xs text-slate-200">ค่าคอร์ทที่จ่ายจริง (บาท)
+                  <input type="number" min="0" step="0.01" value={actualCourtCost} disabled={closeBusy}
+                    onChange={(e) => { setActualCourtCost(e.target.value); setCloseConfirmed(false); }}
+                    className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-900 p-2 text-white" />
+                </label>
+                <div className="text-xs text-slate-300">
+                  สมาชิก {billingPlayers.length} คน | ลูกแบด {totalShuttles} ลูก | รายรับ {totalRevenue.toLocaleString('th-TH')} บาท<br />
+                  ต้นทุนลูก {shuttleCost.toLocaleString('th-TH')} บาท | ค่าใช้จ่ายอื่น {extraExpensesTotal.toLocaleString('th-TH')} บาท<br />
+                  รายจ่ายใหม่ {Number.isFinite(reviewedExpense) ? reviewedExpense.toLocaleString('th-TH') : '-'} บาท |
+                  กำไร {Number.isFinite(reviewedProfit) ? reviewedProfit.toLocaleString('th-TH') : '-'} บาท
+                </div>
+                {!hasSessionActivity && (
+                  <div role="alert" data-guanguan-v311-empty-guard
+                    className="rounded-lg border border-rose-600/60 bg-rose-950/50 p-3 text-xs font-semibold text-rose-200">
+                    ยังไม่มีการเล่นจริงในรอบนี้ — ระบบไม่อนุญาตให้สร้าง Archive ว่าง
+                    <div className="mt-1 font-normal">หากเป็นรอบทดลอง ให้ใช้ปุ่ม Reset ทิ้ง / ไม่บันทึก หลังตรวจสอบข้อมูลที่อาจสูญหาย</div>
+                  </div>
+                )}
+                <label className="flex gap-2 text-xs text-amber-100">
+                  <input type="checkbox" checked={closeConfirmed} disabled={closeBusy || !hasSessionActivity}
+                    onChange={(e) => setCloseConfirmed(e.target.checked)} />
+                  ยืนยันวันที่ จำนวนคน ค่าคอร์ท และยอดเงินแล้ว
+                </label>
+                <p className="text-[11px] text-amber-200">ตรวจสอบ Ledger / Payment แยกต่างหาก ระบบจะไม่ย้ายข้อมูลย้อนหลังโดยอัตโนมัติ</p>
+              </div>
+
               {/* Action Button */}
               <div className="pt-2">
                 <button
                   type="button"
                   onClick={handleArchiveAndReset}
+                  disabled={closeBusy || !hasSessionActivity || !closeConfirmed || !closeDate || !Number.isFinite(reviewedExpense)}
                   className="w-full py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 shadow-lg"
                 >
                   <Archive className="w-4 h-4" />
-                  <span>ยืนยันปิดก๊วนวันนี้ & บันทึกประวัติและเปิดก๊วนใหม่</span>
+                  <span>{closeBusy ? "กำลังบันทึก Firestore..." : "ยืนยันปิดก๊วนวันนี้ & บันทึกประวัติและเปิดก๊วนใหม่"}</span>
                 </button>
                 {/* DISCARD_SESSION_BUTTON_V72B */}
                 {onDiscardSession && (

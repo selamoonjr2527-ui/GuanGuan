@@ -119,12 +119,25 @@ const historicalCourtPlan = (
 const getCourtPlan = (
   archive: AnyRecord
 ): CourtPlan => {
-  const historical =
-    historicalCourtPlan(archive);
-
-  if (historical) {
-    return historical;
+  const historical = historicalCourtPlan(archive);
+  // A specifically corrected actual court bill takes precedence over old
+  // reconstructed court schedules. The snapshot remains for reference.
+  if (archive.venueCostCorrectedAt != null && Number.isFinite(Number(archive.venueCost))) {
+    const base = historical || getCourtPlanUncorrected(archive);
+    const actual = Math.max(0, n(archive.venueCost));
+    return {
+      ...base,
+      label: `${base.label} (ยอดจ่ายจริงแก้ไขแล้ว)`,
+      venueCost: actual,
+      hourlyRate: base.totalCourtHours > 0 ? actual / base.totalCourtHours : 0,
+    };
   }
+  return historical || getCourtPlanUncorrected(archive);
+};
+
+const getCourtPlanUncorrected = (
+  archive: AnyRecord
+): CourtPlan => {
 
   const snapshot = Array.isArray(
     archive.sessionCourtsSnapshot

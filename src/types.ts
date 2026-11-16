@@ -218,7 +218,29 @@ export interface AssessmentQuestion {
   }[];
 }
 
+/** Confirmed revenue allocation, separate from stock/ledger reconciliation. */
+export interface ArchiveFinanceVerification {
+  schemaVersion: 1;
+  courtRatePerPlayer: number;
+  courtRevenue: number;
+  shuttleRevenue: number;
+  otherRevenue: number;
+  confirmedByUid: string;
+  confirmedAt: number;
+  reason: string;
+  snapshot: {
+    archiveDate: string;
+    totalPlayers: number;
+    totalShuttlecocks: number;
+    totalRevenue: number;
+    totalExpense: number;
+    venueCost: number;
+    shuttleCost: number;
+  };
+}
+
 export interface DailySessionArchive {
+  financeVerification?: ArchiveFinanceVerification;
   id: string;
   archiveDate: string; // วันที่จัดก๊วน เช่น 2026-09-11
   sessionTitle: string;
@@ -234,6 +256,7 @@ export interface DailySessionArchive {
   totalCollected?: number; // ยอดที่เก็บเงินจริงได้แล้ว
   pendingAmount?: number; // ยอดค้างชำระ
   venueCost?: number; // ค่าเช่าคอร์ทจ่ายสนามจริง
+  venueCostCorrectedAt?: number; // actual cost was manually corrected
   // COURT_HOURS_V82B
   courtCount?: number;
   totalHours?: number;

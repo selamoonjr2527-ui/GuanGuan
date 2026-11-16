@@ -3,6 +3,11 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
+  getDocs,
+  getDocsFromServer,
+  query,
+  where,
+  runTransaction,
   setDoc,
   writeBatch,
   type FirestoreError,
@@ -10,7 +15,8 @@ import {
 } from 'firebase/firestore';
 
 import { db } from '../firebase';
-import type { DailySessionArchive, FundTransaction } from '../types';
+import { getAuth } from 'firebase/auth';
+import type { DailySessionArchive, FundTransaction, ArchiveFinanceVerification } from '../types';
 
 const ARCHIVES_COLLECTION = collection(db, 'clubs', 'guanguan', 'archives');
 const FUND_COLLECTION = collection(db, 'clubs', 'guanguan', 'fundTransactions');
@@ -29,6 +35,63 @@ export async function upsertSessionArchiveToFirestore(
     doc(db, 'clubs', 'guanguan', 'archives', archive.id),
     sanitizeForFirestore(archive)
   );
+}
+
+/** Safe correction: checks date collision and refuses overwriting an archive
+ * that changed since the editor was opened. No ledger data is modified. */
+export async function correctSessionArchiveInFirestore(
+  original: DailySessionArchive,
+  updated: DailySessionArchive
+): Promise<void> {
+  if (!original.id || original.id !== updated.id) {
+    throw new Error('Archive ID must remain unchanged');
+  }
+  if (original.archiveDate !== updated.archiveDate) {
+    const conflicts = await getDocs(query(ARCHIVES_COLLECTION, where('archiveDate', '==', updated.archiveDate)));
+    if (conflicts.docs.some(item => item.id !== updated.id)) {
+      throw new Error('มี Archive วันที่นี้อยู่แล้ว กรุณาตรวจสอบรายการซ้ำ');
+    }
+  }
+  const ref = doc(db, 'clubs', 'guanguan', 'archives', updated.id);
+  await runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists()) throw new Error('ไม่พบ Archive บน Firestore');
+    const remote = snapshot.data() as DailySessionArchive;
+    if (remote.archiveDate !== original.archiveDate ||
+        remote.totalExpense !== original.totalExpense ||
+        remote.totalRevenue !== original.totalRevenue ||
+        remote.venueCost !== original.venueCost ||
+        remote.savedAt !== original.savedAt) {
+      throw new Error('ข้อมูล Archive มีการเปลี่ยนแปลงจากเครื่องอื่น กรุณา Refresh ก่อนแก้');
+    }
+    transaction.set(ref, sanitizeForFirestore(updated));
+  });
+}
+
+/** V3.1: online-only, idempotent archive creation for one calendar date.
+ * Never resets app state; caller must await success before resetting.
+ * Legacy archives are checked using server data to avoid accidental duplicates.
+ */
+export async function createClosedSessionArchiveSafely(
+  archive: DailySessionArchive
+): Promise<void> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(archive.archiveDate) ||
+      archive.id !== `archive-session-${archive.archiveDate}`) {
+    throw new Error('วันที่หรือ Archive ID ไม่ถูกต้อง');
+  }
+  // Force server verification. Local cache must not authorize a close.
+  const sameDate = await getDocsFromServer(query(
+    ARCHIVES_COLLECTION, where('archiveDate', '==', archive.archiveDate)
+  ));
+  if (!sameDate.empty) {
+    throw new Error('มี Archive ของวันที่นี้แล้ว ห้ามปิดรอบซ้ำ');
+  }
+  const ref = doc(db, 'clubs', 'guanguan', 'archives', archive.id);
+  await runTransaction(db, async (tx) => {
+    const existing = await tx.get(ref);
+    if (existing.exists()) throw new Error('รอบนี้ถูกบันทึกแล้ว กรุณาตรวจ Archive');
+    tx.set(ref, sanitizeForFirestore(archive));
+  });
 }
 
 export async function deleteSessionArchiveFromFirestore(
@@ -81,6 +144,83 @@ export async function seedSessionArchivesToFirestore(
   }
 
   await batch.commit();
+}
+
+/**
+ * Confirms only a revenue allocation. Does not change Archive totals,
+ * payment records, Stock or Usage Ledger. Security rules MUST restrict
+ * both documents to organizer/admin identities; UI mode is not authorization.
+ */
+export async function confirmArchiveFinanceToFirestore(
+  archive: DailySessionArchive,
+  input: { courtRatePerPlayer: number; courtRevenue: number; shuttleRevenue: number; otherRevenue: number; reason: string }
+): Promise<void> {
+  const uid = getAuth().currentUser?.uid;
+  if (!uid) throw new Error('ต้องเข้าสู่ระบบก่อนยืนยันยอด');
+  if (!archive.id || !input.reason.trim()) throw new Error('ต้องระบุรอบและเหตุผลการยืนยัน');
+  for (const value of [input.courtRatePerPlayer, input.courtRevenue, input.shuttleRevenue, input.otherRevenue]) {
+    if (!Number.isFinite(value) || value < 0) throw new Error('ยอดต้องเป็นจำนวนตั้งแต่ 0 ขึ้นไป');
+  }
+  const rounded = (value: number) => Math.round(value * 100) / 100;
+  if (Math.abs(rounded(input.courtRevenue + input.shuttleRevenue + input.otherRevenue) - rounded(archive.totalRevenue)) > 0.01) {
+    throw new Error('ผลรวมรายรับแยกประเภทต้องเท่ากับรายรับ Archive');
+  }
+  if (Math.abs(rounded(archive.totalPlayers * input.courtRatePerPlayer) - rounded(input.courtRevenue)) > 0.01) {
+    throw new Error('ค่าคอร์ทรับไม่ตรงกับจำนวนคน × อัตรา');
+  }
+  const archiveRef = doc(db, 'clubs', 'guanguan', 'archives', archive.id);
+  const auditRef = doc(collection(db, 'clubs', 'guanguan', 'financeVerificationAudit'));
+  await runTransaction(db, async transaction => {
+    const currentSnapshot = await transaction.get(archiveRef);
+    if (!currentSnapshot.exists()) throw new Error('ไม่พบรอบใน Firestore');
+    const current = currentSnapshot.data() as DailySessionArchive;
+    const snapshot = {
+      archiveDate: current.archiveDate,
+      totalPlayers: current.totalPlayers,
+      totalShuttlecocks: current.totalShuttlecocks,
+      totalRevenue: current.totalRevenue,
+      totalExpense: current.totalExpense,
+      venueCost: current.venueCost ?? NaN,
+      shuttleCost: current.shuttleCost ?? NaN,
+    };
+    const expected = {
+      archiveDate: archive.archiveDate,
+      totalPlayers: archive.totalPlayers,
+      totalShuttlecocks: archive.totalShuttlecocks,
+      totalRevenue: archive.totalRevenue,
+      totalExpense: archive.totalExpense,
+      venueCost: archive.venueCost ?? NaN,
+      shuttleCost: archive.shuttleCost ?? NaN,
+    };
+    if (JSON.stringify(snapshot) !== JSON.stringify(expected)) {
+      throw new Error('ข้อมูลรอบนี้เปลี่ยนจากที่แสดง กรุณา Refresh ก่อนยืนยัน');
+    }
+    if (!Number.isFinite(snapshot.venueCost) || !Number.isFinite(snapshot.shuttleCost)) {
+      throw new Error('รอบนี้ยังไม่มีข้อมูลต้นทุนคอร์ทหรือต้นทุนลูกที่ยืนยันได้');
+    }
+    const now = Date.now();
+    const verification: ArchiveFinanceVerification = {
+      schemaVersion: 1,
+      courtRatePerPlayer: rounded(input.courtRatePerPlayer),
+      courtRevenue: rounded(input.courtRevenue),
+      shuttleRevenue: rounded(input.shuttleRevenue),
+      otherRevenue: rounded(input.otherRevenue),
+      confirmedByUid: uid,
+      confirmedAt: now,
+      reason: input.reason.trim(),
+      snapshot: { ...snapshot, venueCost: snapshot.venueCost, shuttleCost: snapshot.shuttleCost },
+    };
+    transaction.update(archiveRef, { financeVerification: verification });
+    transaction.set(auditRef, {
+      archiveId: archive.id,
+      archiveDate: current.archiveDate,
+      before: current.financeVerification ?? null,
+      after: verification,
+      actorUid: uid,
+      createdAt: now,
+      action: 'confirm-revenue-allocation',
+    });
+  });
 }
 
 // -----------------------------

@@ -1,0 +1,55 @@
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOrganizer() {
+      return signedIn()
+        && request.auth.uid == 'DWpEIuKxqRTBptDKqM4FIKjMPmf1';
+    }
+
+    match /clubs/guanguan/runtime/currentSession {
+      allow read: if signedIn();
+      allow create, update, delete: if isOrganizer();
+    }
+
+    match /clubs/guanguan/archives/{archiveId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isOrganizer();
+    }
+
+    match /clubs/guanguan/fundTransactions/{transactionId} {
+      allow read: if isOrganizer();
+      allow create, update, delete: if isOrganizer();
+    }
+   
+match /clubs/guanguan/financeVerificationAudit/{auditId} {
+
+  // เฉพาะ Organizer อ่านประวัติการเงินได้
+  allow read: if isOrganizer();
+
+  // เฉพาะ Organizer สร้าง Audit Record
+  allow create: if isOrganizer()
+    && request.resource.data.actorUid == request.auth.uid
+    && request.resource.data.action == 'confirm-revenue-allocation'
+    && request.resource.data.archiveId is string
+    && request.resource.data.createdAt is number
+    && request.resource.data.after is map
+    && request.resource.data.after.confirmedByUid == request.auth.uid;
+
+  // ห้ามแก้ไขหรือลบ Audit ย้อนหลัง
+  allow update, delete: if false;
+}
+
+    match /clubs/guanguan/paymentTransaction/{paymentId} {
+      allow get: if signedIn();
+      allow list: if isOrganizer();
+      allow create, update, delete: if isOrganizer();
+    }
+  }
+}

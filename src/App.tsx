@@ -441,17 +441,14 @@ export default function App() {
           : null;
       const forceMemberMode = params?.get('mode') === 'member';
 
-      const organizerUiLocked =
-        typeof window !== 'undefined' &&
-        localStorage.getItem(
-          'guanguan_organizer_ui_locked_v61'
-        ) === '1';
-
-      setIsOrganizerMode(
-        isOrganizerUid(user.uid) &&
-          !forceMemberMode &&
-          !organizerUiLocked
-      );
+      // GG_V32_ORGANIZER_EXPLICIT_UNLOCK: Firebase login alone must not
+      // unlock privileged UI. Every new page load requires Organizer PIN.
+      // Treat legacy lock values consistently and always start locked.
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('guanguan_organizer_ui_locked_v61', '1');
+      }
+      void forceMemberMode;
+      setIsOrganizerMode(false);
     });
 
     return () => unsubscribeAuth();
@@ -7249,7 +7246,7 @@ onUpdateMemberStatus={(playerId, status) => {
           if (typeof window !== 'undefined') {
             localStorage.setItem(
               'guanguan_organizer_ui_locked_v61',
-              'true'
+              '1'
             );
             sessionStorage.removeItem('badminton_active_member_id');
 
@@ -7272,9 +7269,9 @@ onUpdateMemberStatus={(playerId, status) => {
           }
 
           if (typeof window !== 'undefined') {
-            localStorage.removeItem(
-              'guanguan_organizer_ui_locked_v61'
-            );
+            // Do not persist an unlocked state across reloads.
+            // This in-memory unlock is valid only for the current page session.
+            localStorage.setItem('guanguan_organizer_ui_locked_v61', '1');
 
             const url = new URL(window.location.href);
             if (url.searchParams.get('mode') === 'member') {

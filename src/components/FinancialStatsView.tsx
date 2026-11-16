@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ArchiveReconciliationV519C } from './ArchiveReconciliationV519C';
+import { correctSessionArchiveInFirestore } from '../utils/firestoreCollectionsSync';
 
 
 import { MonthlyShuttleReportV76 } from './MonthlyShuttleReportV76'; // SHUTTLE_REPORT_MENU4_V78
@@ -187,6 +188,9 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
   const [editArchiveExpense, setEditArchiveExpense] = useState('');
   const [editArchiveCollected, setEditArchiveCollected] = useState('');
   const [editArchiveReason, setEditArchiveReason] = useState('');
+  const [editArchiveDate, setEditArchiveDate] = useState('');
+  const [editArchiveVenueCost, setEditArchiveVenueCost] = useState('');
+  const [savingArchiveCorrection, setSavingArchiveCorrection] = useState(false);
 
 
   // --- Today's Calculations ---
@@ -534,6 +538,8 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
   // FINANCE_ARCHIVE_EDIT_V1E
   const openArchiveEditor = (archive: DailySessionArchive) => {
     setEditingArchive(archive);
+    setEditArchiveDate(archive.archiveDate);
+    setEditArchiveVenueCost(String(archive.venueCost ?? ''));
 
     setEditArchivePlayers(
       String(Number(archive.totalPlayers || 0))
@@ -721,7 +727,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
     );
 
     setEditArchiveExpense(
-      String(calculated.expense)
+      String(roundArchiveMoneyV2(calculated.expense + (Number(editArchiveVenueCost || 0) - Number(editingArchive.venueCost || 0))))
     );
   };
 
@@ -828,8 +834,19 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
     window.alert('บันทึก Archive วันที่ 18 ก.ย. แล้ว (ID เดิม) — โปรดตรวจสอบรายงานและ Usage Ledger เพิ่ม');
   };
 
-  const handleSaveArchiveEdit = () => {
-    if (!editingArchive) return;
+  const handleSaveArchiveEdit = async () => {
+    if (!editingArchive || savingArchiveCorrection) return;
+    const newDate = editArchiveDate.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate) || Number.isNaN(Date.parse(newDate + 'T12:00:00Z')) || new Date(newDate + 'T12:00:00Z').toISOString().slice(0, 10) !== newDate) {
+      window.alert('กรุณาระบุวันที่จริงในรูป YYYY-MM-DD');
+      return;
+    }
+    const venueCost = parseArchiveNumber(editArchiveVenueCost, 'ค่าคอร์ทจริง');
+    if (venueCost === null) return;
+    if (loadSessionArchives().some((a) => a.id !== editingArchive.id && a.archiveDate === newDate)) {
+      window.alert('พบ Archive วันที่ใหม่อยู่แล้ว กรุณาตรวจสอบรายการซ้ำก่อน');
+      return;
+    }
 
     const totalPlayers = parseArchiveNumber(
       editArchivePlayers,
@@ -882,13 +899,21 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
       totalPlayers !== verified.players ||
       totalShuttlecocks !== verified.shuttles ||
       totalRevenue !== verified.revenue ||
-      totalExpense !== verified.venue + verified.shuttle
+      totalExpense !== verified.venue + verified.shuttle ||
+      venueCost !== verified.venue ||
+      newDate !== editingArchive.archiveDate
     )) {
       window.alert('ตัวเลขถูกเปลี่ยนหลังใช้ยอดที่ยืนยันแล้ว กรุณากดใช้ยอดที่ยืนยันอีกครั้ง หรือปิดหน้าต่างแล้วแก้แบบปกติ');
       return;
     }
+    const shuttleCost = editingArchive.shuttleCost == null ? null : Math.max(0, Number(editingArchive.shuttleCost));
+    const otherExpense = shuttleCost === null ? null : roundArchiveMoneyV2(totalExpense - venueCost - shuttleCost);
+    if (otherExpense !== null && otherExpense < -0.009) {
+      window.alert('รายจ่ายรวมน้อยกว่าค่าคอร์ทและค่าลูก โปรดแก้รายจ่ายรวมให้ถูกต้อง');
+      return;
+    }
     const netProfit =
-      totalRevenue - totalExpense;
+      roundArchiveMoneyV2(totalRevenue - totalExpense);
 
     const pendingAmount = Math.max(
       0,
@@ -904,6 +929,10 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
 
     const updatedArchive: DailySessionArchive = {
       ...editingArchive,
+      archiveDate: newDate,
+      venueCost,
+      venueCostCorrectedAt: venueCost !== Number(editingArchive.venueCost ?? 0) ? Date.now() : editingArchive.venueCostCorrectedAt,
+      ...(otherExpense !== null ? { extraExpensesTotal: Math.max(0, otherExpense) } : {}),
 
       totalPlayers: Math.round(totalPlayers),
       totalShuttlecocks: Math.round(totalShuttlecocks),
@@ -931,7 +960,8 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
     };
 
     const confirmed = window.confirm(
-      `บันทึกการแก้ไข ${editingArchive.archiveDate} หรือไม่?\n\n` +
+      `บันทึกการแก้ไข ${editingArchive.archiveDate} → ${newDate} หรือไม่?\n\n` +
+      `ค่าคอร์ทจริง: ${Number(editingArchive.venueCost ?? 0).toLocaleString()} → ${venueCost.toLocaleString()} บาท\n` +
       `สมาชิก: ${editingArchive.totalPlayers} → ${updatedArchive.totalPlayers}\n` +
       `ลูกแบด: ${editingArchive.totalShuttlecocks} → ${updatedArchive.totalShuttlecocks}\n` +
       `รายรับ: ${editingArchive.totalRevenue.toLocaleString()} → ${updatedArchive.totalRevenue.toLocaleString()} บาท\n` +
@@ -942,23 +972,26 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
 
     if (!confirmed) return;
 
-    saveSessionArchive(updatedArchive);
-
-    setArchives(loadSessionArchives());
-
-    setSelectedArchive((current) =>
-      current?.id === updatedArchive.id
-        ? updatedArchive
-        : current
-    );
-
-    closeArchiveEditor();
-
-    confetti({
-      particleCount: 35,
-      spread: 55,
-      origin: { y: 0.65 },
-    });
+    setSavingArchiveCorrection(true);
+    try {
+      // A validated Firestore transaction is the source of truth.
+      // Do not report success until the remote commit completes.
+      await correctSessionArchiveInFirestore(editingArchive, updatedArchive);
+      const nextArchives = [updatedArchive, ...loadSessionArchives().filter(a => a.id !== updatedArchive.id)];
+      // The realtime listener in App.tsx will refresh the cache and the entire Finance view.
+      setArchives(nextArchives);
+      setSelectedArchive(current => current?.id === updatedArchive.id ? updatedArchive : current);
+      closeArchiveEditor();
+      confetti({ particleCount: 35, spread: 55, origin: { y: 0.65 } });
+      if (editingArchive.archiveDate !== newDate) {
+        window.alert('บันทึก Archive สำเร็จแล้ว กรุณาตรวจสอบ Usage Ledger / วันของธุรกรรมอื่นแยกต่างหาก (ยังไม่ได้ย้าย Ledger อัตโนมัติ)');
+      }
+    } catch (error) {
+      console.error('Archive correction failed', error);
+      window.alert('บันทึกไม่สำเร็จ: ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setSavingArchiveCorrection(false);
+    }
   };
   // Export Financial CSV
   const handleExportFinancialReport = () => {
@@ -1871,6 +1904,25 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="space-y-1">
+                  <span className="text-xs font-semibold text-slate-300">วันที่จัดก๊วนจริง</span>
+                  <input type="date" value={editArchiveDate} onChange={e => setEditArchiveDate(e.target.value)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm font-bold text-white" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold text-slate-300">ค่าคอร์ทจริง (บาท)</span>
+                  <input type="number" min="0" step="0.01" value={editArchiveVenueCost} onChange={e => {
+                    const next = e.target.value;
+                    const oldVenue = Number(editArchiveVenueCost || 0);
+                    const newVenue = Number(next || 0);
+                    setEditArchiveVenueCost(next);
+                    if (Number.isFinite(newVenue) && Number.isFinite(oldVenue)) {
+                      setEditArchiveExpense(current => String(roundArchiveMoneyV2(Number(current || 0) + newVenue - oldVenue)));
+                    }
+                    setUseVerifiedArchiveV519B2(false);
+                  }} className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm font-bold text-white" />
+                </label>
+                <p className="sm:col-span-2 text-xs text-amber-200">เปลี่ยนวันที่จะไม่ย้าย Usage Ledger หรือธุรกรรมอัตโนมัติ และจะไม่เปลี่ยนจำนวนคน/ยอดรับเงินจริงถ้าไม่ได้แก้ช่องดังกล่าว</p>
+                <label className="space-y-1">
                   <span className="text-xs font-semibold text-slate-300">
                     จำนวนสมาชิก
                   </span>
@@ -2096,9 +2148,10 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
                 <button
                   type="button"
                   onClick={handleSaveArchiveEdit}
+                  disabled={savingArchiveCorrection}
                   className="rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-black text-slate-950 transition hover:bg-amber-400"
                 >
-                  💾 บันทึกการแก้ไข
+                  {savingArchiveCorrection ? 'กำลังบันทึก...' : '💾 บันทึกการแก้ไข'}
                 </button>
               </div>
             </div>
@@ -2112,7 +2165,7 @@ export const FinancialStatsView: React.FC<FinancialStatsViewProps> = ({
       {/* COURT_PROFITABILITY_V82 */}
       {/* GG_FINANCE_RECONCILIATION_TAB_V519C1 */}
       {activeSubTab === 'reconciliation' && (
-        <ArchiveReconciliationV519C archives={archives} usages={shuttleUsageLedger} />
+        <ArchiveReconciliationV519C archives={archives} usages={shuttleUsageLedger} isOrganizerMode={isOrganizerMode} />
       )}
       {activeSubTab === 'court_report' && (
         <CourtProfitabilityV82
